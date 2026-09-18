@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
-    "@kcode/shared": "workspace:*"
+    "@kcode/shared": "workspace:*",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "tsup": "^8.3.0",

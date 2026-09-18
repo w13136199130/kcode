@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  ChatMessage,
   LLMProvider,
   PermissionAsker,
   SessionEvent,
@@ -15,7 +16,7 @@ import {
   READONLY_RULES,
   RuleBasedPermissionEngine,
 } from "@kcode/extensions";
-import { JsonlSessionSink } from "@kcode/runtime";
+import { createSessionsTool, JsonlSessionSink } from "@kcode/runtime";
 import { newId } from "@kcode/shared";
 import { createSessionTools } from "@kcode/tools";
 import { kcodeHome } from "./bootstrap.js";
@@ -74,6 +75,8 @@ export async function createSession(opts: {
   onNotice?: (message: string) => void;
   asker?: PermissionAsker;
   askUser?: UserPromptPort;
+  /** 续接种子历史（--resume：由旧会话 JSONL 重建，新会话即其分支，§5.3） */
+  resumeFrom?: ChatMessage[];
 }): Promise<SessionHandle> {
   const sessionId = newId("sess");
   const jsonlPath = join(kcodeHome(), "cli", "sessions", `${sessionId}.jsonl`);
@@ -98,15 +101,17 @@ export async function createSession(opts: {
   const loop = new AgentLoop(
     {
       llm: opts.llm,
-      tools: new InMemoryToolRegistry(
-        createSessionTools({
+      tools: new InMemoryToolRegistry([
+        ...createSessionTools({
           sessionId,
           artifactsDir: join(kcodeHome(), "cli", "artifacts", sessionId),
           onNotice: opts.onNotice,
           sink,
           prompt: opts.askUser,
         }),
-      ),
+        // sessions 工具在 runtime 包（能力层互引规则，组合层合并）
+        createSessionsTool({ sessionsDir: join(kcodeHome(), "cli", "sessions") }),
+      ]),
       permissions,
       hooks: noHooks,
       sink,
@@ -121,6 +126,7 @@ export async function createSession(opts: {
       systemPrompt: SYSTEM_PROMPT,
       cwd: opts.cwd,
       agentsMd,
+      initialHistory: opts.resumeFrom,
       maxTurns: 24,
     },
   );

@@ -1,5 +1,7 @@
 import { render } from "ink";
 import { join } from "node:path";
+import type { ChatMessage } from "@kcode/contracts";
+import { listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { EncryptedFileKeychain } from "@kcode/platform";
 import { bootstrap, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
@@ -29,9 +31,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  // 参数解析：--image/-i <path> 可多次；剩余非-flag 词拼为一次性提问
+  // 参数解析：--image/-i <path> 可多次；--resume/-r <sessionId|latest>；剩余非-flag 词拼为一次性提问
   const images: string[] = [];
   const words: string[] = [];
+  let resumeArg: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] ?? "";
     if (arg === "--image" || arg === "-i") {
@@ -40,11 +43,41 @@ async function main(): Promise<void> {
         images.push(p);
         i += 1;
       }
+    } else if (arg === "--resume" || arg === "-r") {
+      const p = rest[i + 1];
+      if (p !== undefined) {
+        resumeArg = p;
+        i += 1;
+      }
     } else {
       words.push(arg);
     }
   }
   const oneShot = words.length > 0 ? words.join(" ") : undefined;
+
+  // 续接历史会话（§5.3）：新会话作为旧会话的分支
+  let resumeFrom: ChatMessage[] | undefined;
+  if (resumeArg !== undefined) {
+    const summaries = await listSessions(join(kcodeHome(), "cli", "sessions"));
+    if (summaries.length === 0) {
+      throw new Error("无历史会话可续接（~/.kcode/cli/sessions 为空）");
+    }
+    const target =
+      resumeArg === "latest"
+        ? summaries[0]
+        : summaries.find((s) => s.sessionId === resumeArg || s.sessionId.startsWith(resumeArg));
+    if (target === undefined) {
+      throw new Error(
+        `未找到会话 "${resumeArg}"；最近会话：${summaries
+          .slice(0, 5)
+          .map((s) => s.sessionId)
+          .join("、")}`,
+      );
+    }
+    const events = await loadSessionEvents(target.filePath);
+    resumeFrom = rebuildHistory(events);
+    console.error(`⏪ 已续接 ${target.sessionId}（${target.turns} 轮 → ${resumeFrom.length} 条历史）`);
+  }
 
   const rt = await bootstrap();
   const modelRef = requireDefaultModelRef(rt.models);
@@ -59,6 +92,7 @@ async function main(): Promise<void> {
       cwd={process.cwd()}
       oneShot={oneShot}
       images={images.length > 0 ? images : undefined}
+      resumeFrom={resumeFrom}
     />,
   );
   await waitUntilExit();

@@ -186,6 +186,9 @@ importers:
       '@kcode/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
     devDependencies:
       tsup:
         specifier: ^8.3.0

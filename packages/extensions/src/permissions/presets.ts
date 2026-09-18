@@ -7,6 +7,7 @@ export const READONLY_RULES: PermissionRule[] = [
   { match: "grep", decision: "allow" },
   { match: "todo", decision: "allow" },
   { match: "ask_user", decision: "allow" },
+  { match: "sessions", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
@@ -17,6 +18,7 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { match: "grep", decision: "allow" },
   { match: "todo", decision: "allow" },
   { match: "ask_user", decision: "allow" },
+  { match: "sessions", decision: "allow" },
   { match: "write", decision: "ask" },
   { match: "edit", decision: "ask" },
   { match: "bash", decision: "ask" },

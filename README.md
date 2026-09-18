@@ -89,6 +89,8 @@ pnpm --filter @kcode/cli start key list
 pnpm --filter @kcode/cli start                            # REPL（TUI）
 pnpm --filter @kcode/cli start "受众绑定校验在哪实现？"      # 一次性提问 one-shot
 pnpm --filter @kcode/cli start --image ./pic.png "图里是什么？"   # 多模态附图
+pnpm --filter @kcode/cli start --resume latest             # 续接最近会话（分支）
+pnpm --filter @kcode/cli start --resume sess_xxx "接着说"   # 指定会话续接
 ```
 
 REPL 内：`/plan` 切换计划模式（只读研究 → 确认后切回执行）；`exit` 退出。

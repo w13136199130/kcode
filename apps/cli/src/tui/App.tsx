@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type {
+  ChatMessage,
   LLMProvider,
   PermissionAsker,
   SessionEvent,
@@ -21,6 +22,8 @@ export interface KcodeAppProps {
   oneShot?: string;
   /** 一次性提问附图（本地文件路径，多模态输入） */
   images?: string[];
+  /** 续接种子历史（--resume） */
+  resumeFrom?: ChatMessage[];
 }
 
 interface AskState {
@@ -204,6 +207,7 @@ export function KcodeApp(props: KcodeAppProps) {
           llm: props.llm,
           model: props.model,
           cwd: props.cwd,
+          resumeFrom: props.resumeFrom,
           onEvent: (e) => {
             if (!cancelled) handleEvent(e);
           },

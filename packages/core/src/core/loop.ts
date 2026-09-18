@@ -40,6 +40,8 @@ export interface AgentLoopOptions {
   cwd?: string;
   /** AGENTS.md 项目记忆（会话期不变，进稳定区，§5.3） */
   agentsMd?: string;
+  /** 续接历史（resume/分支：由会话 JSONL 重建，§5.3） */
+  initialHistory?: ChatMessage[];
   maxTurns?: number;
   now?: () => number;
   budget?: Budget;
@@ -74,6 +76,7 @@ export class AgentLoop {
   ) {
     this.sessionId = opts.sessionId ?? newId("sess");
     this.systemPrompt = opts.systemPrompt;
+    this.history = [...(opts.initialHistory ?? [])];
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,

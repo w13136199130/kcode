@@ -1,4 +1,5 @@
 import { SessionEvent } from "@kcode/contracts";
+import type { ChatMessage, ToolCallPart } from "@kcode/contracts";
 
 /**
  * 回放（§8.2，replay 安全）：回放 harness 全局 replay 模式——hooks 不执行、
@@ -55,4 +56,64 @@ function stripTs(event: SessionEvent): Record<string, unknown> {
   const copy: Record<string, unknown> = { ...(event as Record<string, unknown>) };
   delete copy["ts"];
   return copy;
+}
+
+/**
+ * 事件流 → 会话历史（§5.3 resume/分支）：
+ * - tool_call 批次与紧随的 assistant_message 文本合并为带 toolCalls 的 assistant 轮次；
+ * - compaction_summary 还原为摘要占位消息（与在线压缩后的历史形态一致）；
+ * - session_start/end、todo_update 跳过（元数据/UI 态）；
+ * - skill_used 不含正文，续接时不重注入（渐进加载只在当轮生效）。
+ */
+export function rebuildHistory(events: SessionEvent[]): ChatMessage[] {
+  const history: ChatMessage[] = [];
+  const callTools = new Map<string, string>();
+  let pendingCalls: ToolCallPart[] = [];
+  let pendingText: string | null = null;
+
+  const flushAssistantTurn = (): void => {
+    if (pendingCalls.length > 0) {
+      history.push({ role: "assistant", content: pendingText ?? "", toolCalls: pendingCalls });
+      pendingCalls = [];
+      pendingText = null;
+    }
+  };
+
+  for (const event of events) {
+    switch (event.type) {
+      case "user_message":
+        flushAssistantTurn();
+        history.push({ role: "user", content: event.content });
+        break;
+      case "assistant_message":
+        if (pendingCalls.length > 0) {
+          pendingText = event.content;
+        } else {
+          flushAssistantTurn();
+          history.push({ role: "assistant", content: event.content });
+        }
+        break;
+      case "tool_call":
+        callTools.set(event.callId, event.tool);
+        pendingCalls.push({ callId: event.callId, tool: event.tool, args: event.args });
+        break;
+      case "tool_result":
+        flushAssistantTurn();
+        history.push({
+          role: "tool",
+          content: event.output !== "" ? event.output : (event.error ?? ""),
+          toolCallId: event.callId,
+          name: callTools.get(event.callId) ?? "",
+        });
+        break;
+      case "compaction_summary":
+        flushAssistantTurn();
+        history.push({ role: "assistant", content: event.summary });
+        break;
+      default:
+        break;
+    }
+  }
+  flushAssistantTurn();
+  return history;
 }
