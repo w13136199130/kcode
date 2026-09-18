@@ -6,6 +6,7 @@ import {
   type PermissionEngine,
   type SessionEvent,
   type SessionSink,
+  type SkillPort,
   type Tool,
   type ToolOutput,
   type ToolRegistry,
@@ -25,8 +26,10 @@ export interface AgentLoopPorts {
   audit: AuditSink;
   /** ask 交互确认（§5.1）：CLI/daemon 注入；缺省时 ask 按 deny 降级 */
   asker?: PermissionAsker;
-  /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在轮次完成时落 assistant_message */
+  /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在完成时落 assistant_message */
   onDelta?: (delta: string) => void;
+  /** 技能库（§5.2 渐进加载/自动触发；core 零 IO，extensions 实现） */
+  skills?: SkillPort;
 }
 
 export interface AgentLoopOptions {
@@ -35,6 +38,8 @@ export interface AgentLoopOptions {
   systemPrompt: string;
   /** 会话工作目录：注入 ToolContext，工具的相对路径以此为基准 */
   cwd?: string;
+  /** AGENTS.md 项目记忆（会话期不变，进稳定区，§5.3） */
+  agentsMd?: string;
   maxTurns?: number;
   now?: () => number;
   budget?: Budget;
@@ -111,6 +116,23 @@ export class AgentLoop {
       sessionId: this.sessionId,
       content: userInput,
     });
+    // 技能自动触发（§5.2）：命中关键词 → 渐进加载正文注入动态区（本轮用户输入之前）
+    const triggered = this.ports.skills?.match(userInput) ?? [];
+    for (const skill of triggered) {
+      const body = await this.ports.skills!.body(skill.name);
+      this.history.push({
+        role: "user",
+        content: `<skill name="${skill.name}">\n${body}\n</skill>`,
+      });
+      await this.emit({
+        v: 1,
+        type: "skill_used",
+        ts: ts(),
+        sessionId: this.sessionId,
+        skill: skill.name,
+        trigger: "auto",
+      });
+    }
     this.history.push({
       role: "user",
       content: userInput,
@@ -142,7 +164,9 @@ export class AgentLoop {
         const tools = this.ports.tools.list();
         const messages = assembleMessages({
           systemPrompt: this.systemPrompt,
+          agentsMd: this.opts.agentsMd,
           tools: tools.map((t) => t.definition),
+          skills: this.ports.skills?.meta(),
           history: this.history,
         });
 

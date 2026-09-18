@@ -1,6 +1,7 @@
 export * from "./session.js";
 export * from "./tool.js";
 export * from "./permissions.js";
+export * from "./skill.js";
 export * from "./provider.js";
 export * from "./keyhierarchy.js";
 export * from "./usage.js";

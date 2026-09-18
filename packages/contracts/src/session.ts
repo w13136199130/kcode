@@ -79,6 +79,16 @@ export const TodoUpdateEvent = z.object({
   todos: z.array(TodoItem),
 });
 
+/** 技能命中并注入上下文（§5.2 渐进加载；回放时据此重注入正文） */
+export const SkillUsedEvent = z.object({
+  v: v1,
+  type: z.literal("skill_used"),
+  ts,
+  sessionId,
+  skill: z.string().min(1),
+  trigger: z.enum(["auto", "manual"]),
+});
+
 export const SessionEndEvent = z.object({
   v: v1,
   type: z.literal("session_end"),
@@ -95,6 +105,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   ToolResultEvent,
   CompactionSummaryEvent,
   TodoUpdateEvent,
+  SkillUsedEvent,
   SessionEndEvent,
 ]);
 

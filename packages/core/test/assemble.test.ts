@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, ToolDefinition } from "@kcode/contracts";
+import type { ChatMessage, SkillMeta, ToolDefinition } from "@kcode/contracts";
 import { assembleMessages } from "../src/context/assemble.js";
 import { DEFAULT_BUDGET } from "../src/context/budget.js";
 import { compactHistory } from "../src/context/compact.js";
@@ -10,6 +10,8 @@ const tool = (name: string): ToolDefinition => ({
   parameters: { type: "object" },
   readOnly: true,
 });
+
+const skill = (name: string): SkillMeta => ({ name, description: `skill ${name}` });
 
 describe("cache 友好组装（§5.2）", () => {
   it("工具顺序不影响稳定区字节（前缀逐字节稳定）", () => {
@@ -28,6 +30,28 @@ describe("cache 友好组装（§5.2）", () => {
     const out = assembleMessages({ systemPrompt: "sys", tools: [], history });
     expect(out).toHaveLength(3);
     expect(out[1]).toEqual(history[0]);
+  });
+
+  it("AGENTS.md 与技能元数据进稳定区，顺序与排序确定（§5.2/§5.3）", () => {
+    const history: ChatMessage[] = [{ role: "user", content: "q" }];
+    const a = assembleMessages({
+      systemPrompt: "sys",
+      agentsMd: "团队约定：测试放 test/ 目录",
+      tools: [tool("b"), tool("a")],
+      skills: [skill("z-skill"), skill("a-skill")],
+      history,
+    });
+    const system = a[0]?.content ?? "";
+    const iSys = system.indexOf("sys");
+    const iAgents = system.indexOf("AGENTS.md");
+    const iTools = system.indexOf("Tools:");
+    const iSkills = system.indexOf("Skills");
+    expect([iSys, iAgents, iTools, iSkills].every((i) => i >= 0)).toBe(true);
+    expect(iSys).toBeLessThan(iAgents);
+    expect(iAgents).toBeLessThan(iTools);
+    expect(iTools).toBeLessThan(iSkills);
+    expect(system).toContain("- a-skill: skill a-skill");
+    expect(system).toContain("团队约定");
   });
 });
 

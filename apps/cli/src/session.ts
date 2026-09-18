@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   LLMProvider,
@@ -9,8 +10,9 @@ import type {
 import { AgentLoop, InMemoryToolRegistry, MemoryAudit, noHooks } from "@kcode/core";
 import {
   DEFAULT_RULES,
-  READONLY_RULES,
+  FsSkillLibrary,
   MutablePermissionEngine,
+  READONLY_RULES,
   RuleBasedPermissionEngine,
 } from "@kcode/extensions";
 import { JsonlSessionSink } from "@kcode/runtime";
@@ -38,10 +40,30 @@ export interface SessionHandle {
   setPlanMode(on: boolean): void;
 }
 
+/** AGENTS.md 记忆（§5.3）：项目级优先，用户级追加，均缺失则 undefined */
+export async function loadAgentsMd(cwd: string): Promise<string | undefined> {
+  const sections: string[] = [];
+  for (const [label, path] of [
+    ["项目", join(cwd, "AGENTS.md")],
+    ["用户", join(kcodeHome(), "AGENTS.md")],
+  ] as const) {
+    try {
+      const text = await readFile(path, "utf8");
+      if (text.trim() !== "") {
+        sections.push(`## ${label}级（${path}）\n${text.trim()}`);
+      }
+    } catch {
+      // 不存在即跳过
+    }
+  }
+  return sections.length > 0 ? sections.join("\n\n") : undefined;
+}
+
 /**
  * 建会话：AgentLoop + 会话工具全集（读放行，写/bash 经 ask 确认——§7 默认预设），
  * 事件双写——onEvent 实时渲染、JSONL 落盘 ~/.kcode/cli/sessions/；
- * onDelta 流式增量、onNotice 后台任务通知（瞬态，不落盘）。
+ * onDelta 流式增量、onNotice 后台任务/技能告警通知（瞬态，不落盘）；
+ * AGENTS.md 记忆 + SKILL.md 渐进加载/自动触发（P2-1/2-2）。
  */
 export async function createSession(opts: {
   llm: LLMProvider;
@@ -65,6 +87,14 @@ export async function createSession(opts: {
   const permissions = new MutablePermissionEngine(
     new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
   );
+  const agentsMd = await loadAgentsMd(opts.cwd);
+  const skills = await FsSkillLibrary.open(
+    [
+      { dir: join(opts.cwd, ".kcode", "skills"), source: "project" },
+      { dir: join(kcodeHome(), "skills"), source: "user" },
+    ],
+    opts.onNotice,
+  );
   const loop = new AgentLoop(
     {
       llm: opts.llm,
@@ -83,12 +113,14 @@ export async function createSession(opts: {
       audit: new MemoryAudit().sink,
       asker: opts.asker,
       onDelta: opts.onDelta,
+      skills,
     },
     {
       sessionId,
       model: opts.model,
       systemPrompt: SYSTEM_PROMPT,
       cwd: opts.cwd,
+      agentsMd,
       maxTurns: 24,
     },
   );

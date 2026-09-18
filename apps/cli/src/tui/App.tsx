@@ -161,6 +161,12 @@ export function KcodeApp(props: KcodeAppProps) {
       case "todo_update":
         setTodos(event.todos);
         break;
+      case "skill_used":
+        pushBlock({
+          kind: "info",
+          text: `📖 技能 ${event.skill} 已加载（${event.trigger === "auto" ? "自动触发" : "手动"}）`,
+        });
+        break;
       default:
         break;
     }

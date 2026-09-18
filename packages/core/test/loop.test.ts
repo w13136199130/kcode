@@ -125,6 +125,40 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(llm.requests[1]?.messages[0]?.content).toContain("计划模式");
   });
 
+  it("技能自动触发：正文注入动态区并落 skill_used 事件（§5.2）", async () => {
+    const llm = new ScriptedLLM([{ text: "ok" }]);
+    const sink = new MemorySink();
+    const skills = {
+      meta: () => [{ name: "code-review", description: "审查代码" }],
+      body: async () => "审查步骤：1. 读 diff 2. 逐文件给结论",
+      match: (input: string) =>
+        input.includes("审查")
+          ? [{ name: "code-review", description: "审查代码" }]
+          : [],
+    };
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        skills,
+      },
+      { sessionId: "sess_skill", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+    await loop.run("帮我审查一下");
+    const request = llm.requests[0];
+    const messages = request?.messages ?? [];
+    expect(messages[1]?.content).toContain("<skill name=\"code-review\">");
+    expect(messages[1]?.content).toContain("审查步骤");
+    expect(messages[2]?.content).toBe("帮我审查一下");
+    expect(
+      sink.events.some((e) => e.type === "skill_used" && e.skill === "code-review"),
+    ).toBe(true);
+  });
+
   it("权限 deny：工具不执行、留审计、结果标记失败", async () => {
     const llm = new ScriptedLLM([
       { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "nope" } }] },
