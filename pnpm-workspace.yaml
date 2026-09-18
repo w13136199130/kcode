@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - services/*
+  - packages/*
+  - plugins-official/*
+  - evals
+allowBuilds:
+  # esbuild 二进制为 tsup 构建所需（pnpm 10+ 默认拦截依赖安装脚本）
+  esbuild: true

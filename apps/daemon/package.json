@@ -1,0 +1,12 @@
+{
+  "name": "@kcode/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

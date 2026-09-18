@@ -1,0 +1,98 @@
+import { z } from "zod";
+
+/**
+ * ProviderConfig 双作用域（§5.7 防 API key 外泄的第一层）：
+ * providers 定义（type/baseURL/keyRef）只存在于用户级配置；
+ * 项目级是独立小 schema——根本没有 providers 字段，出现即 parse error，
+ * "恶意仓库改 baseURL 指向攻击者"在 schema 层不可表达。
+ * 第二层防御见 KeychainEntry（key 受众绑定）。
+ */
+
+const providerName = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+/** 模型引用：裸 provider 名或 provider/model 形式（§5.7：`model: "deepseek/chat"` 解析路由） */
+const modelRef = z.string().regex(/^[a-z0-9][a-z0-9-_.]{0,63}(?:\/[a-z0-9][a-z0-9-_.]{0,63})?$/);
+const keyRef = z.string().regex(/^keychain:\/\/[a-z0-9-]+$/);
+
+export const GatewayProviderConfig = z.object({ type: z.literal("gateway") });
+
+export const OpenAIProviderConfig = z.object({
+  type: z.literal("openai"),
+  keyRef,
+});
+
+export const OpenAICompatibleProviderConfig = z.object({
+  type: z.literal("openai-compatible"),
+  baseURL: z.string().url(),
+  keyRef: keyRef.optional(),
+});
+
+export const ProviderConfig = z.discriminatedUnion("type", [
+  GatewayProviderConfig,
+  OpenAIProviderConfig,
+  OpenAICompatibleProviderConfig,
+]);
+export type ProviderConfig = z.infer<typeof ProviderConfig>;
+
+/** 用户级 models 配置（~/.kcode/config.json）：唯一允许定义 providers 的作用域 */
+export const UserModelsConfig = z.object({
+  default: modelRef.optional(),
+  providers: z.record(providerName, ProviderConfig),
+});
+export type UserModelsConfig = z.infer<typeof UserModelsConfig>;
+
+/** 项目级 models 配置（.kcode/config.json）：strict——未知键（含 providers）直接报错 */
+export const ProjectModelsConfig = z
+  .object({
+    default: modelRef.optional(),
+  })
+  .strict();
+export type ProjectModelsConfig = z.infer<typeof ProjectModelsConfig>;
+
+export const UserConfigFile = z
+  .object({
+    models: UserModelsConfig.optional(),
+  })
+  .strict();
+
+export const ProjectConfigFile = z
+  .object({
+    models: ProjectModelsConfig.optional(),
+  })
+  .strict();
+
+/** keychain 受众绑定（§5.7 第二层防御，同类产品少有）：key 只允许发往 audiences 内端点 */
+export interface KeychainEntry {
+  ref: string;
+  key: string;
+  audiences: string[];
+}
+
+/** LLM 端口：core 消费，platform/providers 实现（路由到 Vercel AI SDK） */
+export interface ChatMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  toolCallId?: string;
+  name?: string;
+}
+
+export interface LLMToolSpec {
+  name: string;
+  description: string;
+  parameters: unknown; // JSON Schema
+}
+
+export interface LLMRequest {
+  model: string;
+  messages: ChatMessage[];
+  tools?: LLMToolSpec[];
+}
+
+export type LLMChunk =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; callId: string; tool: string; args: unknown }
+  | { type: "end"; reason: "stop" | "tool_use" | "error"; error?: string };
+
+export interface LLMProvider {
+  id: string;
+  stream(req: LLMRequest): AsyncIterable<LLMChunk>;
+}

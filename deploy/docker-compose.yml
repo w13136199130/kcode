@@ -1,0 +1,10 @@
+# P4 落地（§3 / §12）：单 VM 部署。P0 仅占位，不启用。
+# services:
+#   server:              # Fastify 单体（relay / auth / registry / usage）
+#     build: ../services/server
+#   idp:                 # Zitadel（ADR-5 自托管 IdP）
+#     image: ghcr.io/zitadel/zitadel:latest
+#   postgres:
+#     image: postgres:16
+#   redis:
+#     image: redis:7
