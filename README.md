@@ -155,4 +155,7 @@ See ARCHITECTURE.md §4.4 for the package layout — first-level directories are
 
 ---
 
-License：待定 | TBD
+## License
+
+[Apache-2.0](./LICENSE) · 商标（kcode 名称与标识）不在开源授权范围内，归项目所有方保留。
+[Apache-2.0](./LICENSE) · The kcode name and logo are trademarks of the project owners and are not licensed under Apache-2.0.
