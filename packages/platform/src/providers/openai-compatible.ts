@@ -1,0 +1,127 @@
+import { createOpenAI } from "@ai-sdk/openai";
+import {
+  jsonSchema,
+  streamText,
+  type CoreMessage,
+  type TextPart,
+  type ToolCallPart,
+  type ToolResultPart,
+} from "ai";
+import type { ChatMessage, LLMChunk, LLMProvider, LLMRequest } from "@kcode/contracts";
+
+export type FetchLike = typeof globalThis.fetch;
+
+export interface OpenAICompatibleOptions {
+  baseURL: string;
+  apiKey?: string;
+  model: string;
+  /** 测试注入；生产由 daemon 传入全局 fetch */
+  fetch?: FetchLike;
+}
+
+/**
+ * OpenAI 兼容端点 LLMProvider（§5.7 三模式之一）
+ * 覆盖 DeepSeek / GLM / one-api 中转 / Ollama / vLLM；网关模式 P5 另行接入。
+ */
+export class OpenAICompatibleProvider implements LLMProvider {
+  readonly id: string;
+  readonly #options: OpenAICompatibleOptions;
+
+  constructor(id: string, options: OpenAICompatibleOptions) {
+    this.id = id;
+    this.#options = options;
+  }
+
+  async *stream(req: LLMRequest): AsyncIterable<LLMChunk> {
+    const client = createOpenAI({
+      baseURL: this.#options.baseURL,
+      // 无 key 端点（本地 Ollama）占位，服务端忽略
+      apiKey: this.#options.apiKey ?? "not-set",
+      fetch: this.#options.fetch,
+    });
+    // 动态工具 schema 来自 contracts（运行时 JSON Schema），用 jsonSchema() 包裹后交给 SDK
+    const tools =
+      req.tools !== undefined && req.tools.length > 0
+        ? Object.fromEntries(
+            req.tools.map((t) => [
+              t.name,
+              { description: t.description, parameters: jsonSchema(t.parameters) },
+            ]),
+          )
+        : undefined;
+
+    const result = streamText({
+      model: client(this.#options.model),
+      messages: toCoreMessages(req.messages),
+      tools,
+    });
+
+    let ended = false;
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") {
+        yield { type: "text", text: part.textDelta };
+      } else if (part.type === "tool-call") {
+        yield { type: "tool_call", callId: part.toolCallId, tool: part.toolName, args: part.args };
+      } else if (part.type === "error") {
+        ended = true;
+        yield {
+          type: "end",
+          reason: "error",
+          error: part.error instanceof Error ? part.error.message : String(part.error),
+        };
+      } else if (part.type === "finish" && !ended) {
+        ended = true;
+        yield { type: "end", reason: part.finishReason === "tool-calls" ? "tool_use" : "stop" };
+      }
+    }
+    if (!ended) {
+      yield { type: "end", reason: "stop" };
+    }
+  }
+}
+
+/**
+ * ChatMessage[] → AI SDK CoreMessage[]：
+ * assistant 的 toolCalls 展开为 tool-call parts；连续 tool 消息合并为一条 tool-result 集合。
+ */
+export function toCoreMessages(messages: ChatMessage[]): CoreMessage[] {
+  const out: CoreMessage[] = [];
+  for (const m of messages) {
+    if (m.role === "system") {
+      out.push({ role: "system", content: m.content });
+    } else if (m.role === "user") {
+      out.push({ role: "user", content: m.content });
+    } else if (m.role === "assistant") {
+      const content: Array<TextPart | ToolCallPart> = [];
+      if (m.content !== "") {
+        content.push({ type: "text", text: m.content });
+      }
+      for (const call of m.toolCalls ?? []) {
+        content.push({
+          type: "tool-call",
+          toolCallId: call.callId,
+          toolName: call.tool,
+          args: call.args,
+        });
+      }
+      out.push({
+        role: "assistant",
+        content: content.length > 0 ? content : [{ type: "text", text: "" }],
+      });
+    } else {
+      const part: ToolResultPart = {
+        type: "tool-result",
+        toolCallId: m.toolCallId ?? "",
+        toolName: m.name ?? "",
+        result: m.content,
+      };
+      const last = out[out.length - 1];
+      if (last !== undefined && last.role === "tool") {
+        (last.content as ToolResultPart[]).push(part);
+      } else {
+        out.push({ role: "tool", content: [part] });
+      }
+    }
+  }
+  return out;
+}

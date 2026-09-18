@@ -161,10 +161,16 @@ export class AgentLoop {
             sessionId: this.sessionId,
             content: text,
           });
-          this.history.push({ role: "assistant", content: text });
         }
-        if (calls.length === 0) break;
+        if (calls.length === 0) {
+          if (text !== "") {
+            this.history.push({ role: "assistant", content: text });
+          }
+          break;
+        }
         toolCalls += calls.length;
+        // 记录含 toolCalls 的 assistant 轮次：OpenAI 兼容端点要求 tool 结果前有对应 tool_calls
+        this.history.push({ role: "assistant", content: text, toolCalls: calls });
 
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
         const results = await this.executeCalls(calls, tools);

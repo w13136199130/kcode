@@ -68,9 +68,17 @@ export interface KeychainEntry {
 }
 
 /** LLM 端口：core 消费，platform/providers 实现（路由到 Vercel AI SDK） */
+export interface ToolCallPart {
+  callId: string;
+  tool: string;
+  args: unknown;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** assistant 消息携带的工具调用记录（OpenAI 兼容端点要求 tool 结果前有对应 tool_calls） */
+  toolCalls?: ToolCallPart[];
   toolCallId?: string;
   name?: string;
 }
