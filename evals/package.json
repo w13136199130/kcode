@@ -17,7 +17,8 @@
     "@kcode/contracts": "workspace:*",
     "@kcode/core": "workspace:*",
     "@kcode/runtime": "workspace:*",
-    "@kcode/shared": "workspace:*"
+    "@kcode/shared": "workspace:*",
+    "@kcode/tools": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

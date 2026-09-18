@@ -28,6 +28,8 @@ export interface AgentLoopOptions {
   sessionId?: string;
   model: string;
   systemPrompt: string;
+  /** 会话工作目录：注入 ToolContext，工具的相对路径以此为基准 */
+  cwd?: string;
   maxTurns?: number;
   now?: () => number;
   budget?: Budget;
@@ -65,6 +67,7 @@ export class AgentLoop {
       ports.hooks,
       ports.audit,
       this.sessionId,
+      opts.cwd,
     );
   }
 

@@ -1,5 +1,7 @@
 # kcode（快码）
 
+[![ci](https://github.com/w13136199130/kcode/actions/workflows/ci.yml/badge.svg)](https://github.com/w13136199130/kcode/actions/workflows/ci.yml)
+
 本地优先 AI 编程 Agent。架构规范见 [ARCHITECTURE.md](./ARCHITECTURE.md)（v1.3，含 §4.4 完整目录树与 13 条 ADR）。
 
 ## 当前状态：P0 地基（§9）

@@ -21,6 +21,7 @@ export class ToolPipeline {
     private readonly hooks: HookRunner,
     private readonly audit: AuditSink,
     private readonly sessionId: string,
+    private readonly cwd?: string,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -61,7 +62,7 @@ export class ToolPipeline {
     const effectiveArgs = pre.args ?? args;
     let result: ToolOutput;
     try {
-      result = await tool.execute(effectiveArgs, { sessionId: this.sessionId });
+      result = await tool.execute(effectiveArgs, { sessionId: this.sessionId, cwd: this.cwd });
     } catch (err) {
       result = { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }

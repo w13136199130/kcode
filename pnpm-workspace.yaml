@@ -5,5 +5,7 @@ packages:
   - plugins-official/*
   - evals
 allowBuilds:
-  # esbuild 二进制为 tsup 构建所需（pnpm 10+ 默认拦截依赖安装脚本）
+  # 二进制类依赖的安装脚本白名单（pnpm 10+ 默认拦截）：
+  # esbuild = tsup 构建内核；ripgrep = 搜索工具捆绑二进制（§3 搜索性能底线）
   esbuild: true
+  "@vscode/ripgrep": true

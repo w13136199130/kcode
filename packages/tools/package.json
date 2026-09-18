@@ -6,7 +6,8 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./src/index.ts"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     }
   },
   "scripts": {
@@ -14,7 +15,10 @@
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
-    "@kcode/shared": "workspace:*"
+    "@kcode/shared": "workspace:*",
+    "@vscode/ripgrep": "^1.15.9",
+    "fast-glob": "^3.3.2",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

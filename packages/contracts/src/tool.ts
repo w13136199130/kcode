@@ -16,6 +16,8 @@ export type ToolDefinition = z.infer<typeof ToolDefinition>;
 
 export interface ToolContext {
   sessionId: string;
+  /** 会话工作目录（daemon 注入）；工具的相对路径以此为基准 */
+  cwd?: string;
 }
 
 export interface ToolOutput {
