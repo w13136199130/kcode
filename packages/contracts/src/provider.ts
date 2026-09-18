@@ -81,6 +81,8 @@ export interface ChatMessage {
   toolCalls?: ToolCallPart[];
   toolCallId?: string;
   name?: string;
+  /** 用户消息附图（本地文件路径；provider 层转 image parts，§1.1 B 域多模态输入） */
+  images?: string[];
 }
 
 export interface LLMToolSpec {

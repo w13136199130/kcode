@@ -23,19 +23,43 @@ async function keyCommand(args: string[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const [, , cmd, ...rest] = process.argv;
-  if (cmd === "key") {
-    await keyCommand(rest);
+  const [, , ...rest] = process.argv;
+  if (rest[0] === "key") {
+    await keyCommand(rest.slice(1));
     return;
   }
+
+  // 参数解析：--image/-i <path> 可多次；剩余非-flag 词拼为一次性提问
+  const images: string[] = [];
+  const words: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i] ?? "";
+    if (arg === "--image" || arg === "-i") {
+      const p = rest[i + 1];
+      if (p !== undefined) {
+        images.push(p);
+        i += 1;
+      }
+    } else {
+      words.push(arg);
+    }
+  }
+  const oneShot = words.length > 0 ? words.join(" ") : undefined;
 
   const rt = await bootstrap();
   const modelRef = requireDefaultModelRef(rt.models);
   const llm = await rt.router.resolve(modelRef);
 
-  // P1-5 Ink TUI：流式输出 / 工具状态 / y-N 确认 / 后台任务通知（需 Windows Terminal，§6）
+  // P1-5/P1-6 Ink TUI：流式 / 工具状态 / y-N 确认 / Todo / 结构化提问 / 计划模式 / --image 附图
+  //（需 Windows Terminal，§6）
   const { waitUntilExit } = render(
-    <KcodeApp llm={llm} model={modelRef} cwd={process.cwd()} oneShot={cmd} />,
+    <KcodeApp
+      llm={llm}
+      model={modelRef}
+      cwd={process.cwd()}
+      oneShot={oneShot}
+      images={images.length > 0 ? images : undefined}
+    />,
   );
   await waitUntilExit();
 }

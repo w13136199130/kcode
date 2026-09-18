@@ -8,6 +8,7 @@ import type {
 import {
   AutomationPermissionEngine,
   DEFAULT_RULES,
+  MutablePermissionEngine,
   READONLY_RULES,
   RuleBasedPermissionEngine,
   YOLO_RULES,
@@ -66,6 +67,18 @@ describe("预设语义（§7）", () => {
       ],
     });
     expect(await engine.decide(def("write"), {})).toBe("allow");
+  });
+});
+
+describe("MutablePermissionEngine（计划模式切换，§1.1 A 域）", () => {
+  it("运行期在默认/只读姿态间切换", async () => {
+    const engine = new MutablePermissionEngine(engineOf(DEFAULT_RULES));
+    expect(await engine.decide(def("write"), {})).toBe("ask");
+    engine.set(engineOf(READONLY_RULES));
+    expect(await engine.decide(def("write"), {})).toBe("deny");
+    expect(await engine.decide(def("read"), {})).toBe("allow");
+    engine.set(engineOf(DEFAULT_RULES));
+    expect(await engine.decide(def("write"), {})).toBe("ask");
   });
 });
 

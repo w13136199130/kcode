@@ -64,5 +64,18 @@ pnpm --filter @kcode/cli start                      # Ink TUI REPL（流式输�
 pnpm --filter @kcode/cli start "受众绑定校验在哪实现？"   # 一次性提问（可管道/脚本）
 ```
 
-内置工具：read/glob/grep（捆绑 ripgrep）、write/edit（写入前 y/N 确认）、bash（PowerShell/bash，超时 + 后台任务，日志落盘 `~/.kcode/cli/artifacts/`）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`；权限默认预设=读放行、写/命令询问、未知拒绝（§7）。
+内置工具：read/glob/grep（捆绑 ripgrep）、write/edit（写入前 y/N 确认）、bash（PowerShell/bash，超时 + 后台任务，日志落盘 `~/.kcode/cli/artifacts/`）、todo（任务清单，TUI 面板渲染）、ask_user（结构化选择题）。REPL 命令：`/plan` 切换计划模式（只读研究 → 用户确认后切回执行）。附图：`start --image <路径> "这张图里是什么？"`。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`；权限默认预设=读放行、写/命令询问、未知拒绝（§7）。
+
+## P1 验收（§9：真实仓库 10 任务）
+
+验收框架内置于 evals：夹具仓库 mini-shop（埋浮点 bug / 错别字 / TODO / 硬编码密钥）+ 10 个任务（问答×2、写、精确/模糊编辑、bash、todo、ask_user、混合修复、**权限拒绝负向用例**），每任务独立工作区副本，按文件/事件/答案三重断言评分。
+
+```bash
+pnpm --filter @kcode/evals acceptance --scripted   # 框架自检（无网络，CI 已含，应 10/10）
+
+# 真实模型验收（Windows 与 macOS 各跑一轮，§9 双平台标准）：
+export KCODE_KEYCHAIN_PASSPHRASE="你的口令"
+export KCODE_ACCEPTANCE_MODEL="deepseek/deepseek-chat"   # 或 ollama/qwen2.5-coder
+pnpm --filter @kcode/evals acceptance
+```
 

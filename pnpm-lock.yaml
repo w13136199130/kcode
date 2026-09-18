@@ -110,6 +110,9 @@ importers:
         specifier: workspace:*
         version: link:../packages/tools
     devDependencies:
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.13
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

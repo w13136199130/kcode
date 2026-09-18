@@ -100,6 +100,31 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(sink.events.filter((e) => e.type === "assistant_message")).toHaveLength(1);
   });
 
+  it("run 附图进入历史（多模态输入）；updateSystemPrompt 影响下一轮", async () => {
+    const llm = new ScriptedLLM([{ text: "ok1" }, { text: "ok2" }]);
+    const sink = new MemorySink();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+      },
+      { sessionId: "sess_img", model: "m", systemPrompt: "base", now: () => 0 },
+    );
+    await loop.run("看图", { images: ["C:/tmp/a.png"] });
+    const firstRequest = llm.requests[0];
+    expect((firstRequest?.messages[1] as { images?: string[] } | undefined)?.images).toEqual([
+      "C:/tmp/a.png",
+    ]);
+
+    loop.updateSystemPrompt("base + 计划模式");
+    await loop.run("再问");
+    expect(llm.requests[1]?.messages[0]?.content).toContain("计划模式");
+  });
+
   it("权限 deny：工具不执行、留审计、结果标记失败", async () => {
     const llm = new ScriptedLLM([
       { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "nope" } }] },

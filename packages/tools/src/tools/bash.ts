@@ -17,8 +17,8 @@ const BashArgs = z.object({
 
 export interface BashToolOptions {
   sessionId: string;
-  /** 后台任务日志目录（artifacts/sess_x，§4.3） */
-  artifactsDir: string;
+  /** 后台任务日志目录（artifacts/sess_x，§4.3）；缺省时后台任务将被拒绝并提示 */
+  artifactsDir?: string;
   /** 后台任务完成通知（§5.1：任务表 + 完成通知） */
   onNotice?: (message: string) => void;
 }
@@ -88,6 +88,9 @@ export function createBashTool(opts: BashToolOptions): Tool {
       const shell = shellCommand(command);
 
       if (runInBackground === true) {
+        if (opts.artifactsDir === undefined) {
+          return { ok: false, output: "", error: "后台任务未配置日志目录（artifactsDir），无法启动" };
+        }
         await mkdir(opts.artifactsDir, { recursive: true });
         const id = newId("bg");
         const logPath = join(opts.artifactsDir, `${id}.log`);

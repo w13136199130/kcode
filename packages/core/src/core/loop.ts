@@ -60,6 +60,7 @@ export class AgentLoop {
   readonly sessionId: string;
   private readonly pipeline: ToolPipeline;
   private history: ChatMessage[] = [];
+  private systemPrompt: string;
   private started = false;
 
   constructor(
@@ -67,6 +68,7 @@ export class AgentLoop {
     private readonly opts: AgentLoopOptions,
   ) {
     this.sessionId = opts.sessionId ?? newId("sess");
+    this.systemPrompt = opts.systemPrompt;
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,
@@ -77,6 +79,11 @@ export class AgentLoop {
     );
   }
 
+  /** 运行期更换 system prompt（计划模式切换等，§1.1 A 域） */
+  updateSystemPrompt(prompt: string): void {
+    this.systemPrompt = prompt;
+  }
+
   private get now(): () => number {
     return this.opts.now ?? Date.now;
   }
@@ -85,7 +92,7 @@ export class AgentLoop {
     await this.ports.sink.append(event);
   }
 
-  async run(userInput: string): Promise<RunSummary> {
+  async run(userInput: string, runOpts: { images?: string[] } = {}): Promise<RunSummary> {
     const ts = this.now;
     if (!this.started) {
       this.started = true;
@@ -104,7 +111,13 @@ export class AgentLoop {
       sessionId: this.sessionId,
       content: userInput,
     });
-    this.history.push({ role: "user", content: userInput });
+    this.history.push({
+      role: "user",
+      content: userInput,
+      ...(runOpts.images !== undefined && runOpts.images.length > 0
+        ? { images: runOpts.images }
+        : {}),
+    });
 
     const maxTurns = this.opts.maxTurns ?? 20;
     let turns = 0;
@@ -128,7 +141,7 @@ export class AgentLoop {
 
         const tools = this.ports.tools.list();
         const messages = assembleMessages({
-          systemPrompt: this.opts.systemPrompt,
+          systemPrompt: this.systemPrompt,
           tools: tools.map((t) => t.definition),
           history: this.history,
         });

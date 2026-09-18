@@ -123,4 +123,23 @@ describe("toCoreMessages", () => {
     expect(out[2]?.role).toBe("tool");
     expect(out[2]?.content).toHaveLength(2);
   });
+
+  it("用户附图转为 text+image parts（多模态输入）", async () => {
+    const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "kcode-img-"));
+    const img = join(dir, "a.png");
+    await writeFile(img, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]));
+    try {
+      const out = toCoreMessages([{ role: "user", content: "这是什么？", images: [img] }]);
+      const content = out[0]?.content as Array<{ type: string; text?: string; image?: Buffer }>;
+      expect(content).toHaveLength(2);
+      expect(content[0]).toMatchObject({ type: "text", text: "这是什么？" });
+      expect(content[1]?.type).toBe("image");
+      expect(content[1]?.image?.length).toBe(7);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

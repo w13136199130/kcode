@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import type { TodoItem } from "@kcode/contracts";
 
 export type Block =
   | { kind: "user"; text: string }
@@ -12,6 +13,24 @@ export type Block =
       summary?: string;
     }
   | { kind: "info"; text: string };
+
+/** Todo 面板（§1.1 A 域）：☐ 待办 / ◐ 进行 / ☑ 完成 */
+export function TodoPanel(props: { todos: TodoItem[] }) {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      {props.todos.map((t, i) => (
+        <Text
+          key={i}
+          color={t.status === "completed" ? "green" : t.status === "in_progress" ? "cyan" : undefined}
+          dimColor={t.status === "completed"}
+        >
+          {t.status === "completed" ? "☑" : t.status === "in_progress" ? "◐" : "☐"} {t.content}
+          {t.priority === "high" ? " ！" : ""}
+        </Text>
+      ))}
+    </Box>
+  );
+}
 
 /** 会话转写区：完成块 + 流式文本（P1-5 Ink TUI） */
 export function Transcript(props: { blocks: Block[]; streamText: string }) {

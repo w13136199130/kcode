@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
-import { Transcript } from "../src/tui/Transcript.js";
+import { TodoPanel, Transcript } from "../src/tui/Transcript.js";
 
 describe("Transcript 组件（P1-5 TUI）", () => {
   it("渲染用户/工具/助手块与流式文本", () => {
@@ -36,5 +36,21 @@ describe("Transcript 组件（P1-5 TUI）", () => {
     expect(frame).toContain("✗ bash");
     expect(frame).toContain("实现在 src/credentials.ts。");
     expect(frame).toContain("流式输出中");
+  });
+
+  it("TodoPanel 渲染三态任务项", () => {
+    const { lastFrame } = render(
+      <TodoPanel
+        todos={[
+          { content: "调研", status: "completed", priority: "high" },
+          { content: "写码", status: "in_progress", priority: "medium" },
+          { content: "测试", status: "pending", priority: "low" },
+        ]}
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("☑ 调研");
+    expect(frame).toContain("◐ 写码");
+    expect(frame).toContain("☐ 测试");
   });
 });

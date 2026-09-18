@@ -70,3 +70,22 @@ export interface HookRunner {
 export interface PermissionAsker {
   confirm(call: ToolCallRef): Promise<boolean>;
 }
+
+/** 结构化提问（§1.1 A 域）：agent 向用户提出选择题 */
+export const QuestionOption = z.object({
+  label: z.string().min(1),
+  description: z.string().optional(),
+});
+export type QuestionOption = z.infer<typeof QuestionOption>;
+
+export const StructuredQuestion = z.object({
+  question: z.string().min(1),
+  options: z.array(QuestionOption).min(2),
+  multiSelect: z.boolean().optional(),
+});
+export type StructuredQuestion = z.infer<typeof StructuredQuestion>;
+
+/** 用户应答端口：TUI/daemon 注入；不可交互时工具返回降级话术 */
+export interface UserPromptPort {
+  ask(question: StructuredQuestion): Promise<string[]>;
+}

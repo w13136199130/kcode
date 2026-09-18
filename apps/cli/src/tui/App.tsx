@@ -1,9 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
-import type { LLMProvider, PermissionAsker, SessionEvent, ToolCallRef } from "@kcode/contracts";
+import type {
+  LLMProvider,
+  PermissionAsker,
+  SessionEvent,
+  StructuredQuestion,
+  TodoItem,
+  ToolCallRef,
+  UserPromptPort,
+} from "@kcode/contracts";
 import { createSession } from "../session.js";
-import { Transcript, type Block } from "./Transcript.js";
+import { TodoPanel, Transcript, type Block } from "./Transcript.js";
+
+export interface KcodeAppProps {
+  llm: LLMProvider;
+  model: string;
+  cwd: string;
+  /** 一次性提问（非交互/脚本模式）；缺省进 REPL */
+  oneShot?: string;
+  /** 一次性提问附图（本地文件路径，多模态输入） */
+  images?: string[];
+}
+
+interface AskState {
+  call: ToolCallRef;
+  resolve: (allowed: boolean) => void;
+}
+
+interface QuestionState {
+  question: StructuredQuestion;
+  resolve: (labels: string[]) => void;
+}
 
 /** y/N 按键捕获——仅在交互 TTY 下挂载（useInput 在非 TTY stdin 上会抛错） */
 function AskCatcher(props: { onAnswer: (allowed: boolean) => void }) {
@@ -17,6 +45,28 @@ function AskCatcher(props: { onAnswer: (allowed: boolean) => void }) {
       props.onAnswer(true);
     } else if (c === "n") {
       props.onAnswer(false);
+    }
+  });
+  return null;
+}
+
+/** 结构化提问选择器：数字键选择（multiSelect 可多选），回车确认 */
+function QuestionCatcher(props: { multi: boolean; count: number; onDone: (indices: number[]) => void }) {
+  const [picked, setPicked] = useState<number[]>([]);
+  useInput((ch, key) => {
+    if (key.return) {
+      props.onDone(props.multi ? picked : picked.slice(-1));
+      return;
+    }
+    const n = Number.parseInt(ch, 10);
+    if (!Number.isNaN(n) && n >= 1 && n <= props.count) {
+      setPicked((prev) =>
+        props.multi
+          ? prev.includes(n - 1)
+            ? prev.filter((x) => x !== n - 1)
+            : [...prev, n - 1]
+          : [n - 1],
+      );
     }
   });
   return null;
@@ -36,20 +86,7 @@ function InputBox(props: {
   );
 }
 
-export interface KcodeAppProps {
-  llm: LLMProvider;
-  model: string;
-  cwd: string;
-  /** 一次性提问（非交互/脚本模式）；缺省进 REPL */
-  oneShot?: string;
-}
-
-interface AskState {
-  call: ToolCallRef;
-  resolve: (allowed: boolean) => void;
-}
-
-/** kcode 主界面（P1-5）：流式输出、工具状态行、y/N 确认、后台任务通知 */
+/** kcode 主界面（P1-5/P1-6）：流式输出、工具状态、y/N 确认、Todo 面板、结构化提问、计划模式 */
 export function KcodeApp(props: KcodeAppProps) {
   const { exit } = useApp();
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -59,6 +96,9 @@ export function KcodeApp(props: KcodeAppProps) {
   const [ready, setReady] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
   const [ask, setAsk] = useState<AskState | null>(null);
+  const [question, setQuestion] = useState<QuestionState | null>(null);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [planMode, setPlanMode] = useState(false);
   const [input, setInput] = useState("");
   const sessionRef = useRef<Awaited<ReturnType<typeof createSession>> | null>(null);
   const streamRef = useRef("");
@@ -118,6 +158,9 @@ export function KcodeApp(props: KcodeAppProps) {
       case "compaction_summary":
         pushBlock({ kind: "info", text: `⑂ ${event.summary}` });
         break;
+      case "todo_update":
+        setTodos(event.todos);
+        break;
       default:
         break;
     }
@@ -133,6 +176,17 @@ export function KcodeApp(props: KcodeAppProps) {
           return;
         }
         setAsk({ call, resolve });
+      }),
+  };
+
+  const askUser: UserPromptPort = {
+    ask: (q) =>
+      new Promise<string[]>((resolve) => {
+        if (!interactive) {
+          resolve([]);
+          return;
+        }
+        setQuestion({ question: q, resolve });
       }),
   };
 
@@ -154,13 +208,17 @@ export function KcodeApp(props: KcodeAppProps) {
             if (!cancelled) setNotice(n);
           },
           asker,
+          askUser,
         });
         sessionRef.current = handle;
         setReady(true);
         if (props.oneShot !== undefined) {
           setBusy(true);
           try {
-            await handle.loop.run(props.oneShot);
+            await handle.loop.run(
+              props.oneShot,
+              props.images !== undefined ? { images: props.images } : {},
+            );
           } finally {
             setBusy(false);
             setTimeout(() => exit(), 80);
@@ -179,16 +237,27 @@ export function KcodeApp(props: KcodeAppProps) {
   }, []);
 
   const submit = async (value: string): Promise<void> => {
-    const question = value.trim();
-    if (question === "" || busy || sessionRef.current === null) return;
-    if (question === "exit" || question === "quit") {
+    const text = value.trim();
+    if (text === "" || busy || sessionRef.current === null) return;
+    if (text === "exit" || text === "quit") {
       exit();
+      return;
+    }
+    if (text === "/plan") {
+      const next = !planMode;
+      setPlanMode(next);
+      sessionRef.current.setPlanMode(next);
+      pushBlock({
+        kind: "info",
+        text: next ? "计划模式已开启（只读研究，写/命令将被拒绝）" : "已切回执行模式（写/命令需确认）",
+      });
+      setInput("");
       return;
     }
     setInput("");
     setBusy(true);
     try {
-      await sessionRef.current.loop.run(question);
+      await sessionRef.current.loop.run(text);
     } catch (err) {
       pushBlock({ kind: "info", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
     } finally {
@@ -208,12 +277,16 @@ export function KcodeApp(props: KcodeAppProps) {
         <Text color="cyan" bold>
           kcode
         </Text>
+        <Text color={planMode ? "magenta" : undefined} bold={planMode}>
+          {planMode ? " [计划模式·只读]" : ""}
+        </Text>
         <Text dimColor>
           {" "}
-          {props.model} · 读放行 / 写·命令确认 · exit 退出
+          {props.model} · 读放行 / 写·命令确认 · /plan 切计划 · exit 退出
         </Text>
       </Text>
       <Transcript blocks={blocks} streamText={streamText} />
+      {todos.length > 0 && <TodoPanel todos={todos} />}
       {notice !== null && (
         <Text color="yellow" wrap="truncate-end">
           {notice}
@@ -230,6 +303,32 @@ export function KcodeApp(props: KcodeAppProps) {
           <Text color="magenta">
             ⚠ 允许 {ask.call.tool} {JSON.stringify(ask.call.args).slice(0, 80)} ？ [y/N]
           </Text>
+        </>
+      ) : question !== null ? (
+        <>
+          <QuestionCatcher
+            multi={question.question.multiSelect === true}
+            count={question.question.options.length}
+            onDone={(indices) => {
+              question.resolve(indices.map((i) => question.question.options[i]?.label ?? ""));
+              setQuestion(null);
+            }}
+          />
+          <Box flexDirection="column">
+            <Text color="magenta" bold>
+              ? {question.question.question}
+            </Text>
+            {question.question.options.map((o, i) => (
+              <Text key={i}>
+                {" "}
+                {i + 1}. {o.label}
+                {o.description !== undefined ? ` — ${o.description}` : ""}
+              </Text>
+            ))}
+            <Text dimColor>
+              {question.question.multiSelect === true ? "数字切换选择，回车确认" : "输入数字选择"}
+            </Text>
+          </Box>
         </>
       ) : ready ? (
         busy ? (

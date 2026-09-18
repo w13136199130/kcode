@@ -1,10 +1,12 @@
 import type { PermissionDecision, PermissionEngine, PermissionRule, ToolDefinition } from "@kcode/contracts";
 
-/** 只读预设：查询全放行，其余全拒绝（远程会话默认姿态的本地版，§7） */
+/** 只读预设：查询/会话态放行，其余全拒绝（远程会话默认姿态的本地版，§7） */
 export const READONLY_RULES: PermissionRule[] = [
   { match: "read", decision: "allow" },
   { match: "glob", decision: "allow" },
   { match: "grep", decision: "allow" },
+  { match: "todo", decision: "allow" },
+  { match: "ask_user", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
@@ -13,6 +15,8 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { match: "read", decision: "allow" },
   { match: "glob", decision: "allow" },
   { match: "grep", decision: "allow" },
+  { match: "todo", decision: "allow" },
+  { match: "ask_user", decision: "allow" },
   { match: "write", decision: "ask" },
   { match: "edit", decision: "ask" },
   { match: "bash", decision: "ask" },

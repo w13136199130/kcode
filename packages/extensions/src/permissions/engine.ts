@@ -39,3 +39,20 @@ export function matchTool(pattern: string, toolName: string): boolean {
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+/** 可切换引擎（§1.1 A 域 Plan 模式）：运行期在 readonly/默认等姿态间切换 */
+export class MutablePermissionEngine implements PermissionEngine {
+  #inner: PermissionEngine;
+
+  constructor(inner: PermissionEngine) {
+    this.#inner = inner;
+  }
+
+  set(inner: PermissionEngine): void {
+    this.#inner = inner;
+  }
+
+  async decide(tool: ToolDefinition, args: unknown): Promise<PermissionDecision> {
+    return this.#inner.decide(tool, args);
+  }
+}

@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   jsonSchema,
   streamText,
   type CoreMessage,
+  type ImagePart,
   type TextPart,
   type ToolCallPart,
   type ToolResultPart,
@@ -90,7 +92,22 @@ export function toCoreMessages(messages: ChatMessage[]): CoreMessage[] {
     if (m.role === "system") {
       out.push({ role: "system", content: m.content });
     } else if (m.role === "user") {
-      out.push({ role: "user", content: m.content });
+      if (m.images !== undefined && m.images.length > 0) {
+        // 多模态输入（§1.1 B 域）：本地图片读取为 image parts
+        const parts: Array<TextPart | ImagePart> = [{ type: "text", text: m.content }];
+        for (const imagePath of m.images) {
+          try {
+            parts.push({ type: "image", image: readFileSync(imagePath) });
+          } catch (err) {
+            throw new Error(
+              `读取附图失败 ${imagePath}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+        out.push({ role: "user", content: parts });
+      } else {
+        out.push({ role: "user", content: m.content });
+      }
     } else if (m.role === "assistant") {
       const content: Array<TextPart | ToolCallPart> = [];
       if (m.content !== "") {

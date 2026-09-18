@@ -63,6 +63,22 @@ export const CompactionSummaryEvent = z.object({
   dropped: z.number().int().nonnegative(),
 });
 
+/** Todo 任务项（§1.1 A 域）：同一时刻至多一个 in_progress */
+export const TodoItem = z.object({
+  content: z.string().min(1),
+  status: z.enum(["pending", "in_progress", "completed"]),
+  priority: z.enum(["high", "medium", "low"]).default("medium"),
+});
+export type TodoItem = z.infer<typeof TodoItem>;
+
+export const TodoUpdateEvent = z.object({
+  v: v1,
+  type: z.literal("todo_update"),
+  ts,
+  sessionId,
+  todos: z.array(TodoItem),
+});
+
 export const SessionEndEvent = z.object({
   v: v1,
   type: z.literal("session_end"),
@@ -78,6 +94,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   ToolCallEvent,
   ToolResultEvent,
   CompactionSummaryEvent,
+  TodoUpdateEvent,
   SessionEndEvent,
 ]);
 
