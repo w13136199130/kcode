@@ -62,3 +62,11 @@ export interface HookRunner {
   preToolUse(call: ToolCallRef): Promise<HookPreOutcome>;
   postToolUse(call: ToolCallRef, result: ToolOutput): Promise<void>;
 }
+
+/**
+ * ask 交互确认端口：权限裁决为 ask 时由组合层（CLI/daemon）注入实现；
+ * 无实现则按 deny 处理——headless/automation 同款降级语义（§5.5）。
+ */
+export interface PermissionAsker {
+  confirm(call: ToolCallRef): Promise<boolean>;
+}

@@ -26,3 +26,43 @@ pnpm build       # tsup 构建库包
 ## 包结构
 
 见 ARCHITECTURE.md §4.4——包内一级目录 = 逻辑模块 = P3 后拆包单元。
+
+## 试用（P1-3 端到端，BYOK）
+
+**1. 写用户级配置** `~/.kcode/config.json`（`providers` 只允许在这一层，项目级无此字段——§5.7）：
+
+```jsonc
+{
+  "models": {
+    "default": "deepseek/deepseek-chat",
+    "providers": {
+      "deepseek": {
+        "type": "openai-compatible",
+        "baseURL": "https://api.deepseek.com/v1",
+        "keyRef": "keychain://deepseek"
+      },
+      "ollama": { "type": "openai-compatible", "baseURL": "http://127.0.0.1:11434/v1" }
+    }
+  }
+}
+```
+
+**2. 录入 key**（受众绑定：key 只发往登记的端点，§5.7）：
+
+```bash
+export KCODE_KEYCHAIN_PASSPHRASE="你的口令"      # 加密文件降级（P3 接 DPAPI/Keychain）
+pnpm --filter @kcode/cli start key add keychain://deepseek sk-xxx https://api.deepseek.com/v1
+pnpm --filter @kcode/cli start key list
+```
+
+Ollama 等本地无 key 端点跳过此步。
+
+**3. 提问**（在目标仓库根目录，需 Windows Terminal §6）：
+
+```bash
+pnpm --filter @kcode/cli start                      # Ink TUI REPL（流式输出/工具状态/y-N 确认）
+pnpm --filter @kcode/cli start "受众绑定校验在哪实现？"   # 一次性提问（可管道/脚本）
+```
+
+内置工具：read/glob/grep（捆绑 ripgrep）、write/edit（写入前 y/N 确认）、bash（PowerShell/bash，超时 + 后台任务，日志落盘 `~/.kcode/cli/artifacts/`）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`；权限默认预设=读放行、写/命令询问、未知拒绝（§7）。
+

@@ -7,7 +7,10 @@ export interface ScriptedToolCall {
 }
 
 export interface ScriptedTurn {
+  /** 单块文本（整体一块输出） */
   text?: string;
+  /** 多块文本（模拟流式增量） */
+  textParts?: string[];
   toolCalls?: ScriptedToolCall[];
 }
 
@@ -29,7 +32,11 @@ export class ScriptedLLM implements LLMProvider {
       yield { type: "end", reason: "stop" };
       return;
     }
-    if (turn.text !== undefined) {
+    if (turn.textParts !== undefined) {
+      for (const part of turn.textParts) {
+        yield { type: "text", text: part };
+      }
+    } else if (turn.text !== undefined) {
       yield { type: "text", text: turn.text };
     }
     for (const call of turn.toolCalls ?? []) {

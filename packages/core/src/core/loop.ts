@@ -2,6 +2,7 @@ import {
   type ChatMessage,
   type HookRunner,
   type LLMProvider,
+  type PermissionAsker,
   type PermissionEngine,
   type SessionEvent,
   type SessionSink,
@@ -22,6 +23,10 @@ export interface AgentLoopPorts {
   hooks: HookRunner;
   sink: SessionSink;
   audit: AuditSink;
+  /** ask 交互确认（§5.1）：CLI/daemon 注入；缺省时 ask 按 deny 降级 */
+  asker?: PermissionAsker;
+  /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在轮次完成时落 assistant_message */
+  onDelta?: (delta: string) => void;
 }
 
 export interface AgentLoopOptions {
@@ -68,6 +73,7 @@ export class AgentLoop {
       ports.audit,
       this.sessionId,
       opts.cwd,
+      ports.asker,
     );
   }
 
@@ -140,6 +146,7 @@ export class AgentLoop {
         })) {
           if (chunk.type === "text") {
             text += chunk.text;
+            this.ports.onDelta?.(chunk.text);
           } else if (chunk.type === "tool_call") {
             calls.push({ callId: chunk.callId, tool: chunk.tool, args: chunk.args });
             await this.emit({

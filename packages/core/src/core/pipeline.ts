@@ -1,4 +1,10 @@
-import type { HookRunner, PermissionEngine, Tool, ToolOutput } from "@kcode/contracts";
+import type {
+  HookRunner,
+  PermissionAsker,
+  PermissionEngine,
+  Tool,
+  ToolOutput,
+} from "@kcode/contracts";
 
 export interface AuditRecord {
   ts: number;
@@ -22,6 +28,7 @@ export class ToolPipeline {
     private readonly audit: AuditSink,
     private readonly sessionId: string,
     private readonly cwd?: string,
+    private readonly asker?: PermissionAsker,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -29,17 +36,31 @@ export class ToolPipeline {
     const name = tool.definition.name;
 
     const decision = await this.permissions.decide(tool.definition, args);
-    if (decision === "deny" || decision === "ask") {
-      // P0：ask 尚无交互确认（P1 CLI 接入），按 deny 处理并留审计（§5.5 同款降级语义）
+    if (decision === "deny") {
       this.audit({
         ts: this.now(),
         sessionId: this.sessionId,
         callId,
         tool: name,
-        decision,
-        detail: decision === "ask" ? "downgraded to deny in P0" : undefined,
+        decision: "deny",
       });
-      return { ok: false, output: "", error: `permission denied (${decision})` };
+      return { ok: false, output: "", error: "permission denied (deny)" };
+    }
+    if (decision === "ask") {
+      // ask 交互确认：无 asker（headless/automation）按 deny 降级（§5.5）
+      const allowed =
+        this.asker !== undefined && (await this.asker.confirm({ callId, tool: name, args }));
+      if (!allowed) {
+        this.audit({
+          ts: this.now(),
+          sessionId: this.sessionId,
+          callId,
+          tool: name,
+          decision: "ask",
+          detail: this.asker === undefined ? "no asker → downgraded to deny" : "user denied",
+        });
+        return { ok: false, output: "", error: "permission denied (ask)" };
+      }
     }
 
     const pre = await this.hooks.preToolUse({ callId, tool: name, args });

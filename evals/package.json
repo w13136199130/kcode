@@ -16,6 +16,8 @@
   "dependencies": {
     "@kcode/contracts": "workspace:*",
     "@kcode/core": "workspace:*",
+    "@kcode/extensions": "workspace:*",
+    "@kcode/platform": "workspace:*",
     "@kcode/runtime": "workspace:*",
     "@kcode/shared": "workspace:*",
     "@kcode/tools": "workspace:*"

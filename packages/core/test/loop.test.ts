@@ -77,6 +77,29 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(llm.requests[0]?.tools?.map((t) => t.name)).toEqual(["echo"]);
   });
 
+  it("onDelta 收到流式文本增量（瞬态，不落 JSONL）", async () => {
+    const llm = new ScriptedLLM([{ textParts: ["Hel", "lo"] }]);
+    const sink = new MemorySink();
+    const deltas: string[] = [];
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        onDelta: (d) => {
+          deltas.push(d);
+        },
+      },
+      { sessionId: "sess_delta", model: "mock-1", systemPrompt: "test", now: () => 0 },
+    );
+    await loop.run("hi");
+    expect(deltas.join("")).toBe("Hello");
+    expect(sink.events.filter((e) => e.type === "assistant_message")).toHaveLength(1);
+  });
+
   it("权限 deny：工具不执行、留审计、结果标记失败", async () => {
     const llm = new ScriptedLLM([
       { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "nope" } }] },

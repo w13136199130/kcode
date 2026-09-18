@@ -15,7 +15,12 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ["packages/*/test/**/*.test.ts", "evals/test/**/*.test.ts"],
+    include: [
+      "packages/*/test/**/*.test.ts",
+      "apps/*/test/**/*.test.ts",
+      "apps/*/test/**/*.test.tsx",
+      "evals/test/**/*.test.ts",
+    ],
     server: {
       deps: {
         // 内联 workspace 符号链接包（匹配解析后的路径段，而非裸包名）
