@@ -13,10 +13,11 @@ export { globTool } from "./glob.js";
 export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
-export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask } from "./bash.js";
+export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, detectWindowsBash } from "./bash.js";
 export { createTodoTool, type TodoToolOptions } from "./todo.js";
 export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";
+export { buildAskPreview, renderDiff, type AskPreview } from "./ask-preview.js";
 
 /** P1 只读三件套（§9）：read / glob / grep（捆绑 ripgrep），全部 readOnly → 循环内自动并发 */
 export const readOnlyTools: Tool[] = [readTool, globTool, grepTool];

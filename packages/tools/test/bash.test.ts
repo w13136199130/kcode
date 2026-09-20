@@ -2,9 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createBashTool } from "../src/index.js";
+import { createBashTool, currentShellInfo } from "../src/index.js";
 
-const isWin = process.platform === "win32";
 let root: string;
 
 beforeAll(async () => {
@@ -42,7 +41,7 @@ describe("bash 工具", () => {
 
   it("超时终止并报错", async () => {
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
-    const command = isWin ? "Start-Sleep -Seconds 5" : "sleep 5";
+    const command = "sleep 5";
     const r = await bash.execute({ command, timeoutMs: 800 }, ctx());
     expect(r.ok).toBe(false);
     expect(r.error).toContain("超时");
@@ -73,5 +72,33 @@ describe("bash 工具", () => {
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
     const r = await bash.execute({ wrong: true }, ctx());
     expect(r.ok).toBe(false);
+  });
+
+  it("currentShellInfo：win32 下探测到 shell 并与描述一致", async () => {
+    const info = currentShellInfo();
+    if (process.platform === "win32") {
+      expect(["bash", "powershell"]).toContain(info.name);
+    } else {
+      expect(info.name).toBe("bash");
+    }
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    expect(bash.definition.description).toContain(
+      info.name === "bash" ? "bash 语法" : "PowerShell 语法",
+    );
+  });
+
+  it("bash 语法命令在当前 shell 下直接可用（git-bash 优先的证据）", async () => {
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    // bash 语法：$() 展开与 && 链；PowerShell 5.1 对 $(...) 部分兼容但 `2>/dev/null` 不兼容
+    if (currentShellInfo().name !== "bash") {
+      return; // 无 bash 的环境跳过（仅验证 bash 路径）
+    }
+    const r = await bash.execute(
+      { command: "echo \"ver=$(echo 1)\" && echo line2 2>/dev/null" },
+      ctx(),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("ver=1");
+    expect(r.output).toContain("line2");
   });
 });

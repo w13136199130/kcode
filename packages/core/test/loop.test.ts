@@ -244,4 +244,88 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(resultEvent?.error).toContain("permission denied");
     expect(audit.records.some((r) => r.decision === "deny")).toBe(true);
   });
+
+  it("权限决策落盘：deny 与 ask 应答生成 permission_decision 事件；工具结果带耗时", async () => {
+    const askEngine = {
+      decide: async (): Promise<"ask"> => "ask",
+    };
+    const llm = new ScriptedLLM([
+      {
+        toolCalls: [
+          { callId: "c1", tool: "echo", args: { msg: "one" } },
+          { callId: "c2", tool: "echo", args: { msg: "two" } },
+        ],
+      },
+      { text: "done" },
+    ]);
+    const sink = new MemorySink();
+    const received: string[] = [];
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([echoTool(received)]),
+        permissions: askEngine,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        asker: {
+          confirm: async (call) =>
+            call.callId === "c1" ? { allowed: true, scope: "session" } : false,
+        },
+      },
+      { sessionId: "sess_perm1", model: "mock-1", systemPrompt: "t", now: () => 0 },
+    );
+    await loop.run("go");
+
+    const decisions = sink.events.filter(
+      (e): e is Extract<SessionEvent, { type: "permission_decision" }> =>
+        e.type === "permission_decision",
+    );
+    expect(decisions).toHaveLength(2);
+    expect(decisions[0]).toMatchObject({
+      type: "permission_decision",
+      callId: "c1",
+      tool: "echo",
+      decision: "ask-allowed",
+      scope: "session",
+    });
+    expect(decisions[1]).toMatchObject({
+      type: "permission_decision",
+      callId: "c2",
+      tool: "echo",
+      decision: "ask-denied",
+    });
+    // 规则放行不落盘（高频噪声）
+    const results = sink.events.filter((e) => e.type === "tool_result");
+    for (const r of results) {
+      expect(r).toHaveProperty("durationMs");
+    }
+  });
+
+  it("reasoning：瞬态 onReasoning 推送 + assistant_message 落盘（不回传 API）", async () => {
+    const llm = new ScriptedLLM([
+      { reasoningParts: ["先查证", "再回答"], text: "结论" },
+    ]);
+    const sink = new MemorySink();
+    const reasoningDeltas: string[] = [];
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        onReasoning: (d) => reasoningDeltas.push(d),
+      },
+      { sessionId: "sess_reason1", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+    await loop.run("问个问题");
+    expect(reasoningDeltas).toEqual(["先查证", "再回答"]);
+    const message = sink.events.find((e) => e.type === "assistant_message");
+    expect(message).toMatchObject({ type: "assistant_message", content: "结论", reasoning: "先查证再回答" });
+    // 思考过程不进请求历史（ChatMessage 无 reasoning 概念）
+    const lastRequest = llm.requests[llm.requests.length - 1];
+    expect(JSON.stringify(lastRequest?.messages)).not.toContain("先查证");
+  });
 });

@@ -33,6 +33,8 @@ export interface AgentLoopPorts {
   asker?: PermissionAsker;
   /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在完成时落 assistant_message */
   onDelta?: (delta: string) => void;
+  /** 思考过程增量（瞬态，reasoning 模型）：TUI 灰色实时渲染；不回传 API，落盘见 assistant_message.reasoning */
+  onReasoning?: (delta: string) => void;
   /** 技能库（渐进加载/自动触发；core 零 IO，extensions 实现） */
   skills?: SkillPort;
   /** 历史摘要器：上下文超预算时生成结构化摘要；缺省时退化为占位压缩 */
@@ -76,6 +78,9 @@ export class AgentLoop {
   private history: ChatMessage[] = [];
   private systemPrompt: string;
   private started = false;
+  private model: string;
+  private llm: LLMProvider;
+  private summarizer?: SummarizerPort;
 
   constructor(
     private readonly ports: AgentLoopPorts,
@@ -84,19 +89,63 @@ export class AgentLoop {
     this.sessionId = opts.sessionId ?? newId("sess");
     this.systemPrompt = opts.systemPrompt;
     this.history = [...(opts.initialHistory ?? [])];
+    this.model = opts.model;
+    this.llm = ports.llm;
+    this.summarizer = ports.summarizer;
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,
-      ports.audit,
+      this.auditWithPermissionEvents(ports.audit),
       this.sessionId,
       opts.cwd,
       ports.asker,
     );
   }
 
+  /**
+   * 审计记录中的交互/拒绝项翻译为 permission_decision 事件落盘：
+   * 只记 ask 应答与规则拒绝——规则放行是高频常态，落盘只添噪声。
+   */
+  private auditWithPermissionEvents(base: AuditSink): AuditSink {
+    return (record) => {
+      base(record);
+      if (
+        record.decision !== "ask-allowed" &&
+        record.decision !== "ask-denied" &&
+        record.decision !== "deny"
+      ) {
+        return;
+      }
+      void Promise.resolve(
+        this.emit({
+          v: 1,
+          type: "permission_decision",
+          ts: record.ts,
+          sessionId: record.sessionId,
+          callId: record.callId,
+          tool: record.tool,
+          decision: record.decision,
+          ...(record.scope !== undefined ? { scope: record.scope } : {}),
+          ...(record.detail !== undefined ? { detail: record.detail } : {}),
+        }),
+      ).catch(() => {
+        // 审计事件落盘失败不阻断工具管线
+      });
+    };
+  }
+
   /** 运行期更换 system prompt（计划模式切换等，§1.1 A 域） */
   updateSystemPrompt(prompt: string): void {
     this.systemPrompt = prompt;
+  }
+
+  /** 运行期更换模型（/model）：LLM 实例与摘要器一并重建，历史保留 */
+  updateModel(model: string, llm: LLMProvider, summarizer?: SummarizerPort): void {
+    this.model = model;
+    this.llm = llm;
+    if (summarizer !== undefined) {
+      this.summarizer = summarizer;
+    }
   }
 
   private get now(): () => number {
@@ -113,8 +162,8 @@ export class AgentLoop {
       return null;
     }
     let summary: string;
-    if (this.ports.summarizer !== undefined) {
-      summary = await this.ports.summarizer.summarize({ messages: plan.toSummarize });
+    if (this.summarizer !== undefined) {
+      summary = await this.summarizer.summarize({ messages: plan.toSummarize });
     } else {
       summary = `【历史压缩】已折叠 ${plan.toSummarize.length} 条较早消息（未配置摘要器，仅保留任务与近期上下文）`;
     }
@@ -136,7 +185,7 @@ export class AgentLoop {
         type: "session_start",
         ts: ts(),
         sessionId: this.sessionId,
-        model: this.opts.model,
+        model: this.model,
       });
       await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
     }
@@ -201,9 +250,10 @@ export class AgentLoop {
         });
 
         let text = "";
+        let reasoning = "";
         const calls: PendingCall[] = [];
-        for await (const chunk of this.ports.llm.stream({
-          model: this.opts.model,
+        for await (const chunk of this.llm.stream({
+          model: this.model,
           messages,
           tools: tools.map((t) => ({
             name: t.definition.name,
@@ -211,7 +261,10 @@ export class AgentLoop {
             parameters: t.definition.parameters,
           })),
         })) {
-          if (chunk.type === "text") {
+          if (chunk.type === "reasoning") {
+            reasoning += chunk.text;
+            this.ports.onReasoning?.(chunk.text);
+          } else if (chunk.type === "text") {
             text += chunk.text;
             this.ports.onDelta?.(chunk.text);
           } else if (chunk.type === "tool_call") {
@@ -227,13 +280,14 @@ export class AgentLoop {
             });
           }
         }
-        if (text !== "") {
+        if (text !== "" || reasoning !== "") {
           await this.emit({
             v: 1,
             type: "assistant_message",
             ts: ts(),
             sessionId: this.sessionId,
             content: text,
+            ...(reasoning !== "" ? { reasoning } : {}),
           });
         }
         if (calls.length === 0) {
@@ -250,7 +304,7 @@ export class AgentLoop {
         const results = await this.executeCalls(calls, tools);
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
-          const result = results[i]!;
+          const { result, durationMs } = results[i]!;
           await this.emit({
             v: 1,
             type: "tool_result",
@@ -260,6 +314,7 @@ export class AgentLoop {
             ok: result.ok,
             output: result.output,
             ...(result.error !== undefined ? { error: result.error } : {}),
+            durationMs,
           });
           this.history.push({
             role: "tool",
@@ -291,24 +346,35 @@ export class AgentLoop {
     }
   }
 
-  private async executeCalls(calls: PendingCall[], tools: Tool[]): Promise<ToolOutput[]> {
+  private async executeCalls(
+    calls: PendingCall[],
+    tools: Tool[],
+  ): Promise<Array<{ result: ToolOutput; durationMs: number }>> {
     const byName = new Map(tools.map((t) => [t.definition.name, t] as const));
     const allReadOnly = calls.every((c) => byName.get(c.tool)?.definition.readOnly === true);
     if (allReadOnly) {
       return Promise.all(calls.map((c) => this.executeOne(byName, c)));
     }
-    const results: ToolOutput[] = [];
+    const results: Array<{ result: ToolOutput; durationMs: number }> = [];
     for (const call of calls) {
       results.push(await this.executeOne(byName, call));
     }
     return results;
   }
 
-  private async executeOne(byName: Map<string, Tool>, call: PendingCall): Promise<ToolOutput> {
+  private async executeOne(
+    byName: Map<string, Tool>,
+    call: PendingCall,
+  ): Promise<{ result: ToolOutput; durationMs: number }> {
     const tool = byName.get(call.tool);
     if (tool === undefined) {
-      return { ok: false, output: "", error: `unknown tool: ${call.tool}` };
+      return {
+        result: { ok: false, output: "", error: `unknown tool: ${call.tool}` },
+        durationMs: 0,
+      };
     }
-    return this.pipeline.run(tool, call.args, call.callId);
+    const startedAt = this.now();
+    const result = await this.pipeline.run(tool, call.args, call.callId);
+    return { result, durationMs: Math.max(0, this.now() - startedAt) };
   }
 }

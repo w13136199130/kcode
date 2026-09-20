@@ -67,12 +67,27 @@ export interface HookRunner {
   onStop?(payload: { sessionId: string }): Promise<void>;
 }
 
+/** ask 应答：除是否放行外，可选「本会话总是允许」（scope=session） */
+export interface PermissionAnswer {
+  allowed: boolean;
+  scope?: "once" | "session";
+}
+
 /**
  * ask 交互确认端口：权限裁决为 ask 时由组合层（CLI/daemon）注入实现；
  * 无实现则按 deny 处理——headless/automation 同款降级语义（§5.5）。
+ * 返回布尔视为 { allowed } 的简写（测试/evals 的最小实现保持兼容）。
  */
 export interface PermissionAsker {
-  confirm(call: ToolCallRef): Promise<boolean>;
+  confirm(call: ToolCallRef): Promise<boolean | PermissionAnswer>;
+}
+
+/** 归一化 asker 应答：布尔 → { allowed }；对象取字段 */
+export function normalizePermissionAnswer(answer: boolean | PermissionAnswer): PermissionAnswer {
+  if (typeof answer === "boolean") {
+    return { allowed: answer };
+  }
+  return answer;
 }
 
 /** 结构化提问（§1.1 A 域）：agent 向用户提出选择题 */

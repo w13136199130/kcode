@@ -1,4 +1,10 @@
-import type { SessionEvent, StructuredQuestion } from "@kcode/contracts";
+import type {
+  AskPreviewPayload,
+  PermissionAnswer,
+  PermissionMode,
+  SessionEvent,
+  StructuredQuestion,
+} from "@kcode/contracts";
 import type { DaemonClient } from "./daemon-client.js";
 
 /**
@@ -11,7 +17,14 @@ export interface SessionHandle {
     run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number }>;
   };
   sessionId: string;
-  setPlanMode(on: boolean): void;
+  /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
+  setMode(mode: PermissionMode): void;
+  /** 运行期换模型（/model）：成功返回 null，失败返回错误信息 */
+  setModel(model: string): Promise<string | null>;
+  models(): Promise<{ default?: string; providers: string[] }>;
+  listSkills(): Promise<{ name: string; description: string }[]>;
+  skillBody(name: string): Promise<string | null>;
+  listSessions(): Promise<{ sessionId: string; preview: string; turns: number }[]>;
   listCommands(): { name: string; source: "project" | "user" }[];
   expandCommand(name: string, args: string): Promise<string | null>;
   trustProject(): Promise<void>;
@@ -25,9 +38,18 @@ export interface RemoteSessionOptions {
   resumeFrom?: string;
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
+  /** 思考过程增量（reasoning 模型）：灰色斜体实时渲染 */
+  onReasoning?: (delta: string) => void;
   onNotice?: (message: string) => void;
-  /** 交互确认由守护进程推送过来，经此回调交给界面 */
-  asker?: { confirm: (call: { callId: string; tool: string; args: unknown }) => Promise<boolean> };
+  /** 交互确认由守护进程推送过来，经此回调交给界面（preview 为写/编辑类 diff） */
+  asker?: {
+    confirm(call: {
+      callId: string;
+      tool: string;
+      args: unknown;
+      preview?: AskPreviewPayload;
+    }): Promise<boolean | PermissionAnswer>;
+  };
   askUser?: { ask: (question: StructuredQuestion) => Promise<string[]> };
 }
 
@@ -56,19 +78,25 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
       opts.onEvent?.(raw as unknown as SessionEvent);
     }
   });
-  opts.client.onDelta((sid, text) => {
+  opts.client.onDelta((sid, text, channel) => {
     if (sid === sessionId) {
-      opts.onDelta?.(text);
+      if (channel === "reasoning") {
+        opts.onReasoning?.(text);
+      } else {
+        opts.onDelta?.(text);
+      }
     }
   });
   opts.client.onNotice((message) => {
     opts.onNotice?.(message);
   });
-  // 交互确认：守护进程请求 → 界面回调 → 应答回传
+  // 交互确认：守护进程请求 → 界面回调 → 应答（含会话级放行标记）回传
   if (opts.asker !== undefined) {
-    opts.client.onAsk((callId, tool, args) => {
-      void opts.asker!.confirm({ callId, tool, args }).then((allowed) => {
-        opts.client.replyAsk(callId, allowed);
+    opts.client.onAsk((callId, tool, args, preview) => {
+      void Promise.resolve(opts.asker!.confirm({ callId, tool, args, preview })).then((answer) => {
+        const normalized =
+          typeof answer === "boolean" ? { allowed: answer } : answer;
+        opts.client.replyAsk(callId, normalized.allowed, normalized.scope);
       });
     });
   }
@@ -106,10 +134,47 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         });
       },
     },
-    setPlanMode: (on) => {
-      void opts.client.request({ method: "session_plan", sessionId, on }).catch(() => {
-        // 计划模式切换失败不阻断界面
+    setMode: (mode) => {
+      void opts.client.request({ method: "session_mode", sessionId, mode }).catch(() => {
+        // 模式切换失败不阻断界面（头部显示以下次成功切换为准）
       });
+    },
+    setModel: async (model) => {
+      const response = await opts.client
+        .request({ method: "session_set_model", sessionId, model })
+        .catch((err: Error) => err);
+      if (response instanceof Error) {
+        return response.message;
+      }
+      return response.kind === "accepted" ? null : (("message" in response ? response.message : "未知错误") as string);
+    },
+    models: async () => {
+      const response = await opts.client.request({ method: "models_list" });
+      if (response.kind !== "models") {
+        return { providers: [] };
+      }
+      return { ...(response.default !== undefined ? { default: response.default } : {}), providers: response.providers };
+    },
+    listSkills: async () => {
+      const response = await opts.client.request({ method: "skills_list", sessionId });
+      if (response.kind !== "skills") {
+        return [];
+      }
+      return response.skills.map((s) => ({ name: s.name, description: s.description }));
+    },
+    skillBody: async (name) => {
+      const response = await opts.client.request({ method: "skill_body", sessionId, name });
+      if (response.kind !== "skill_body_ok") {
+        return null;
+      }
+      return response.body;
+    },
+    listSessions: async () => {
+      const response = await opts.client.request({ method: "sessions_list" });
+      if (response.kind !== "sessions") {
+        return [];
+      }
+      return response.sessions;
     },
     listCommands: () => {
       // 命令列表在连接期缓存一次即可；此处同步返回由创建时预取

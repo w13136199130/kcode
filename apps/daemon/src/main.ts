@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { UserConfigFile, type LLMProvider } from "@kcode/contracts";
 import { createProviderRouter, EncryptedFileKeychain, type KeychainStore } from "@kcode/platform";
 import { startDaemon } from "./server.js";
@@ -39,8 +40,13 @@ const lazyKeychain: KeychainStore = {
   },
 };
 
-/** 组装模型工厂：读用户配置 → keychain → providers 路由（含受众绑定校验） */
-async function createLlmFactory(kcodeHomeDir: string): Promise<(model: string) => Promise<LLMProvider>> {
+/** 组装模型工厂与模型清单：读用户配置 → keychain → providers 路由（含受众绑定校验） */
+async function createLlmFactory(
+  kcodeHomeDir: string,
+): Promise<{
+  llmFactory: (model: string) => Promise<LLMProvider>;
+  modelsInfo: () => { default?: string; providers: string[] };
+}> {
   const raw = await readFile(join(kcodeHomeDir, "config.json"), "utf8");
   const parsed = UserConfigFile.safeParse(JSON.parse(raw));
   if (!parsed.success || parsed.data.models === undefined) {
@@ -52,38 +58,49 @@ async function createLlmFactory(kcodeHomeDir: string): Promise<(model: string) =
       ? EncryptedFileKeychain.fromEnv(join(kcodeHomeDir, "keys.json"))
       : lazyKeychain;
   const router = createProviderRouter(parsed.data.models, keychain);
-  return (model: string) => router.resolve(model);
+  const models = parsed.data.models;
+  return {
+    llmFactory: (model: string) => router.resolve(model),
+    modelsInfo: () => ({
+      ...(models.default !== undefined ? { default: models.default } : {}),
+      providers: Object.keys(models.providers),
+    }),
+  };
 }
 
 async function main(): Promise<void> {
   const kcodeHomeDir = defaultKcodeHome();
   const pipePath = daemonPipePath();
   const token = randomBytes(32).toString("hex");
-  // token 落盘供 CLI attach（0600 语义由平台文件系统保证；spawn 直传形态留待打包分发）
+  // token/pid 落盘供 CLI attach 与版本错配时定位旧进程（0600 语义由平台文件系统保证）
   const { mkdir } = await import("node:fs/promises");
   await mkdir(kcodeHomeDir, { recursive: true });
   await writeFile(join(kcodeHomeDir, "daemon.token"), token, "utf8");
+  await writeFile(join(kcodeHomeDir, "daemon.pid"), `${process.pid}\n`, "utf8");
 
-  const llmFactory = await createLlmFactory(kcodeHomeDir);
+  const { llmFactory, modelsInfo } = await createLlmFactory(kcodeHomeDir);
   const handle = await startDaemon({
     pipePath,
     token,
     kcodeHomeDir,
     llmFactory,
+    modelsInfo,
     daemonVersion: DAEMON_VERSION,
   });
   process.stderr.write(`kcode daemon 已就绪：${handle.pipePath}\n`);
   // 常驻：连接由 server 管理，进程不主动退出
-  process.on("SIGINT", () => {
+  const cleanExit = (): void => {
     void handle.close().then(() => {
+      try {
+        rmSync(join(kcodeHomeDir, "daemon.pid"), { force: true });
+      } catch {
+        // pidfile 清理失败不影响退出
+      }
       process.exit(0);
     });
-  });
-  process.on("SIGTERM", () => {
-    void handle.close().then(() => {
-      process.exit(0);
-    });
-  });
+  };
+  process.on("SIGINT", cleanExit);
+  process.on("SIGTERM", cleanExit);
 }
 
 main().catch((err) => {

@@ -75,7 +75,7 @@ describe("P1-4 E2E：写入工具 × 权限引擎", () => {
     const result = sink.events.find((e): e is ToolResultEvent => e.type === "tool_result");
     expect(result?.ok).toBe(false);
     expect(result?.error).toContain("permission denied");
-    expect(audit.records.some((r) => r.decision === "ask" && r.detail === "user denied")).toBe(true);
+    expect(audit.records.some((r) => r.decision === "ask-denied" && r.detail === "user denied")).toBe(true);
   });
 
   it("default 预设 + 用户放行 ask → 写入成功", async () => {

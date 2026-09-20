@@ -6,10 +6,12 @@ import type {
   ToolDefinition,
 } from "@kcode/contracts";
 import {
+  ACCEPT_EDITS_RULES,
   AutomationPermissionEngine,
   DEFAULT_RULES,
   MutablePermissionEngine,
   READONLY_RULES,
+  RULES_BY_MODE,
   RuleBasedPermissionEngine,
   YOLO_RULES,
   matchTool,
@@ -59,6 +61,29 @@ describe("预设语义（§7）", () => {
     expect(await engine.decide(def("anything"), {})).toBe("allow");
   });
 
+  it("acceptEdits：文件编辑自动放行、命令仍询问", async () => {
+    const engine = engineOf(ACCEPT_EDITS_RULES);
+    expect(await engine.decide(def("read"), {})).toBe("allow");
+    expect(await engine.decide(def("write"), {})).toBe("allow");
+    expect(await engine.decide(def("edit"), {})).toBe("allow");
+    expect(await engine.decide(def("bash"), {})).toBe("ask");
+    expect(await engine.decide(def("mcp__srv__tool"), {})).toBe("ask");
+    expect(await engine.decide(def("unknown-tool"), {})).toBe("deny");
+  });
+
+  it("RULES_BY_MODE 四档齐备且各档语义正确", async () => {
+    expect(Object.keys(RULES_BY_MODE).sort()).toEqual([
+      "acceptEdits",
+      "default",
+      "fullAccess",
+      "plan",
+    ]);
+    expect(await engineOf(RULES_BY_MODE["plan"]!).decide(def("write"), {})).toBe("deny");
+    expect(await engineOf(RULES_BY_MODE["default"]!).decide(def("write"), {})).toBe("ask");
+    expect(await engineOf(RULES_BY_MODE["acceptEdits"]!).decide(def("write"), {})).toBe("allow");
+    expect(await engineOf(RULES_BY_MODE["fullAccess"]!).decide(def("bash"), {})).toBe("allow");
+  });
+
   it("规则按序匹配，首条命中生效", async () => {
     const engine = new RuleBasedPermissionEngine({
       rules: [
@@ -79,6 +104,24 @@ describe("MutablePermissionEngine（计划模式切换，§1.1 A 域）", () => 
     expect(await engine.decide(def("read"), {})).toBe("allow");
     engine.set(engineOf(DEFAULT_RULES));
     expect(await engine.decide(def("write"), {})).toBe("ask");
+  });
+});
+
+describe("MutablePermissionEngine 会话级放行", () => {
+  it("grant 后同工具放行；切档保留、切回 plan 清空", async () => {
+    const engine = new MutablePermissionEngine(engineOf(DEFAULT_RULES));
+    expect(await engine.decide(def("bash"), {})).toBe("ask");
+    engine.grant("bash");
+    expect(await engine.decide(def("bash"), {})).toBe("allow");
+    expect(await engine.decide(def("write"), {})).toBe("ask");
+    // 切到 acceptEdits 再切回：会话级放行仍生效
+    engine.set(engineOf(ACCEPT_EDITS_RULES));
+    engine.set(engineOf(DEFAULT_RULES));
+    expect(await engine.decide(def("bash"), {})).toBe("allow");
+    // 切入 plan：放行清空，只读姿态不被打穿
+    engine.set(engineOf(READONLY_RULES));
+    engine.clearGrants();
+    expect(await engine.decide(def("bash"), {})).toBe("deny");
   });
 });
 

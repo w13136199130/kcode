@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   jsonSchema,
   streamText,
@@ -24,6 +24,8 @@ export interface OpenAICompatibleOptions {
 /**
  * OpenAI 兼容端点 LLMProvider（§5.7 三模式之一）
  * 覆盖 DeepSeek / GLM / one-api 中转 / Ollama / vLLM；网关模式 P5 另行接入。
+ * 用 @ai-sdk/openai-compatible（而非 @ai-sdk/openai）：它解析 DeepSeek/GLM 风格的
+ * delta.reasoning_content → reasoning 流事件，思考过程才能透传到 LLMChunk。
  */
 export class OpenAICompatibleProvider implements LLMProvider {
   readonly id: string;
@@ -35,7 +37,8 @@ export class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async *stream(req: LLMRequest): AsyncIterable<LLMChunk> {
-    const client = createOpenAI({
+    const client = createOpenAICompatible({
+      name: "kcode-openai-compatible",
       baseURL: this.#options.baseURL,
       // 无 key 端点（本地 Ollama）占位，服务端忽略
       apiKey: this.#options.apiKey ?? "not-set",
@@ -60,7 +63,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
 
     let ended = false;
     for await (const part of result.fullStream) {
-      if (part.type === "text-delta") {
+      if (part.type === "reasoning") {
+        yield { type: "reasoning", text: part.textDelta };
+      } else if (part.type === "text-delta") {
         yield { type: "text", text: part.textDelta };
       } else if (part.type === "tool-call") {
         yield { type: "tool_call", callId: part.toolCallId, tool: part.toolName, args: part.args };

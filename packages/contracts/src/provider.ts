@@ -97,7 +97,12 @@ export interface LLMRequest {
   tools?: LLMToolSpec[];
 }
 
+/**
+ * LLM 流式块：reasoning 为思考过程增量（DeepSeek/GLM 的 reasoning_content），
+ * 瞬态推送 TUI；不回传 API（DeepSeek 契约要求），落盘走 assistant_message.reasoning。
+ */
 export type LLMChunk =
+  | { type: "reasoning"; text: string }
   | { type: "text"; text: string }
   | { type: "tool_call"; callId: string; tool: string; args: unknown }
   | { type: "end"; reason: "stop" | "tool_use" | "error"; error?: string };

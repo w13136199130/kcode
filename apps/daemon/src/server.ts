@@ -3,10 +3,13 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
   ClientRequest,
+  PROTOCOL_VERSION,
   type ClientRequest as ClientRequestType,
   type LLMProvider,
+  type PermissionAnswer,
   type ServerMessage as ServerMessageType,
 } from "@kcode/contracts";
+import { buildAskPreview } from "@kcode/tools";
 import { composeSession, resolveResumeHistory, trustProject, type ComposedSession } from "./composition.js";
 
 /** ask/question 等待客户端应答的超时：超时按拒绝处理，避免会话悬挂 */
@@ -21,6 +24,8 @@ export interface DaemonOptions {
   kcodeHomeDir: string;
   /** 模型提供方工厂：按模型引用构建（生产走 providers 路由，测试注入脚本模型） */
   llmFactory: (model: string) => Promise<LLMProvider>;
+  /** 可用模型清单（/model 命令）：默认引用 + providers */
+  modelsInfo: () => { default?: string; providers: string[] };
   daemonVersion: string;
 }
 
@@ -34,8 +39,8 @@ interface Connection {
   socket: Socket;
   authed: boolean;
   sessions: Map<string, ComposedSession>;
-  /** 等待客户端应答的 ask：callId → resolve */
-  pendingAsks: Map<string, (allowed: boolean) => void>;
+  /** 等待客户端应答的 ask：callId → resolve（应答含会话级放行标记） */
+  pendingAsks: Map<string, (answer: PermissionAnswer) => void>;
   /** 等待客户端应答的 question：questionId → resolve */
   pendingQuestions: Map<string, (labels: string[]) => void>;
 }
@@ -75,7 +80,7 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
     socket.on("close", () => {
       // 连接断开：未决交互按拒绝结算，会话资源释放
       for (const resolve of conn.pendingAsks.values()) {
-        resolve(false);
+        resolve({ allowed: false });
       }
       for (const resolve of conn.pendingQuestions.values()) {
         resolve([]);
@@ -117,8 +122,23 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
           conn.socket.destroy();
           return;
         }
+        // 协议版本不一致直接拒绝：升级后旧客户端不静默错配（PROTOCOL_VERSION 契约）
+        if (message.protocolVersion !== PROTOCOL_VERSION) {
+          send(conn, {
+            kind: "error",
+            id: message.id,
+            message: `协议版本不一致（客户端 v${message.protocolVersion} / 守护进程 v${PROTOCOL_VERSION}）：请结束旧进程后重试`,
+          });
+          conn.socket.destroy();
+          return;
+        }
         conn.authed = true;
-        send(conn, { kind: "hello_ok", id: message.id, daemonVersion: options.daemonVersion });
+        send(conn, {
+          kind: "hello_ok",
+          id: message.id,
+          daemonVersion: options.daemonVersion,
+          protocolVersion: PROTOCOL_VERSION,
+        });
         return;
       }
       case "ping": {
@@ -132,26 +152,40 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
               ? (await resolveResumeHistory(options.kcodeHomeDir, message.resumeFrom)) ?? undefined
               : undefined;
           const session = await composeSession({
-            llm: await options.llmFactory(message.model),
+            llmFactory: options.llmFactory,
             model: message.model,
             cwd: message.cwd,
             kcodeHomeDir: options.kcodeHomeDir,
             resumeFrom: resume,
             onEvent: (event) => send(conn, { kind: "event", sessionId: session.sessionId, event }),
             onDelta: (text) => send(conn, { kind: "delta", sessionId: session.sessionId, text }),
+            onReasoning: (text) =>
+              send(conn, { kind: "delta", sessionId: session.sessionId, text, channel: "reasoning" }),
             onNotice: (text) => send(conn, { kind: "notice", message: text }),
             asker: {
               confirm: (call) =>
-                new Promise<boolean>((resolve) => {
+                new Promise<boolean | PermissionAnswer>((resolve) => {
                   const timer = setTimeout(() => {
                     conn.pendingAsks.delete(call.callId);
-                    resolve(false);
+                    resolve({ allowed: false });
                   }, INTERACTION_TIMEOUT_MS);
-                  conn.pendingAsks.set(call.callId, (allowed) => {
+                  conn.pendingAsks.set(call.callId, (answer) => {
                     clearTimeout(timer);
-                    resolve(allowed);
+                    resolve(answer);
                   });
-                  send(conn, { kind: "ask", callId: call.callId, tool: call.tool, args: call.args });
+                  void (async () => {
+                    const preview = await buildAskPreview(call.tool, call.args, {
+                      sessionId: call.callId,
+                      cwd: message.cwd,
+                    });
+                    send(conn, {
+                      kind: "ask",
+                      callId: call.callId,
+                      tool: call.tool,
+                      args: call.args,
+                      ...(preview !== undefined ? { preview } : {}),
+                    });
+                  })();
                 }),
             },
             askUser: {
@@ -217,13 +251,13 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
           });
         return;
       }
-      case "session_plan": {
+      case "session_mode": {
         const session = conn.sessions.get(message.sessionId);
         if (session === undefined) {
           send(conn, { kind: "error", id: message.id, message: "会话不存在" });
           return;
         }
-        session.setPlanMode(message.on);
+        session.setMode(message.mode);
         send(conn, { kind: "accepted", id: message.id });
         return;
       }
@@ -254,8 +288,75 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
         send(conn, { kind: "command_expanded", id: message.id, template });
         return;
       }
+      case "models_list": {
+        const info = options.modelsInfo();
+        send(conn, {
+          kind: "models",
+          id: message.id,
+          providers: info.providers,
+          ...(info.default !== undefined ? { default: info.default } : {}),
+        });
+        return;
+      }
+      case "session_set_model": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        try {
+          await session.setModel(message.model);
+          send(conn, { kind: "accepted", id: message.id });
+        } catch (err) {
+          send(conn, {
+            kind: "error",
+            id: message.id,
+            message: `模型切换失败: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+      case "skills_list": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        send(conn, { kind: "skills", id: message.id, skills: session.listSkills() });
+        return;
+      }
+      case "skill_body": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        send(conn, {
+          kind: "skill_body_ok",
+          id: message.id,
+          body: await session.skillBody(message.name),
+        });
+        return;
+      }
+      case "sessions_list": {
+        const { listSessions } = await import("@kcode/runtime");
+        const summaries = await listSessions(join(options.kcodeHomeDir, "cli", "sessions"));
+        send(conn, {
+          kind: "sessions",
+          id: message.id,
+          sessions: summaries.slice(0, 10).map((s) => ({
+            sessionId: s.sessionId,
+            preview: s.preview,
+            turns: s.turns,
+          })),
+        });
+        return;
+      }
       case "ask_reply": {
-        conn.pendingAsks.get(message.callId)?.(message.allowed);
+        conn.pendingAsks.get(message.callId)?.({
+          allowed: message.allowed,
+          ...(message.scope !== undefined ? { scope: message.scope } : {}),
+        });
         conn.pendingAsks.delete(message.callId);
         return;
       }

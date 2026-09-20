@@ -142,4 +142,28 @@ describe("toCoreMessages", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("reasoning_content 流映射为 reasoning chunk（DeepSeek/GLM 思考过程）", async () => {
+    const provider = makeProvider([
+      { choices: [{ index: 0, delta: { reasoning_content: "先想" } }] },
+      { choices: [{ index: 0, delta: { reasoning_content: "一想" } }] },
+      { choices: [{ index: 0, delta: { content: "答案" } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    ]);
+    const chunks = await collect(
+      provider.stream({ model: "chat", messages: [{ role: "user", content: "q" }] }),
+    );
+    const reasoning = chunks
+      .filter((c): c is Extract<LLMChunk, { type: "reasoning" }> => c.type === "reasoning")
+      .map((c) => c.text)
+      .join("");
+    expect(reasoning).toBe("先想一想");
+    const text = chunks
+      .filter((c): c is Extract<LLMChunk, { type: "text" }> => c.type === "text")
+      .map((c) => c.text)
+      .join("");
+    expect(text).toBe("答案");
+    // reasoning 先于正文
+    expect(chunks[0]?.type).toBe("reasoning");
+  });
 });

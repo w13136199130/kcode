@@ -4,10 +4,13 @@ import type {
   ChatMessage,
   LLMProvider,
   PermissionAsker,
+  PermissionMode,
   SessionEvent,
   SessionSink,
+  ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
+import { normalizePermissionAnswer } from "@kcode/contracts";
 import { AgentLoop, InMemoryToolRegistry, MemoryAudit } from "@kcode/core";
 import {
   CommandLibrary,
@@ -15,7 +18,7 @@ import {
   FsSkillLibrary,
   MutablePermissionEngine,
   ProcessHookRunner,
-  READONLY_RULES,
+  RULES_BY_MODE,
   RuleBasedPermissionEngine,
   listInstalledPlugins,
   loadHookConfigs,
@@ -24,31 +27,37 @@ import {
 import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
-import { connectMcpServers, createSessionTools } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, currentShellInfo } from "@kcode/tools";
 
 export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
-- 回答代码问题前先用工具查证（read/glob/grep），结论引用 file:line；
-- 不知道就说不知道，不臆造文件与符号；
+- 涉及本项目代码的问题先用工具查证（read/glob/grep），结论引用 file:line；能力介绍/常识问答/闲聊不需要工具，直接回答；
+- 不知道就说不知道，不臆造文件与符号；同一查询不重复发起，失败先换思路而不是原样重试；
 - 多步骤任务用 todo 工具维护任务清单；需要用户决策时用 ask_user 提选择题；
 - 回答简洁，中文。`;
 
 export const PLAN_MODE_SUFFIX = `
 
 【计划模式】只读研究：可用读工具调研，不得修改文件或执行有副作用的命令；
-产出一份明确的执行计划并等待用户确认，用户用 /plan off 切回执行模式。`;
+产出一份明确的执行计划并等待用户确认，用户用 /mode default 切回执行模式。`;
 
 export interface ComposedSession {
   loop: AgentLoop;
   sessionId: string;
   jsonlPath: string;
-  setPlanMode(on: boolean): void;
+  /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
+  setMode(mode: PermissionMode): void;
+  /** 运行期换模型（/model）：重建 LLM 与摘要器，历史保留；解析失败抛错 */
+  setModel(model: string): Promise<void>;
   listCommands(): { name: string; source: "project" | "user" }[];
   expandCommand(name: string, args: string): Promise<string | null>;
+  listSkills(): { name: string; description: string; source: string }[];
+  skillBody(name: string): Promise<string | null>;
   close(): Promise<void>;
 }
 
 export interface ComposeSessionOptions {
-  llm: LLMProvider;
+  /** 模型工厂：session_set_model 运行期换模型时重建 LLM（路由/keychain 校验走同一路径） */
+  llmFactory: (model: string) => Promise<LLMProvider>;
   model: string;
   cwd: string;
   /** kcode 主目录（默认 ~/.kcode，测试可注入临时目录） */
@@ -57,6 +66,8 @@ export interface ComposeSessionOptions {
   resumeFrom?: ChatMessage[];
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
+  /** 思考过程增量（reasoning 模型）：与 onDelta 平行的瞬态通道 */
+  onReasoning?: (delta: string) => void;
   onNotice?: (message: string) => void;
   asker?: PermissionAsker;
   askUser?: UserPromptPort;
@@ -109,7 +120,28 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const permissions = new MutablePermissionEngine(
     new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
   );
+  // asker 装饰：归一化应答；scope=session 时按工具名记会话级放行
+  const baseAsker = opts.asker;
+  const asker: PermissionAsker | undefined =
+    baseAsker === undefined
+      ? undefined
+      : {
+          confirm: async (call: ToolCallRef) => {
+            const answer = normalizePermissionAnswer(await baseAsker.confirm(call));
+            if (answer.allowed && answer.scope === "session") {
+              permissions.grant(call.tool);
+            }
+            return answer;
+          },
+        };
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
+  // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
+  const shell = currentShellInfo();
+  const basePrompt = `${SYSTEM_PROMPT}
+
+<env>
+OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
+</env>`;
 
   // 已安装插件：技能/命令/MCP 追加装载（skills 与 commands 以插件目录为额外根）
   const plugins = await listInstalledPlugins(join(opts.kcodeHomeDir, "cli", "plugins", "cache"));
@@ -160,9 +192,10 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   if (plugins.length > 0) {
     opts.onNotice?.(`已装载 ${plugins.length} 个插件：${plugins.map((p) => `${p.manifest.name}@${p.manifest.version}`).join("、")}`);
   }
+  const initialLlm = await opts.llmFactory(opts.model);
   const loop = new AgentLoop(
     {
-      llm: opts.llm,
+      llm: initialLlm,
       tools: new InMemoryToolRegistry([
         ...createSessionTools({
           sessionId,
@@ -179,15 +212,16 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
       hooks,
       sink,
       audit: new MemoryAudit().sink,
-      asker: opts.asker,
+      asker,
       onDelta: opts.onDelta,
+      onReasoning: opts.onReasoning,
       skills,
-      summarizer: new LlmSummarizer(opts.llm, opts.model),
+      summarizer: new LlmSummarizer(initialLlm, opts.model),
     },
     {
       sessionId,
       model: opts.model,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: basePrompt,
       cwd: opts.cwd,
       agentsMd,
       initialHistory: opts.resumeFrom,
@@ -198,14 +232,24 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     loop,
     sessionId,
     jsonlPath,
-    setPlanMode: (on) => {
+    setMode: (mode: PermissionMode) => {
+      // 切入 plan 档清空会话级放行：只读姿态不被历史放行打穿
+      if (mode === "plan") {
+        permissions.clearGrants();
+      }
       permissions.set(
-        new RuleBasedPermissionEngine({ rules: on ? READONLY_RULES : DEFAULT_RULES, fallback: "deny" }),
+        new RuleBasedPermissionEngine({ rules: RULES_BY_MODE[mode], fallback: "deny" }),
       );
-      loop.updateSystemPrompt(SYSTEM_PROMPT + (on ? PLAN_MODE_SUFFIX : ""));
+      loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
+    },
+    setModel: async (model) => {
+      const llm = await opts.llmFactory(model);
+      loop.updateModel(model, llm, new LlmSummarizer(llm, model));
     },
     listCommands: () => commands.list().map((c) => ({ name: c.name, source: c.source })),
     expandCommand: (name, args) => commands.expand(name, args),
+    listSkills: () => skills.meta().map((s) => ({ name: s.name, description: s.description, source: "" })),
+    skillBody: (name) => skills.body(name).catch(() => null),
     close: async () => {
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
     },

@@ -30,6 +30,8 @@ export const AssistantMessageEvent = z.object({
   ts,
   sessionId,
   content: z.string(),
+  /** 思考过程原文（resume 回看用；rebuildHistory 不回传 API） */
+  reasoning: z.string().optional(),
 });
 
 export const ToolCallEvent = z.object({
@@ -97,6 +99,22 @@ export const SessionEndEvent = z.object({
   reason: z.enum(["completed", "aborted"]),
 });
 
+/**
+ * 权限决策落盘（审计/resume 可见）：规则裁决与 ask 应答各记一条；
+ * ask-allowed/ask-denied 为用户交互结果，scope=session 表示本会话级放行。
+ */
+export const PermissionDecisionEvent = z.object({
+  v: v1,
+  type: z.literal("permission_decision"),
+  ts,
+  sessionId,
+  callId: z.string().min(1),
+  tool: z.string().min(1),
+  decision: z.enum(["allow", "deny", "ask-allowed", "ask-denied"]),
+  scope: z.enum(["once", "session"]).optional(),
+  detail: z.string().optional(),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -107,6 +125,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   TodoUpdateEvent,
   SkillUsedEvent,
   SessionEndEvent,
+  PermissionDecisionEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

@@ -11,6 +11,8 @@ export interface ScriptedTurn {
   text?: string;
   /** 多块文本（模拟流式增量） */
   textParts?: string[];
+  /** 思考过程块（reasoning 模型模拟；先于正文输出） */
+  reasoningParts?: string[];
   toolCalls?: ScriptedToolCall[];
 }
 
@@ -31,6 +33,9 @@ export class ScriptedLLM implements LLMProvider {
     if (turn === undefined) {
       yield { type: "end", reason: "stop" };
       return;
+    }
+    for (const part of turn.reasoningParts ?? []) {
+      yield { type: "reasoning", text: part };
     }
     if (turn.textParts !== undefined) {
       for (const part of turn.textParts) {

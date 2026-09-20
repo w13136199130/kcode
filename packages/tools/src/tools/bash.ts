@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { newId } from "@kcode/shared";
@@ -61,11 +62,14 @@ export class BackgroundTaskRegistry {
  */
 export function createBashTool(opts: BashToolOptions): Tool {
   const registry = new BackgroundTaskRegistry();
+  const shell = currentShellInfo();
   return {
     definition: {
       name: "bash",
       description:
-        "执行 shell 命令（Windows 用 PowerShell，其余 bash）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts",
+        shell.name === "bash"
+          ? "执行 shell 命令（bash 语法，输出 UTF-8）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts"
+          : "执行 shell 命令（当前 shell 是 PowerShell，命令必须用 PowerShell 语法）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts",
       parameters: {
         type: "object",
         properties: {
@@ -94,7 +98,8 @@ export function createBashTool(opts: BashToolOptions): Tool {
         await mkdir(opts.artifactsDir, { recursive: true });
         const id = newId("bg");
         const logPath = join(opts.artifactsDir, `${id}.log`);
-        const logFile = await open(logPath, "a");
+        // "w" 而非 "a"：MSYS(git-bash) 对 append 模式句柄作为 stdio 会静默 exit 1
+        const logFile = await open(logPath, "w");
         const child = spawn(shell.file, shell.args, {
           cwd: workDir,
           stdio: ["ignore", logFile.fd, logFile.fd],
@@ -131,18 +136,81 @@ export function createBashTool(opts: BashToolOptions): Tool {
 }
 
 /**
- * 跨平台 shell 选择：Windows 用 PowerShell（无配置加载），其余用 bash。
- * Windows 侧显式 `exit $LASTEXITCODE`——PowerShell 默认把子进程非零退出码改写为 1，
- * 会丢失真实退出码（如 exit 3 的语义）。
+ * 跨平台 shell 选择：Windows 优先 git-bash（模型写 bash 语法最流畅，且输出原生 UTF-8，
+ * 规避「bash 语法打到 PowerShell 报错 → 换写法 → 中文乱码 → 再重试」的补偿循环），
+ * 无 git-bash 时回退 PowerShell（前置 UTF-8 控制台编码，保留真实退出码）。
  */
 function shellCommand(command: string): { file: string; args: string[] } {
   if (process.platform === "win32") {
+    const bash = detectWindowsBash();
+    if (bash !== undefined) {
+      return { file: bash, args: ["-c", command] };
+    }
     return {
       file: "powershell.exe",
-      args: ["-NoProfile", "-NonInteractive", "-Command", `${command}; exit $LASTEXITCODE`],
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `${PS_UTF8_PREFIX} ${command}; exit $LASTEXITCODE`,
+      ],
     };
   }
   return { file: "bash", args: ["-c", command] };
+}
+
+/** PowerShell 侧强制 UTF-8 输出：中文 Windows 默认 GBK 代码页会输出乱码 */
+const PS_UTF8_PREFIX = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;";
+
+let cachedBashPath: string | null | undefined;
+
+/** 探测 Windows 上的 git-bash（PATH 优先，常见安装位兜底），进程内记忆化 */
+export function detectWindowsBash(): string | undefined {
+  if (cachedBashPath === undefined) {
+    cachedBashPath =
+      findInPathEntries((process.env.PATH ?? "").split(delimiter)) ?? probeCommonBashDirs() ?? null;
+  }
+  return cachedBashPath ?? undefined;
+}
+
+function findInPathEntries(dirs: string[]): string | undefined {
+  for (const dir of dirs) {
+    if (dir === "") continue;
+    const candidate = join(dir.trim(), "bash.exe");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function probeCommonBashDirs(): string | undefined {
+  const programDirs = [
+    process.env["ProgramFiles"],
+    process.env["ProgramFiles(x86)"],
+    process.env["LOCALAPPDATA"] !== undefined
+      ? join(process.env["LOCALAPPDATA"], "Programs")
+      : undefined,
+  ].filter((d): d is string => d !== undefined);
+  for (const base of programDirs) {
+    for (const sub of ["Git\\bin", "Git\\usr\\bin"]) {
+      const candidate = join(base, sub, "bash.exe");
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** 运行环境 shell 信息（composition 注入系统提示，模型不再猜 shell 方言） */
+export function currentShellInfo(): { name: "bash" | "powershell"; dialect: string } {
+  if (process.platform === "win32") {
+    return detectWindowsBash() !== undefined
+      ? { name: "bash", dialect: "bash（git-bash，输出 UTF-8）" }
+      : { name: "powershell", dialect: "PowerShell（命令必须用 PowerShell 语法）" };
+  }
+  return { name: "bash", dialect: "bash" };
 }
 
 function runShell(

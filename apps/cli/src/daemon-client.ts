@@ -1,12 +1,14 @@
 import { connect } from "node:net";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PROTOCOL_VERSION,
+  type AskPreviewPayload,
   type ServerMessage as ServerMessageType,
 } from "@kcode/contracts";
 
@@ -35,9 +37,9 @@ export class DaemonClient {
   readonly #pending = new Map<number, { resolve: (m: ServerMessageType) => void; reject: (e: Error) => void }>();
   readonly #listeners = {
     event: new Set<(sessionId: string, event: ServerMessageType) => void>(),
-    delta: new Set<(sessionId: string, text: string) => void>(),
+    delta: new Set<(sessionId: string, text: string, channel: "text" | "reasoning") => void>(),
     notice: new Set<(message: string) => void>(),
-    ask: new Set<(callId: string, tool: string, args: unknown) => void>(),
+    ask: new Set<(callId: string, tool: string, args: unknown, preview?: AskPreviewPayload) => void>(),
     question: new Set<(questionId: string, question: ServerMessageType) => void>(),
     runDone: new Set<(sessionId: string, turns: number, toolCalls: number) => void>(),
     close: new Set<() => void>(),
@@ -65,7 +67,7 @@ export class DaemonClient {
     });
   }
 
-  /** 连接并完成 token 鉴权握手 */
+  /** 连接并完成 token 鉴权握手；协议版本不一致视为过旧 daemon */
   static async open(options: DaemonClientOptions): Promise<DaemonClient> {
     const socket = await new Promise<import("node:net").Socket>((resolvePromise, reject) => {
       const s = connect(options.pipePath, () => {
@@ -74,7 +76,22 @@ export class DaemonClient {
       s.once("error", reject);
     });
     const client = new DaemonClient(socket);
-    await client.request({ method: "hello", token: options.token, protocolVersion: PROTOCOL_VERSION });
+    const hello = await client.request({
+      method: "hello",
+      token: options.token,
+      protocolVersion: PROTOCOL_VERSION,
+    });
+    // 旧 daemon 的 hello_ok 不带 protocolVersion → 视为过旧
+    if (hello.kind !== "hello_ok" || hello.protocolVersion !== PROTOCOL_VERSION) {
+      const detail =
+        hello.kind === "hello_ok"
+          ? `daemon v${hello.protocolVersion ?? "未知"}`
+          : hello.kind === "error"
+            ? hello.message
+            : hello.kind;
+      socket.destroy();
+      throw new Error(`守护进程协议版本过旧（需 v${PROTOCOL_VERSION}）：${detail}`);
+    }
     return client;
   }
 
@@ -97,7 +114,7 @@ export class DaemonClient {
         return;
       case "delta":
         for (const l of this.#listeners.delta) {
-          l(message.sessionId, message.text);
+          l(message.sessionId, message.text, message.channel ?? "text");
         }
         return;
       case "notice":
@@ -107,7 +124,7 @@ export class DaemonClient {
         return;
       case "ask":
         for (const l of this.#listeners.ask) {
-          l(message.callId, message.tool, message.args);
+          l(message.callId, message.tool, message.args, message.preview);
         }
         return;
       case "question":
@@ -133,8 +150,13 @@ export class DaemonClient {
     });
   }
 
-  replyAsk(callId: string, allowed: boolean): void {
-    void this.request({ method: "ask_reply", callId, allowed }).catch(() => {
+  replyAsk(callId: string, allowed: boolean, scope?: "once" | "session"): void {
+    void this.request({
+      method: "ask_reply",
+      callId,
+      allowed,
+      ...(scope !== undefined ? { scope } : {}),
+    }).catch(() => {
       // daemon 侧等待已超时结算，忽略
     });
   }
@@ -159,7 +181,9 @@ export class DaemonClient {
     };
   }
 
-  onDelta(listener: (sessionId: string, text: string) => void): () => void {
+  onDelta(
+    listener: (sessionId: string, text: string, channel: "text" | "reasoning") => void,
+  ): () => void {
     this.#listeners.delta.add(listener);
     return () => {
       this.#listeners.delta.delete(listener);
@@ -173,7 +197,9 @@ export class DaemonClient {
     };
   }
 
-  onAsk(listener: (callId: string, tool: string, args: unknown) => void): () => void {
+  onAsk(
+    listener: (callId: string, tool: string, args: unknown, preview?: AskPreviewPayload) => void,
+  ): () => void {
     this.#listeners.ask.add(listener);
     return () => {
       this.#listeners.ask.delete(listener);
@@ -203,8 +229,29 @@ export class DaemonClient {
 export async function ensureDaemon(): Promise<DaemonClient> {
   const pipePath = daemonPipePath();
   const tokenFile = join(homedir(), ".kcode", "daemon.token");
+  const pidFile = join(homedir(), ".kcode", "daemon.pid");
 
-  const tryConnect = async (): Promise<DaemonClient | null> => {
+  /** 结束过旧 daemon：按 pidfile 定位（旧版本无 pidfile 时返回 false，交由人工处理） */
+  const killStaleDaemon = (): boolean => {
+    try {
+      const pid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+      if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+        return false;
+      }
+      process.kill(pid);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      try {
+        rmSync(pidFile, { force: true });
+      } catch {
+        // pidfile 清理失败不影响主流程
+      }
+    }
+  };
+
+  const tryConnect = async (): Promise<DaemonClient | "stale" | null> => {
     if (!existsSync(tokenFile)) {
       return null;
     }
@@ -214,12 +261,28 @@ export async function ensureDaemon(): Promise<DaemonClient> {
     }
     try {
       return await DaemonClient.open({ pipePath, token });
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("协议版本过旧")) {
+        return "stale";
+      }
       return null;
     }
   };
 
-  const existing = await tryConnect();
+  let existing = await tryConnect();
+  if (existing === "stale") {
+    // 版本错配：结束旧 daemon 后重试一次（首次拉新失败则提示人工处理）
+    const killed = killStaleDaemon();
+    if (killed) {
+      await new Promise((r) => setTimeout(r, 1500));
+      existing = await tryConnect();
+    }
+    if (existing === "stale") {
+      throw new Error(
+        "守护进程协议版本过旧且无法自动结束：请手动结束 kcode daemon 进程（按 pid 或任务管理器）后重试",
+      );
+    }
+  }
   if (existing !== null) {
     return existing;
   }
@@ -239,7 +302,7 @@ export async function ensureDaemon(): Promise<DaemonClient> {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     const client = await tryConnect();
-    if (client !== null) {
+    if (client !== null && client !== "stale") {
       return client;
     }
     await new Promise((r) => setTimeout(r, 500));

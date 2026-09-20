@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.0",
+    "@ai-sdk/openai-compatible": "^0.2.16",
     "@kcode/contracts": "workspace:*",
     "@kcode/shared": "workspace:*",
     "ai": "^4.3.0"

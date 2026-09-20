@@ -40,9 +40,14 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** 可切换引擎（§1.1 A 域 Plan 模式）：运行期在 readonly/默认等姿态间切换 */
+/**
+ * 可切换引擎（§1.1 A 域权限模式）：运行期在 plan/默认/自动编辑/完全访问间整体换档。
+ * 会话级放行（ask 应答 scope=session）以工具名模式记在 #grants，
+ * 优先于基础规则生效；切回 plan 档时清空——只读姿态不被历史放行打穿。
+ */
 export class MutablePermissionEngine implements PermissionEngine {
   #inner: PermissionEngine;
+  #grants: string[] = [];
 
   constructor(inner: PermissionEngine) {
     this.#inner = inner;
@@ -52,7 +57,21 @@ export class MutablePermissionEngine implements PermissionEngine {
     this.#inner = inner;
   }
 
+  /** 记一条会话级放行（按工具名模式；插在队首，后授予的先命中） */
+  grant(pattern: string): void {
+    this.#grants.unshift(pattern);
+  }
+
+  clearGrants(): void {
+    this.#grants = [];
+  }
+
   async decide(tool: ToolDefinition, args: unknown): Promise<PermissionDecision> {
+    for (const pattern of this.#grants) {
+      if (matchTool(pattern, tool.name)) {
+        return "allow";
+      }
+    }
     return this.#inner.decide(tool, args);
   }
 }

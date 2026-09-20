@@ -76,7 +76,7 @@ describe("权限 ask 交互流（P1-4）", () => {
     );
     await loop.run("go");
     expect(received).toEqual([]);
-    expect(audit.records.some((r) => r.decision === "ask" && r.detail === "user denied")).toBe(true);
+    expect(audit.records.some((r) => r.decision === "ask-denied" && r.detail === "user denied")).toBe(true);
   });
 
   it("ask + 无 asker（headless/automation）→ 降级 deny", async () => {

@@ -108,6 +108,13 @@ async function main(): Promise<void> {
   const client = await ensureDaemon();
   console.error(`已连接守护进程（模型 ${modelRef}）`);
 
+  if (process.stdout.isTTY !== true) {
+    // 输出经管道（如 pnpm --filter 转发）时 Ink 无法局部刷新，帧会逐行堆积刷屏
+    console.error(
+      "提示：当前 stdout 非直接终端，动态界面可能反复刷屏；建议直接运行：cd apps/cli && npx tsx src/main.tsx",
+    );
+  }
+
   const { waitUntilExit } = render(
     <KcodeApp
       client={client}

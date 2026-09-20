@@ -5,13 +5,16 @@ import type {
   Tool,
   ToolOutput,
 } from "@kcode/contracts";
+import { normalizePermissionAnswer } from "@kcode/contracts";
 
 export interface AuditRecord {
   ts: number;
   sessionId: string;
   callId: string;
   tool: string;
-  decision: "allow" | "ask" | "deny" | "veto" | "executed" | "error";
+  decision: "allow" | "ask-allowed" | "ask-denied" | "deny" | "veto" | "executed" | "error";
+  /** ask 应答的放行范围（once/session） */
+  scope?: "once" | "session";
   detail?: string;
 }
 
@@ -48,17 +51,25 @@ export class ToolPipeline {
     }
     if (decision === "ask") {
       // ask 交互确认：无 asker（headless/automation）按 deny 降级（§5.5）
-      const allowed =
-        this.asker !== undefined && (await this.asker.confirm({ callId, tool: name, args }));
-      if (!allowed) {
-        this.audit({
-          ts: this.now(),
-          sessionId: this.sessionId,
-          callId,
-          tool: name,
-          decision: "ask",
-          detail: this.asker === undefined ? "no asker → downgraded to deny" : "user denied",
-        });
+      const answer =
+        this.asker !== undefined
+          ? normalizePermissionAnswer(await this.asker.confirm({ callId, tool: name, args }))
+          : { allowed: false };
+      this.audit({
+        ts: this.now(),
+        sessionId: this.sessionId,
+        callId,
+        tool: name,
+        decision: answer.allowed ? "ask-allowed" : "ask-denied",
+        ...(answer.scope !== undefined ? { scope: answer.scope } : {}),
+        detail:
+          this.asker === undefined
+            ? "no asker → downgraded to deny"
+            : answer.allowed
+              ? `user allowed${answer.scope === "session" ? " (session)" : ""}`
+              : "user denied",
+      });
+      if (!answer.allowed) {
         return { ok: false, output: "", error: "permission denied (ask)" };
       }
     }
