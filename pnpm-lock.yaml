@@ -32,6 +32,9 @@ importers:
       '@kcode/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@kcode/extensions':
+        specifier: workspace:*
+        version: link:../../packages/extensions
       '@kcode/platform':
         specifier: workspace:*
         version: link:../../packages/platform

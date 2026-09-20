@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
+    "@kcode/extensions": "workspace:*",
     "@kcode/platform": "workspace:*",
     "ink": "^4.4.1",
     "ink-text-input": "^5.0.1",

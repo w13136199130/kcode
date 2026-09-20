@@ -1,6 +1,11 @@
 import { render } from "ink";
 import { join } from "node:path";
 import { EncryptedFileKeychain } from "@kcode/platform";
+import {
+  installPlugin,
+  listInstalledPlugins,
+  uninstallPlugin,
+} from "@kcode/extensions";
 import { ensureDaemon } from "./daemon-client.js";
 import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
@@ -24,10 +29,51 @@ async function keyCommand(args: string[]): Promise<void> {
   throw new Error("用法：kcode key add <ref> <key> <audience...> ｜ kcode key list");
 }
 
+/** 插件管理子命令：install/list/remove（本地目录安装，市场在后续版本接入） */
+async function pluginCommand(args: string[]): Promise<void> {
+  const cacheDir = join(kcodeHome(), "cli", "plugins", "cache");
+  const [op, ...rest] = args;
+
+  if (op === "install" && rest[0] !== undefined) {
+    const result = await installPlugin(rest[0], cacheDir, { force: rest.includes("--force") });
+    console.log(`\n${result.consentSummary}\n`);
+    console.log(`已安装 ${result.name}@${result.version} → ${result.installPath}`);
+    console.log(`seed hash：${result.hash.slice(0, 16)}…`);
+    return;
+  }
+  if (op === "list") {
+    const plugins = await listInstalledPlugins(cacheDir);
+    if (plugins.length === 0) {
+      console.log("（暂无已安装插件）");
+      return;
+    }
+    for (const p of plugins) {
+      const skills = p.manifest.skills.length > 0 ? ` 技能×${p.manifest.skills.length}` : "";
+      const hooks = p.manifest.hooks.length > 0 ? ` hooks×${p.manifest.hooks.length}` : "";
+      const mcp = p.manifest.mcp.length > 0 ? ` MCP×${p.manifest.mcp.length}` : "";
+      console.log(`${p.manifest.name}@${p.manifest.version}${skills}${hooks}${mcp}`);
+    }
+    return;
+  }
+  if (op === "remove" && rest[0] !== undefined) {
+    // 支持 name 或 name@version
+    const at = rest[0].indexOf("@");
+    const name = at === -1 ? rest[0] : rest[0].slice(0, at);
+    const version = at === -1 ? undefined : rest[0].slice(at + 1);
+    console.log(await uninstallPlugin(cacheDir, name, version));
+    return;
+  }
+  throw new Error("用法：kcode plugin install <目录> [--force] ｜ list ｜ remove <name>[@version]");
+}
+
 async function main(): Promise<void> {
   const [, , ...rest] = process.argv;
   if (rest[0] === "key") {
     await keyCommand(rest.slice(1));
+    return;
+  }
+  if (rest[0] === "plugin") {
+    await pluginCommand(rest.slice(1));
     return;
   }
 

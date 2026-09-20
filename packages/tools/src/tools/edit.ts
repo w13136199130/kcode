@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { relative, sep } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { displayPath, resolveInCtx } from "./paths.js";
@@ -33,13 +34,21 @@ export const editTool: Tool = {
     },
     readOnly: false,
   },
-  async execute(input, ctx) {
+  async execute(input, ctx): Promise<{ ok: boolean; output: string; error?: string }> {
     const parsed = EditArgs.safeParse(input);
     if (!parsed.success) {
       return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
     }
     const { path, oldString, newString, fuzzy } = parsed.data;
     const abs = resolveInCtx(path, ctx);
+
+    // 工作区边界检查：工作区外的编辑返回告警，由权限确认兜底
+    if (ctx.cwd !== undefined) {
+      const rel = relative(ctx.cwd, abs);
+      if (rel === "" || rel.split(sep)[0] === "..") {
+        return { ok: false, output: "", error: `路径 ${abs} 在工作区 ${ctx.cwd} 之外，请确认是否允许` };
+      }
+    }
 
     let content: string;
     try {

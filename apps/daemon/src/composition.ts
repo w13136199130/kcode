@@ -17,6 +17,7 @@ import {
   ProcessHookRunner,
   READONLY_RULES,
   RuleBasedPermissionEngine,
+  listInstalledPlugins,
   loadHookConfigs,
   trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
@@ -109,10 +110,23 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
   );
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
+
+  // 已安装插件：技能/命令/MCP 追加装载（skills 与 commands 以插件目录为额外根）
+  const plugins = await listInstalledPlugins(join(opts.kcodeHomeDir, "cli", "plugins", "cache"));
+  const pluginSkillRoots = plugins.map((p) => ({
+    dir: join(p.installPath, "skills"),
+    source: "plugin" as const,
+  }));
+  const pluginCommandRoots = plugins.map((p) => ({
+    dir: join(p.installPath, "commands"),
+    source: "project" as const,
+  }));
+
   const skills = await FsSkillLibrary.open(
     [
       { dir: join(opts.cwd, ".kcode", "skills"), source: "project" },
       { dir: join(opts.kcodeHomeDir, "skills"), source: "user" },
+      ...pluginSkillRoots,
     ],
     opts.onNotice,
   );
@@ -127,12 +141,25 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     [
       { dir: join(opts.cwd, ".kcode", "commands"), source: "project" },
       { dir: join(opts.kcodeHomeDir, "commands"), source: "user" },
+      ...pluginCommandRoots,
     ],
     opts.onNotice,
   );
   const mcpSessions = await connectMcpServers(await loadMcpConfigs(opts.kcodeHomeDir), {
     onWarn: opts.onNotice,
   });
+  const pluginMcpConfigs = plugins.flatMap((p) =>
+    p.manifest.mcp.map((m) => ({
+      name: m.name,
+      transport: "stdio" as const,
+      command: m.command ?? "node",
+      args: m.url !== undefined ? [m.url] : [],
+    })),
+  );
+  const pluginMcpSessions = await connectMcpServers(pluginMcpConfigs, { onWarn: opts.onNotice });
+  if (plugins.length > 0) {
+    opts.onNotice?.(`已装载 ${plugins.length} 个插件：${plugins.map((p) => `${p.manifest.name}@${p.manifest.version}`).join("、")}`);
+  }
   const loop = new AgentLoop(
     {
       llm: opts.llm,
@@ -146,6 +173,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
         }),
         createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
         ...mcpSessions.flatMap((s) => s.tools),
+        ...pluginMcpSessions.flatMap((s) => s.tools),
       ]),
       permissions,
       hooks,
@@ -179,7 +207,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     listCommands: () => commands.list().map((c) => ({ name: c.name, source: c.source })),
     expandCommand: (name, args) => commands.expand(name, args),
     close: async () => {
-      await Promise.all(mcpSessions.map((s) => s.close()));
+      await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
     },
   };
 }

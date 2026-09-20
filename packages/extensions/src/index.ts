@@ -6,3 +6,4 @@ export * from "./permissions/index.js";
 export * from "./skills/index.js";
 export * from "./hooks/index.js";
 export * from "./commands/index.js";
+export * from "./plugins/index.js";
