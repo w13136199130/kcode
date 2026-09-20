@@ -328,4 +328,26 @@ describe("AgentLoop（§5.1 状态机）", () => {
     const lastRequest = llm.requests[llm.requests.length - 1];
     expect(JSON.stringify(lastRequest?.messages)).not.toContain("先查证");
   });
+
+  it("LLM 调用失败：llm_error 事件可见，不再静默吞掉", async () => {
+    const llm = new ScriptedLLM([{ error: "401 Unauthorized：API key 无效" }]);
+    const sink = new MemorySink();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+      },
+      { sessionId: "sess_llmerr", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+    const summary = await loop.run("问个问题");
+    const err = sink.events.find((e) => e.type === "llm_error");
+    expect(err).toMatchObject({ type: "llm_error", error: "401 Unauthorized：API key 无效" });
+    // 轮次正常收尾（run_done 可达），但无 assistant 内容
+    expect(sink.events.some((e) => e.type === "assistant_message")).toBe(false);
+    expect(summary.turns).toBe(1);
+  });
 });

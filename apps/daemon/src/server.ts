@@ -95,7 +95,17 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
     });
   });
 
-  async function handleLine(conn: Connection, line: string): Promise<void> {
+  /** 回送错误后延迟关闭：Windows 命名管道「写后立即 end/destroy」会丢弃未冲刷数据 */
+function rejectAndClose(conn: Connection, message: ServerMessageType, delayMs = 100): void {
+  send(conn, message);
+  setTimeout(() => {
+    if (!conn.socket.destroyed) {
+      conn.socket.destroy();
+    }
+  }, delayMs);
+}
+
+async function handleLine(conn: Connection, line: string): Promise<void> {
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(line);
@@ -118,18 +128,27 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
     switch (message.method) {
       case "hello": {
         if (message.token !== options.token) {
-          send(conn, { kind: "error", id: message.id, message: "token 不正确" });
-          conn.socket.destroy();
+          rejectAndClose(conn, { kind: "error", id: message.id, message: "token 不正确" });
           return;
         }
         // 协议版本不一致直接拒绝：升级后旧客户端不静默错配（PROTOCOL_VERSION 契约）
         if (message.protocolVersion !== PROTOCOL_VERSION) {
-          send(conn, {
+          rejectAndClose(conn, {
             kind: "error",
             id: message.id,
             message: `协议版本不一致（客户端 v${message.protocolVersion} / 守护进程 v${PROTOCOL_VERSION}）：请结束旧进程后重试`,
           });
-          conn.socket.destroy();
+          return;
+        }
+        // keychain 口令状态不一致 = daemon 由不同环境的终端拉起（环境过期）：
+        // 客户端据此自动结束旧 daemon 重拉，避免「设了变量却连着无口令旧进程」的死局
+        const daemonHasPass = (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") !== "";
+        if (message.passphraseSet !== undefined && message.passphraseSet !== daemonHasPass) {
+          rejectAndClose(conn, {
+            kind: "error",
+            id: message.id,
+            message: "daemon 环境不匹配：keychain 口令状态与客户端不同（旧 daemon 由不同环境的终端拉起），请结束旧 daemon 后重试",
+          });
           return;
         }
         conn.authed = true;

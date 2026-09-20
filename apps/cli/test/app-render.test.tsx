@@ -30,8 +30,8 @@ describe("KcodeApp 渲染（空闲不重绘）", () => {
     const instance = render(
       <KcodeApp client={fakeClient} model="mock/1" cwd="E:/tmp" />,
     );
-    // 等待 mount + ready 两帧落定
-    await sleep(400);
+    // 等待 mount + ready + 命令菜单 600ms 补读定时器全部落定
+    await sleep(900);
     const settled = instance.frames.length;
     // 空闲 800ms（超过 3 个时钟周期）：不应有任何新帧
     await sleep(800);

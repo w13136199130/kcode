@@ -61,6 +61,11 @@ export class DaemonClient {
       }
     });
     socket.on("close", () => {
+      // 未决请求全部结算：对端 destroy 后响应可能被丢弃，悬挂会让上层重连逻辑失效
+      for (const waiter of this.#pending.values()) {
+        waiter.reject(new Error("连接已关闭（daemon 侧断开）"));
+      }
+      this.#pending.clear();
       for (const listener of this.#listeners.close) {
         listener();
       }
@@ -76,23 +81,33 @@ export class DaemonClient {
       s.once("error", reject);
     });
     const client = new DaemonClient(socket);
-    const hello = await client.request({
-      method: "hello",
-      token: options.token,
-      protocolVersion: PROTOCOL_VERSION,
-    });
-    // 旧 daemon 的 hello_ok 不带 protocolVersion → 视为过旧
-    if (hello.kind !== "hello_ok" || hello.protocolVersion !== PROTOCOL_VERSION) {
-      const detail =
-        hello.kind === "hello_ok"
-          ? `daemon v${hello.protocolVersion ?? "未知"}`
-          : hello.kind === "error"
+    try {
+      const pass = process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "";
+      const hello = await client.request({
+        method: "hello",
+        token: options.token,
+        protocolVersion: PROTOCOL_VERSION,
+        passphraseSet: pass !== "",
+      });
+      // 旧 daemon 的 hello_ok 不带 protocolVersion → 视为过旧
+      if (hello.kind !== "hello_ok" || hello.protocolVersion !== PROTOCOL_VERSION) {
+        const detail =
+          hello.kind === "hello_ok"
+            ? `daemon v${hello.protocolVersion ?? "未知"}`
+            : hello.kind === "error"
+              ? hello.message
+              : hello.kind;
+        throw new Error(
+          hello.kind === "error" && hello.message.includes("环境不匹配")
             ? hello.message
-            : hello.kind;
+            : `守护进程协议版本过旧（需 v${PROTOCOL_VERSION}）：${detail}`,
+        );
+      }
+      return client;
+    } catch (err) {
       socket.destroy();
-      throw new Error(`守护进程协议版本过旧（需 v${PROTOCOL_VERSION}）：${detail}`);
+      throw err;
     }
-    return client;
   }
 
   #dispatch(message: ServerMessageType): void {
@@ -225,31 +240,35 @@ export class DaemonClient {
   }
 }
 
+/** 结束 daemon（按 pidfile 定位）；供外部在环境变化后主动换新 daemon */
+export function killDaemonByPidfile(): boolean {
+  const pidFile = join(homedir(), ".kcode", "daemon.pid");
+  try {
+    const pid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
+      return false;
+    }
+    process.kill(pid);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      rmSync(pidFile, { force: true });
+      rmSync(join(homedir(), ".kcode", "daemon.token"), { force: true });
+    } catch {
+      // 清理失败不影响主流程
+    }
+  }
+}
+
 /** 连接已运行的 daemon；失败时拉起一个新实例并等待就绪 */
 export async function ensureDaemon(): Promise<DaemonClient> {
   const pipePath = daemonPipePath();
   const tokenFile = join(homedir(), ".kcode", "daemon.token");
-  const pidFile = join(homedir(), ".kcode", "daemon.pid");
 
-  /** 结束过旧 daemon：按 pidfile 定位（旧版本无 pidfile 时返回 false，交由人工处理） */
-  const killStaleDaemon = (): boolean => {
-    try {
-      const pid = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
-      if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) {
-        return false;
-      }
-      process.kill(pid);
-      return true;
-    } catch {
-      return false;
-    } finally {
-      try {
-        rmSync(pidFile, { force: true });
-      } catch {
-        // pidfile 清理失败不影响主流程
-      }
-    }
-  };
+  /** 结束过旧 daemon（killDaemonByPidfile 的本地别名，语义同上） */
+  const killStaleDaemon = killDaemonByPidfile;
 
   const tryConnect = async (): Promise<DaemonClient | "stale" | null> => {
     if (!existsSync(tokenFile)) {
@@ -262,7 +281,10 @@ export async function ensureDaemon(): Promise<DaemonClient> {
     try {
       return await DaemonClient.open({ pipePath, token });
     } catch (err) {
-      if (err instanceof Error && err.message.includes("协议版本过旧")) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("协议版本过旧") || err.message.includes("环境不匹配"))
+      ) {
         return "stale";
       }
       return null;

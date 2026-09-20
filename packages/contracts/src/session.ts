@@ -115,6 +115,15 @@ export const PermissionDecisionEvent = z.object({
   detail: z.string().optional(),
 });
 
+/** LLM 调用失败（流中断/鉴权错/模型不存在等）：界面必须可见，绝不能静默吞掉 */
+export const LlmErrorEvent = z.object({
+  v: v1,
+  type: z.literal("llm_error"),
+  ts,
+  sessionId,
+  error: z.string().min(1),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -126,6 +135,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   SkillUsedEvent,
   SessionEndEvent,
   PermissionDecisionEvent,
+  LlmErrorEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

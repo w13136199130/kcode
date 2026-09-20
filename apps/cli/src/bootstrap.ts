@@ -83,3 +83,14 @@ export function requireDefaultModelRef(models: UserModelsConfig): string {
     "请在 ~/.kcode/config.json 设置 models.default（如 \"deepseek/deepseek-chat\" 或 \"ollama/qwen2.5-coder\"）",
   );
 }
+
+/** 写用户级配置（/login 向导用；providers 只存在于这一层，§5.7） */
+export async function saveUserModelsConfig(
+  models: UserModelsConfig,
+  path = join(kcodeHome(), "config.json"),
+): Promise<void> {
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify({ models }, null, 2)}\n`, "utf8");
+}

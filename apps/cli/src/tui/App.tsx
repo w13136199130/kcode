@@ -12,7 +12,10 @@ import type {
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
-import type { DaemonClient } from "../daemon-client.js";
+import { EncryptedFileKeychain } from "@kcode/platform";
+import { join } from "node:path";
+import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
+import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 
@@ -51,6 +54,121 @@ interface AskState {
 interface QuestionState {
   question: StructuredQuestion;
   resolve: (labels: string[]) => void;
+}
+
+/** /login 向导的厂商预设（OpenAI 兼容端点） */
+const LOGIN_PRESETS: Array<{
+  key: string;
+  name: string;
+  label: string;
+  baseURL: string;
+  model: string;
+}> = [
+  {
+    key: "1",
+    name: "glm",
+    label: "智谱 BigModel（glm-5.3）",
+    baseURL: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-5.3",
+  },
+  {
+    key: "2",
+    name: "deepseek",
+    label: "DeepSeek（deepseek-chat）",
+    baseURL: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+  },
+  {
+    key: "3",
+    name: "kimi",
+    label: "Moonshot Kimi（kimi-k2）",
+    baseURL: "https://api.moonshot.cn/v1",
+    model: "kimi-k2",
+  },
+  { key: "4", name: "custom", label: "自定义 OpenAI 兼容端点（自行填写地址与模型名）", baseURL: "", model: "" },
+];
+
+type LoginWizard =
+  | null
+  | {
+      stage: "method" | "model" | "baseURL" | "apikey" | "passphrase";
+      providerName: string;
+      presetBaseURL: string;
+      presetModel: string;
+      baseURL: string;
+      apiKey: string;
+      model: string;
+    };
+
+/** 内置命令清单（/ 自动补全菜单数据源；自定义命令由会话注入合并） */
+export interface CommandInfo {
+  name: string;
+  desc: string;
+}
+
+const BUILTIN_COMMANDS: CommandInfo[] = [
+  { name: "mode", desc: "切换权限模式（plan/default/acceptEdits/fullAccess）" },
+  { name: "model", desc: "查看/切换模型（选择菜单）" },
+  { name: "login", desc: "配置模型厂商与 API key（向导）" },
+  { name: "skills", desc: "查看已装载技能" },
+  { name: "skill", desc: "手动注入技能正文" },
+  { name: "sessions", desc: "最近会话列表" },
+  { name: "plan", desc: "计划模式快捷切换" },
+  { name: "trust", desc: "信任当前项目" },
+  { name: "help", desc: "显示帮助" },
+  { name: "exit", desc: "退出" },
+];
+
+/** /model 选择菜单状态 */
+type ModelPicker = null | { options: MenuOption[] };
+
+/** 隐藏回显输入（API key / 口令） */
+function HiddenInput(props: { label: string; onDone: (v: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState("");
+  useInput((ch, key) => {
+    if (key.return) {
+      props.onDone(value);
+      return;
+    }
+    if (key.escape) {
+      props.onCancel();
+      return;
+    }
+    if (key.backspace || key.delete) {
+      setValue((s) => s.slice(0, -1));
+      return;
+    }
+    if (ch !== undefined && ch !== "" && ch >= " ") {
+      setValue((s) => s + ch);
+    }
+  });
+  return (
+    <Text>
+      <Text color="magenta">{props.label}</Text>
+      {"•".repeat(value.length)}
+    </Text>
+  );
+}
+
+/** 带标签的文本输入（向导 baseURL/模型名） */
+function PromptInput(props: {
+  label: string;
+  initialValue: string;
+  onDone: (v: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(props.initialValue);
+  useInput((_ch, key) => {
+    if (key.escape) {
+      props.onCancel();
+    }
+  });
+  return (
+    <Box>
+      <Text color="magenta">{props.label}</Text>
+      <TextInput value={value} onChange={setValue} onSubmit={props.onDone} />
+    </Box>
+  );
 }
 
 export interface MenuOption {
@@ -170,18 +288,57 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
 }
 
 /**
- * 输入框（仅交互 TTY 挂载）——↑↓ 翻阅输入历史（最近 50 条）：
- * 首次上翻暂存当前草稿，下翻到底恢复草稿。
+ * 输入框（仅交互 TTY 挂载）：
+ * - 输入 / 开头时弹出命令补全菜单（↑↓ 选择、Tab/回车补全、继续输入过滤）；
+ * - 无菜单时 ↑↓ 翻阅输入历史（最近 50 条）：首翻暂存草稿，下翻到底恢复。
  */
 function InputBox(props: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   history: string[];
+  commands: CommandInfo[];
 }) {
   const draft = useRef("");
   const index = useRef(-1);
-  useInput((_ch, key) => {
+  const menuIndex = useRef(0);
+  const prevValue = useRef(props.value);
+  if (prevValue.current !== props.value) {
+    menuIndex.current = 0;
+    prevValue.current = props.value;
+  }
+  const menuOpen =
+    props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
+  const needle = props.value.slice(1).toLowerCase();
+  const matches = menuOpen
+    ? props.commands.filter((c) => c.name.toLowerCase().startsWith(needle))
+    : [];
+  const showMenu = matches.length > 0;
+  if (menuIndex.current >= matches.length) {
+    menuIndex.current = Math.max(0, matches.length - 1);
+  }
+  useInput((ch, key) => {
+    if (showMenu) {
+      if (key.upArrow) {
+        menuIndex.current = (menuIndex.current - 1 + matches.length) % matches.length;
+        return;
+      }
+      if (key.downArrow) {
+        menuIndex.current = (menuIndex.current + 1) % matches.length;
+        return;
+      }
+      if (key.tab || key.return) {
+        const picked = matches[menuIndex.current] ?? matches[0];
+        if (picked !== undefined) {
+          props.onChange(`/${picked.name} `);
+        }
+        return;
+      }
+      if (key.escape) {
+        props.onChange("");
+        return;
+      }
+    }
     if (key.upArrow) {
       if (props.history.length === 0) return;
       if (index.current === -1) {
@@ -204,10 +361,35 @@ function InputBox(props: {
       }
     }
   });
+  // 菜单打开时拦截回车补全： TextInput 自身也会因回车触发 onSubmit（旧值），在此丢弃
+  const guardedSubmit = (v: string): void => {
+    if (showMenu) {
+      return;
+    }
+    props.onSubmit(v);
+  };
   return (
-    <Box>
-      <Text dimColor>&gt; </Text>
-      <TextInput value={props.value} onChange={props.onChange} onSubmit={props.onSubmit} />
+    <Box flexDirection="column">
+      {showMenu && (
+        <Box flexDirection="column" marginBottom={0}>
+          {matches.slice(0, 8).map((c, i) => (
+            <Text
+              key={c.name}
+              color={i === menuIndex.current ? "cyan" : undefined}
+              bold={i === menuIndex.current}
+            >
+              {i === menuIndex.current ? "❯ /" : "  /"}
+              {c.name}
+              <Text dimColor={i !== menuIndex.current}>  {c.desc}</Text>
+            </Text>
+          ))}
+          <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭</Text>
+        </Box>
+      )}
+      <Box>
+        <Text dimColor>&gt; </Text>
+        <TextInput value={props.value} onChange={props.onChange} onSubmit={guardedSubmit} />
+      </Box>
     </Box>
   );
 }
@@ -230,6 +412,9 @@ export function KcodeApp(props: KcodeAppProps) {
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
   const [input, setInput] = useState("");
   const [spinVerb, setSpinVerb] = useState("思考中");
+  const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
+  const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
+  const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
   /** 转写展开态（Ctrl+O 切换）：思考全文 / 工具输出多行 */
   const [verbose, setVerbose] = useState(false);
   /** 驱动 running 态动态耗时与 busy 计时的时钟（250ms 一拍） */
@@ -355,6 +540,10 @@ export function KcodeApp(props: KcodeAppProps) {
       case "compaction_summary":
         pushBlock({ kind: "info", text: `⑂ ${event.summary}` });
         break;
+      case "llm_error":
+        flushStream();
+        pushBlock({ kind: "info", tone: "warn", text: `✗ 模型调用失败：${event.error}` });
+        break;
       case "todo_update":
         setTodos(event.todos);
         break;
@@ -427,6 +616,18 @@ export function KcodeApp(props: KcodeAppProps) {
         sessionRef.current = handle;
         setReady(true);
         pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
+        // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）
+        const mergeCommands = (): void => {
+          setCommands([
+            ...BUILTIN_COMMANDS,
+            ...handle.listCommands().map((c) => ({
+              name: c.name,
+              desc: c.source === "project" ? "（项目自定义命令）" : "（用户自定义命令）",
+            })),
+          ]);
+        };
+        mergeCommands();
+        setTimeout(mergeCommands, 600);
         if (props.oneShot !== undefined) {
           setBusy(true);
           setBusySince(Date.now());
@@ -505,17 +706,21 @@ export function KcodeApp(props: KcodeAppProps) {
       }
       if (name === "model") {
         if (args === "") {
+          // 选择菜单：默认引用 + 当前会话模型（自定义引用用 /model <provider/模型名>）
           const info = await session.models().catch(() => null);
-          pushBlock({
-            kind: "info",
-            text:
-              info === null
-                ? "模型清单获取失败（守护进程连接异常）"
-                : `当前模型：${modelLabel}
-默认引用：${info.default ?? "（未配置）"}
-providers：${info.providers.join("、") || "（无）"}
-切换：/model <provider/模型名>（如 /model glm/glm-4.7）`,
-          });
+          if (info === null) {
+            pushBlock({ kind: "info", tone: "warn", text: "模型清单获取失败（守护进程连接异常）" });
+            return;
+          }
+          const options: MenuOption[] = [];
+          if (info.default !== undefined) {
+            options.push({ key: "1", label: `${info.default}（配置默认）` });
+          }
+          if (modelLabel !== info.default) {
+            options.push({ key: "2", label: `${modelLabel}（当前会话）` });
+          }
+          options.push({ key: "q", label: "取消" });
+          setModelPicker({ options });
           return;
         }
         const error = await session.setModel(args);
@@ -525,6 +730,10 @@ providers：${info.providers.join("、") || "（无）"}
         }
         setModelLabel(args);
         pushBlock({ kind: "info", tone: "ok", text: `⭄ 模型已切换：${args}（历史保留）` });
+        return;
+      }
+      if (name === "login") {
+        setLoginWizard({ stage: "method", providerName: "", presetBaseURL: "", presetModel: "", baseURL: "", apiKey: "", model: "" });
         return;
       }
       if (name === "skills") {
@@ -590,7 +799,8 @@ ${body}
           .map((c) => `/${c.name}${c.source === "project" ? "（项目）" : "（用户）"}`);
         const builtins = [
           "/mode [名称] 切换权限模式（plan/default/acceptEdits/fullAccess）",
-          "/model [引用] 查看/切换模型（如 /model glm/glm-4.7）",
+          "/model [引用] 查看/切换模型（无参出选择菜单）",
+          "/login 配置模型厂商与 API key（向导，自动写配置）",
           "/skills · /skill <名称> 查看/手动注入技能",
           "/sessions 最近会话列表（--resume 续接）",
           "/plan 计划模式快捷切换",
@@ -741,6 +951,151 @@ ${body}
             }}
           />
         </Box>
+      ) : loginWizard !== null ? (
+        <Box flexDirection="column">
+          {loginWizard.stage === "method" ? (
+            <>
+              <Text color="magenta" bold>
+                Login · 选择模型厂商（Esc 取消）
+              </Text>
+              <OptionsMenu
+                options={LOGIN_PRESETS.map((p) => ({ key: p.key, label: p.label }))}
+                onPick={(indices) => {
+                  const preset = LOGIN_PRESETS[indices[0] ?? 0];
+                  if (preset === undefined) {
+                    setLoginWizard(null);
+                    return;
+                  }
+                  setLoginWizard({
+                    stage: "model",
+                    providerName: preset.name,
+                    presetBaseURL: preset.baseURL,
+                    presetModel: preset.model,
+                    baseURL: preset.baseURL,
+                    apiKey: "",
+                    model: preset.model,
+                  });
+                }}
+                onCancel={() => setLoginWizard(null)}
+              />
+            </>
+          ) : loginWizard.stage === "model" ? (
+            <>
+              <Text color="magenta" bold>
+                Login · 2/4 模型名
+              </Text>
+              <PromptInput
+                label="模型名: "
+                initialValue={loginWizard.presetModel}
+                onDone={(model) => setLoginWizard({ ...loginWizard, stage: "baseURL", model })}
+                onCancel={() => setLoginWizard(null)}
+              />
+            </>
+          ) : loginWizard.stage === "baseURL" ? (
+            <>
+              <Text color="magenta" bold>
+                Login · 3/4 API 地址
+              </Text>
+              <PromptInput
+                label="BaseURL: "
+                initialValue={loginWizard.presetBaseURL}
+                onDone={(baseURL) =>
+                  setLoginWizard({ ...loginWizard, stage: "apikey", baseURL: baseURL.trim() })
+                }
+                onCancel={() => setLoginWizard(null)}
+              />
+            </>
+          ) : loginWizard.stage === "apikey" ? (
+            <>
+              <Text color="magenta" bold>
+                Login · 4/4 API key（输入不回显）
+              </Text>
+              <HiddenInput
+                label="API key: "
+                onDone={(apiKey) =>
+                  setLoginWizard({ ...loginWizard, stage: "passphrase", apiKey: apiKey.trim() })
+                }
+                onCancel={() => setLoginWizard(null)}
+              />
+            </>
+          ) : (
+            <>
+              <Text color="magenta" bold>
+                Login · 设置 keychain 口令（不回显；解锁本地 key 存储）
+              </Text>
+              <HiddenInput
+                label="口令: "
+                onDone={(pass) => {
+                  const w = loginWizard;
+                  setLoginWizard(null);
+                  void (async () => {
+                    try {
+                      const keyRef = `keychain://${w.providerName}`;
+                      await saveUserModelsConfig({
+                        default: `${w.providerName}/${w.model}`,
+                        providers: {
+                          [w.providerName]: {
+                            type: "openai-compatible",
+                            baseURL: w.baseURL,
+                            keyRef,
+                          },
+                        },
+                      });
+                      const kc = new EncryptedFileKeychain(
+                        join(kcodeHome(), "keys.json"),
+                        pass,
+                      );
+                      await kc.set(keyRef, w.apiKey, [w.baseURL]);
+                      process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
+                      killDaemonByPidfile();
+                      pushBlock({
+                        kind: "info",
+                        tone: "ok",
+                        text: `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${w.providerName}/${w.model}）——重启 kcode 后以新配置启动`,
+                      });
+                    } catch (err) {
+                      pushBlock({
+                        kind: "info",
+                        tone: "warn",
+                        text: `✗ 保存失败：${err instanceof Error ? err.message : String(err)}（若提示解密失败，说明已有 keys.json 使用其他口令——删除 %USERPROFILE%\\.kcode\\keys.json 后重试 /login）`,
+                      });
+                    }
+                  })();
+                }}
+                onCancel={() => setLoginWizard(null)}
+              />
+            </>
+          )}
+        </Box>
+      ) : modelPicker !== null ? (
+        <Box flexDirection="column">
+          <Text color="magenta" bold>
+            Select model（Enter 切换 · Esc 取消；自定义模型用 /model &lt;provider/模型名&gt;）
+          </Text>
+          <OptionsMenu
+            options={modelPicker.options}
+            onPick={(indices) => {
+              const picked = modelPicker.options[indices[0] ?? 0];
+              setModelPicker(null);
+              if (picked === undefined || picked.key === "q") {
+                return;
+              }
+              const ref = picked.label.replace(/（.*$/, "");
+              void (async () => {
+                const session = sessionRef.current;
+                if (session === null) return;
+                const error = await session.setModel(ref);
+                if (error !== null) {
+                  pushBlock({ kind: "info", tone: "warn", text: `✗ 模型切换失败：${error}` });
+                  return;
+                }
+                setModelLabel(ref);
+                pushBlock({ kind: "info", tone: "ok", text: `⭄ 模型已切换：${ref}（历史保留）` });
+              })();
+            }}
+            onCancel={() => setModelPicker(null)}
+          />
+        </Box>
       ) : question !== null ? (
         <Box flexDirection="column">
           <Text color="magenta" bold>
@@ -775,7 +1130,13 @@ ${body}
             {busyElapsed}…（Ctrl+O {verbose ? "折叠" : "展开"}）
           </Text>
         ) : interactive ? (
-          <InputBox value={input} onChange={setInput} onSubmit={(v) => void submit(v)} history={inputHistory.current} />
+          <InputBox
+            value={input}
+            onChange={setInput}
+            onSubmit={(v) => void submit(v)}
+            history={inputHistory.current}
+            commands={commands}
+          />
         ) : (
           <Text dimColor>（非交互模式：仅执行一次性提问后退出）</Text>
         )

@@ -18,6 +18,8 @@ export const ClientRequest = z.discriminatedUnion("method", [
     method: z.literal("hello"),
     token: z.string().min(1),
     protocolVersion: z.number().int().positive(),
+    /** 客户端 keychain 口令设置状态：与 daemon 侧不一致 → 环境过期，客户端自动重拉 */
+    passphraseSet: z.boolean().optional(),
   }),
   z.object({ id: requestId, method: z.literal("ping") }),
   z.object({

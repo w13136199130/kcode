@@ -128,23 +128,40 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
   const { stdout } = useStdout();
   if (block.kind === "banner") {
     return (
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor="gray"
-        paddingX={1}
-        marginBottom={1}
-      >
-        <Text>
+      <Box marginBottom={1}>
+        <Box marginRight={2} flexDirection="column">
           <Text color="cyan" bold>
-            kcode
+            {"█   █  █████  █████  █████"}
           </Text>
-          <Text dimColor> · 本地优先代码助手</Text>
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          {block.model} · {block.cwd}
-        </Text>
-        <Text dimColor>/help 命令 · /mode 权限模式 · /model 换模型 · Ctrl+O 展开思考</Text>
+          <Text color="cyan" bold>
+            {"█  █  ██     ██     ██"}
+          </Text>
+          <Text color="cyan" bold>
+            {"████  ██     ██     ██"}
+          </Text>
+          <Text color="cyan" bold>
+            {"█   █  █████  █████  █████"}
+          </Text>
+          <Text dimColor> </Text>
+          <Text>
+            <Text color="cyan">kcode</Text>
+            <Text dimColor> · 本地优先代码助手</Text>
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {block.model}
+          </Text>
+          <Text dimColor wrap="truncate-end">
+            {block.cwd}
+          </Text>
+        </Box>
+        <Box flexDirection="column" paddingTop={1}>
+          <Text color="yellow" bold>
+            Tips for getting started
+          </Text>
+          <Text dimColor>输入 / 弹出命令菜单；/login 配置厂商与 key</Text>
+          <Text dimColor>/mode 权限模式 · /model 换模型 · Ctrl+O 展开思考</Text>
+          <Text dimColor>↑↓ 翻输入历史 · /help 全部命令 · exit 退出</Text>
+        </Box>
       </Box>
     );
   }

@@ -251,6 +251,7 @@ export class AgentLoop {
 
         let text = "";
         let reasoning = "";
+        let streamError: string | undefined;
         const calls: PendingCall[] = [];
         for await (const chunk of this.llm.stream({
           model: this.model,
@@ -278,7 +279,33 @@ export class AgentLoop {
               tool: chunk.tool,
               args: chunk.args,
             });
+          } else if (chunk.type === "end" && chunk.reason === "error") {
+            // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
+            streamError = chunk.error ?? "未知错误";
           }
+        }
+        if (streamError !== undefined) {
+          if (text !== "" || reasoning !== "") {
+            await this.emit({
+              v: 1,
+              type: "assistant_message",
+              ts: ts(),
+              sessionId: this.sessionId,
+              content: text,
+              ...(reasoning !== "" ? { reasoning } : {}),
+            });
+            if (calls.length === 0 && text !== "") {
+              this.history.push({ role: "assistant", content: text });
+            }
+          }
+          await this.emit({
+            v: 1,
+            type: "llm_error",
+            ts: ts(),
+            sessionId: this.sessionId,
+            error: streamError,
+          });
+          break;
         }
         if (text !== "" || reasoning !== "") {
           await this.emit({

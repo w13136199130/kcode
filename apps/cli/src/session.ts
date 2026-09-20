@@ -119,6 +119,20 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
     }
   });
 
+  // 命令清单预取：必须在 return 之前执行（写在 return 后是永不运行的死代码，
+  // 且闭包引用未初始化的 let 会触发 TDZ 报错——该 bug 自 P1 潜伏至今）
+  let commandCache: { name: string; source: "project" | "user" }[] = [];
+  void opts.client
+    .request({ method: "commands_list", cwd: opts.cwd })
+    .then((response) => {
+      if (response.kind === "commands") {
+        commandCache = response.commands;
+      }
+    })
+    .catch(() => {
+      // 命令列表获取失败不影响主流程
+    });
+
   return {
     sessionId,
     loop: {
@@ -193,20 +207,4 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
       await opts.client.request({ method: "session_trust", cwd: opts.cwd });
     },
   };
-
-  function prefetchCommands(): void {
-    void opts.client
-      .request({ method: "commands_list", cwd: opts.cwd })
-      .then((response) => {
-        if (response.kind === "commands") {
-          commandCache = response.commands;
-        }
-      })
-      .catch(() => {
-        // 命令列表获取失败不影响主流程
-      });
-  }
-
-  let commandCache: { name: string; source: "project" | "user" }[] = [];
-  prefetchCommands();
 }

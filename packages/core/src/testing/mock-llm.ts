@@ -13,6 +13,8 @@ export interface ScriptedTurn {
   textParts?: string[];
   /** 思考过程块（reasoning 模型模拟；先于正文输出） */
   reasoningParts?: string[];
+  /** 模拟 LLM 调用失败（end chunk reason=error） */
+  error?: string;
   toolCalls?: ScriptedToolCall[];
 }
 
@@ -43,6 +45,10 @@ export class ScriptedLLM implements LLMProvider {
       }
     } else if (turn.text !== undefined) {
       yield { type: "text", text: turn.text };
+    }
+    if (turn.error !== undefined) {
+      yield { type: "end", reason: "error", error: turn.error };
+      return;
     }
     for (const call of turn.toolCalls ?? []) {
       yield { type: "tool_call", callId: call.callId, tool: call.tool, args: call.args };

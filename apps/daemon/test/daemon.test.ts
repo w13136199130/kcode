@@ -27,6 +27,13 @@ class ProtocolClient {
       this.socket.on("error", reject);
     });
     this.socket.setEncoding("utf8");
+    // 连接关闭时结算全部 pending：daemon 侧 destroy 后响应可能被丢弃，不能让请求悬挂
+    this.socket.on("close", () => {
+      for (const waiter of this.pending.values()) {
+        waiter.reject(new Error("连接已关闭（daemon 侧断开）"));
+      }
+      this.pending.clear();
+    });
     this.socket.on("data", (chunk: string) => {
       this.buffer += chunk;
       let index = this.buffer.indexOf("\n");
@@ -338,6 +345,19 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     const sessions = await client.request({ method: "sessions_list" });
     expect(sessions.kind).toBe("sessions");
     expect((sessions as { sessions: { sessionId: string }[] }).sessions.length).toBeGreaterThan(0);
+    client.close();
+  });
+
+  it("hello 口令状态不一致 → 环境不匹配错误（客户端据此自动重拉）", async () => {
+    const client = new ProtocolClient();
+    await client.open(handle.pipePath);
+    // 测试 daemon 环境无口令：客户端声明有口令 → 必须被拒
+    await expect(
+      client.request({ method: "hello", token, protocolVersion: 3, passphraseSet: true }),
+    ).rejects.toThrow("环境不匹配");
+    // 声明一致（无口令）→ 正常
+    const okHello = await client.request({ method: "hello", token, protocolVersion: 3, passphraseSet: false });
+    expect(okHello.kind).toBe("hello_ok");
     client.close();
   });
 });
