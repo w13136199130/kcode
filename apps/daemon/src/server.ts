@@ -270,6 +270,25 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           });
         return;
       }
+      case "session_abort": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        // 先结算未决交互（按拒绝）：管线正等 ask 应答，不结算会挂到交互超时
+        for (const [callId, resolve] of conn.pendingAsks) {
+          resolve({ allowed: false });
+          conn.pendingAsks.delete(callId);
+        }
+        for (const [questionId, resolve] of conn.pendingQuestions) {
+          resolve([]);
+          conn.pendingQuestions.delete(questionId);
+        }
+        session.abort();
+        send(conn, { kind: "accepted", id: message.id });
+        return;
+      }
       case "session_mode": {
         const session = conn.sessions.get(message.sessionId);
         if (session === undefined) {

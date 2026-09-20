@@ -17,6 +17,8 @@ export interface SessionHandle {
     run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number }>;
   };
   sessionId: string;
+  /** 中断当前运行（Esc）：流式停止、未开始的工具调用取消 */
+  abort(): void;
   /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
   setMode(mode: PermissionMode): void;
   /** 运行期换模型（/model）：成功返回 null，失败返回错误信息 */
@@ -109,14 +111,24 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
     });
   }
 
-  const runDoneWaiters = new Set<(summary: { sessionId: string; turns: number; toolCalls: number }) => void>();
+  const runDoneWaiters = new Set<{
+    resolve: (summary: { sessionId: string; turns: number; toolCalls: number }) => void;
+    reject: (err: Error) => void;
+  }>();
   opts.client.onRunDone((sid, turns, toolCalls) => {
     if (sid === sessionId) {
       for (const waiter of runDoneWaiters) {
-        waiter({ sessionId: sid, turns, toolCalls });
+        waiter.resolve({ sessionId: sid, turns, toolCalls });
       }
       runDoneWaiters.clear();
     }
+  });
+  // daemon 掉线：未决运行立即失败，界面解除 busy 并提示续接（历史在 JSONL，可 --resume）
+  opts.client.onClose(() => {
+    for (const waiter of runDoneWaiters) {
+      waiter.reject(new Error("与守护进程的连接已断开（daemon 可能已退出）"));
+    }
+    runDoneWaiters.clear();
   });
 
   // 命令清单预取：必须在 return 之前执行（写在 return 后是永不运行的死代码，
@@ -143,10 +155,15 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
           content: input,
           ...(runOpts?.images !== undefined ? { images: runOpts.images } : {}),
         });
-        return new Promise((resolvePromise) => {
-          runDoneWaiters.add(resolvePromise);
+        return new Promise((resolvePromise, rejectPromise) => {
+          runDoneWaiters.add({ resolve: resolvePromise, reject: rejectPromise });
         });
       },
+    },
+    abort: () => {
+      void opts.client.request({ method: "session_abort", sessionId }).catch(() => {
+        // daemon 已不可达时忽略（掉线路径由 onClose 兜底）
+      });
     },
     setMode: (mode) => {
       void opts.client.request({ method: "session_mode", sessionId, mode }).catch(() => {

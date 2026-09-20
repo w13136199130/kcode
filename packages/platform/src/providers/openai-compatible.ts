@@ -59,6 +59,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       model: client(this.#options.model),
       messages: toCoreMessages(req.messages),
       tools,
+      abortSignal: req.signal,
     });
 
     let ended = false;

@@ -39,6 +39,11 @@ export const ClientRequest = z.discriminatedUnion("method", [
   }),
   z.object({
     id: requestId,
+    method: z.literal("session_abort"),
+    sessionId: z.string().min(1),
+  }),
+  z.object({
+    id: requestId,
     method: z.literal("session_mode"),
     sessionId: z.string().min(1),
     /** 四档权限模式（plan/default/acceptEdits/fullAccess） */

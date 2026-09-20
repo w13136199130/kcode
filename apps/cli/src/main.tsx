@@ -145,6 +145,17 @@ async function main(): Promise<void> {
   }
   const oneShot = words.length > 0 ? words.join(" ") : undefined;
 
+  if (process.stdin.isTTY !== true && oneShot === undefined) {
+    // 无 TTY 且无提问：打印用法退出，而不是挂着等不可能到来的输入
+    console.log(
+      "kcode —— 本地优先代码助手\n" +
+        "用法：kcode [一次性提问] [--image <路径>]... [--resume <会话id|latest>]\n" +
+        "子命令：kcode key add/list ｜ kcode plugin install/list/remove\n" +
+        "交互界面需要终端（TTY）；脚本/管道模式请附带一次性提问。",
+    );
+    process.exit(0);
+  }
+
   // 模型引用仅作显示与传递，实际供给由守护进程解析（含受众绑定校验）
   const models = await loadUserConfig();
   const modelRef = requireDefaultModelRef(models);
@@ -213,6 +224,7 @@ async function main(): Promise<void> {
     );
   }
 
+  // exitOnCtrlC=false：运行中 Ctrl+C = 中断、空闲双击 = 退出（自建 raw 层接管）
   const { waitUntilExit } = render(
     <KcodeApp
       client={client}
@@ -222,6 +234,7 @@ async function main(): Promise<void> {
       images={images.length > 0 ? images : undefined}
       resumeFrom={resumeArg}
     />,
+    { exitOnCtrlC: false },
   );
   await waitUntilExit();
   client.close();

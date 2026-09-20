@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
+import { useRawKeys } from "./raw-keys.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 
 export interface KcodeAppProps {
@@ -193,26 +194,28 @@ function OptionsMenu(props: {
   const count = props.options.length;
   const [selected, setSelected] = useState(props.initialIndex ?? 0);
   const [checked, setChecked] = useState<Set<number>>(new Set());
-  useInput((ch, key) => {
-    if (key.upArrow) {
-      setSelected((s) => (s - 1 + count) % count);
-      return;
-    }
-    if (key.downArrow) {
-      setSelected((s) => (s + 1) % count);
-      return;
-    }
-    if (key.return) {
-      if (props.multi === true) {
-        props.onPick([...checked]);
-      } else {
-        props.onPick([selected]);
+  // 特殊键（↑↓/回车/Esc）走自建 raw 层：绕开部分终端/输入法下 Ink 解析不可靠的问题
+  useRawKeys(
+    (key) => {
+      if (key.up) {
+        setSelected((s) => (s - 1 + count) % count);
+      } else if (key.down) {
+        setSelected((s) => (s + 1) % count);
+      } else if (key.enter) {
+        if (props.multi === true) {
+          props.onPick([...checked]);
+        } else {
+          props.onPick([selected]);
+        }
+      } else if (key.esc) {
+        props.onCancel();
       }
-      return;
-    }
-    if (key.escape) {
-      props.onCancel();
-      return;
+    },
+    true,
+  );
+  useInput((ch, key) => {
+    if (key.return || key.escape || key.upArrow || key.downArrow) {
+      return; // 已由 raw 层处理，避免双触发
     }
     if (props.multi === true && ch === " ") {
       setChecked((prev) => {
@@ -301,12 +304,8 @@ function InputBox(props: {
 }) {
   const draft = useRef("");
   const index = useRef(-1);
-  const menuIndex = useRef(0);
-  const prevValue = useRef(props.value);
-  if (prevValue.current !== props.value) {
-    menuIndex.current = 0;
-    prevValue.current = props.value;
-  }
+  // 菜单高亮必须是 state：ref 变更不触发重渲染（高亮会「冻结」，表现为方向键失灵）
+  const [menuIndex, setMenuIndex] = useState(0);
   const menuOpen =
     props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
   const needle = props.value.slice(1).toLowerCase();
@@ -314,53 +313,55 @@ function InputBox(props: {
     ? props.commands.filter((c) => c.name.toLowerCase().startsWith(needle))
     : [];
   const showMenu = matches.length > 0;
-  if (menuIndex.current >= matches.length) {
-    menuIndex.current = Math.max(0, matches.length - 1);
+  const clamped = Math.min(menuIndex, Math.max(0, matches.length - 1));
+  // 过滤词变化即重置高亮（渲染期调整 state 的标准模式）
+  const prevNeedle = useRef<string | null>(null);
+  if (prevNeedle.current !== needle) {
+    prevNeedle.current = needle;
+    if (menuIndex !== 0) {
+      setMenuIndex(0);
+    }
   }
-  useInput((ch, key) => {
-    if (showMenu) {
-      if (key.upArrow) {
-        menuIndex.current = (menuIndex.current - 1 + matches.length) % matches.length;
-        return;
-      }
-      if (key.downArrow) {
-        menuIndex.current = (menuIndex.current + 1) % matches.length;
-        return;
-      }
-      if (key.tab || key.return) {
-        const picked = matches[menuIndex.current] ?? matches[0];
-        if (picked !== undefined) {
-          props.onChange(`/${picked.name} `);
+  // 特殊键（↑↓/Tab/回车补全/Esc/历史翻阅）统一走 raw 层
+  useRawKeys(
+    (key) => {
+      if (showMenu) {
+        if (key.up) {
+          setMenuIndex((s) => (s - 1 + matches.length) % matches.length);
+        } else if (key.down) {
+          setMenuIndex((s) => (s + 1) % matches.length);
+        } else if (key.tab || key.enter) {
+          const picked = matches[clamped] ?? matches[0];
+          if (picked !== undefined) {
+            props.onChange(`/${picked.name} `);
+          }
+        } else if (key.esc) {
+          props.onChange("");
         }
         return;
       }
-      if (key.escape) {
-        props.onChange("");
-        return;
-      }
-    }
-    if (key.upArrow) {
-      if (props.history.length === 0) return;
-      if (index.current === -1) {
-        draft.current = props.value;
-        index.current = props.history.length - 1;
-      } else if (index.current > 0) {
-        index.current -= 1;
-      }
-      props.onChange(props.history[index.current] ?? "");
-      return;
-    }
-    if (key.downArrow) {
-      if (index.current === -1) return;
-      if (index.current < props.history.length - 1) {
-        index.current += 1;
+      if (key.up) {
+        if (props.history.length === 0) return;
+        if (index.current === -1) {
+          draft.current = props.value;
+          index.current = props.history.length - 1;
+        } else if (index.current > 0) {
+          index.current -= 1;
+        }
         props.onChange(props.history[index.current] ?? "");
-      } else {
-        index.current = -1;
-        props.onChange(draft.current);
+      } else if (key.down) {
+        if (index.current === -1) return;
+        if (index.current < props.history.length - 1) {
+          index.current += 1;
+          props.onChange(props.history[index.current] ?? "");
+        } else {
+          index.current = -1;
+          props.onChange(draft.current);
+        }
       }
-    }
-  });
+    },
+    true,
+  );
   // 菜单打开时拦截回车补全： TextInput 自身也会因回车触发 onSubmit（旧值），在此丢弃
   const guardedSubmit = (v: string): void => {
     if (showMenu) {
@@ -368,28 +369,29 @@ function InputBox(props: {
     }
     props.onSubmit(v);
   };
+  // 菜单在输入行下方（对标 Claude Code：输入框固定、候选列表向下展开）
   return (
     <Box flexDirection="column">
+      <Box>
+        <Text dimColor>&gt; </Text>
+        <TextInput value={props.value} onChange={props.onChange} onSubmit={guardedSubmit} />
+      </Box>
       {showMenu && (
-        <Box flexDirection="column" marginBottom={0}>
+        <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
             <Text
               key={c.name}
-              color={i === menuIndex.current ? "cyan" : undefined}
-              bold={i === menuIndex.current}
+              color={i === clamped ? "cyan" : undefined}
+              bold={i === clamped}
             >
-              {i === menuIndex.current ? "❯ /" : "  /"}
+              {i === clamped ? "❯ /" : "  /"}
               {c.name}
-              <Text dimColor={i !== menuIndex.current}>  {c.desc}</Text>
+              <Text dimColor={i !== clamped}>  {c.desc}</Text>
             </Text>
           ))}
           <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭</Text>
         </Box>
       )}
-      <Box>
-        <Text dimColor>&gt; </Text>
-        <TextInput value={props.value} onChange={props.onChange} onSubmit={guardedSubmit} />
-      </Box>
     </Box>
   );
 }
@@ -455,6 +457,70 @@ export function KcodeApp(props: KcodeAppProps) {
     },
     { isActive: interactive },
   );
+
+  /** 中断当前运行：发送 abort，并立即收掉挂起的交互（daemon 侧也会结算未决 ask） */
+  const interruptRun = (): void => {
+    if (!busy) {
+      return;
+    }
+    if (ask !== null) {
+      ask.resolve({ allowed: false });
+      setAsk(null);
+      pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}（随中断）` });
+    }
+    if (question !== null) {
+      question.resolve([]);
+      setQuestion(null);
+      pushBlock({ kind: "info", text: "→ 已选：（随中断取消）" });
+    }
+    sessionRef.current?.abort();
+    pushBlock({ kind: "info", tone: "warn", text: "⎋ 已请求中断当前运行…" });
+  };
+
+  const menuOccupied =
+    ask !== null ||
+    question !== null ||
+    fullAccessConfirm ||
+    modelPicker !== null ||
+    loginWizard !== null;
+
+  // Esc / Ctrl+C：busy 时都触发中断（部分终端/输入法下 Esc 不可靠，Ctrl+C 兜底）
+  useRawKeys(
+    (key) => {
+      if ((key.esc || key.ctrlC) && ready && busy && !menuOccupied) {
+        interruptRun();
+      }
+    },
+    interactive && busy,
+  );
+
+  // 空闲时 Ctrl+C：双击退出（Ink 的 exitOnCtrlC 已关，退出语义自己管）
+  const lastCtrlCAt = useRef(0);
+  useRawKeys(
+    (key) => {
+      if (key.ctrlC && ready && !busy) {
+        const now = Date.now();
+        if (now - lastCtrlCAt.current < 1500) {
+          exit();
+        } else {
+          lastCtrlCAt.current = now;
+          pushBlock({ kind: "info", tone: "warn", text: "再按一次 Ctrl+C 退出（运行中按 Ctrl+C 为中断）" });
+        }
+      }
+    },
+    interactive,
+  );
+
+  // daemon 掉线：提示重启与续接（pending 运行由 session 层 reject，busy 随之解除）
+  useEffect(() => {
+    return props.client.onClose(() => {
+      pushBlock({
+        kind: "info",
+        tone: "warn",
+        text: "✗ 与守护进程的连接已断开（daemon 可能已退出）。请 exit 后重新启动；历史可 --resume latest 续接",
+      });
+    });
+  }, []);
 
   const pushBlock = (block: Block): void => {
     setBlocks((prev) => [...prev, block]);
@@ -539,6 +605,13 @@ export function KcodeApp(props: KcodeAppProps) {
         break;
       case "compaction_summary":
         pushBlock({ kind: "info", text: `⑂ ${event.summary}` });
+        break;
+      case "run_limit_reached":
+        pushBlock({
+          kind: "info",
+          tone: "warn",
+          text: `⏸ 已达单轮步数上限（${event.maxTurns} 步，防失控保护）。上下文已保留，输入「继续」可接着做`,
+        });
         break;
       case "llm_error":
         flushStream();
@@ -1127,7 +1200,7 @@ ${body}
         busy ? (
           <Text dimColor>
             ✻ {reasoningText !== "" ? "思考中" : spinVerb}
-            {busyElapsed}…（Ctrl+O {verbose ? "折叠" : "展开"}）
+            {busyElapsed}…（Esc 中断 · Ctrl+O {verbose ? "折叠" : "展开"}）
           </Text>
         ) : interactive ? (
           <InputBox
@@ -1144,7 +1217,7 @@ ${body}
         <Text dimColor>初始化会话…</Text>
       )}
       <Text dimColor wrap="truncate-end">
-        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
+        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
       </Text>
     </Box>
   );

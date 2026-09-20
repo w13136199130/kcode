@@ -350,4 +350,52 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(sink.events.some((e) => e.type === "assistant_message")).toBe(false);
     expect(summary.turns).toBe(1);
   });
+
+  it("Esc 中断：预置 abort 信号 → 不发起 LLM 调用，session_end(aborted)", async () => {
+    const llm = new ScriptedLLM([{ text: "不应被调用" }]);
+    const sink = new MemorySink();
+    const controller = new AbortController();
+    controller.abort();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+      },
+      { sessionId: "sess_abort1", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+    await loop.run("做点什么", { signal: controller.signal });
+    expect(llm.requests).toHaveLength(0);
+    const end = sink.events.find((e) => e.type === "session_end");
+    expect(end).toMatchObject({ type: "session_end", reason: "aborted" });
+    expect(sink.events.some((e) => e.type === "run_limit_reached")).toBe(false);
+  });
+
+  it("轮次上限：到顶发 run_limit_reached，session_end(aborted)，历史保留", async () => {
+    const echo = echoTool([]);
+    const llm = new ScriptedLLM([
+      { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "hi" } }] },
+      { toolCalls: [{ callId: "c2", tool: "echo", args: { msg: "again" } }] },
+    ]);
+    const sink = new MemorySink();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([echo]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+      },
+      { sessionId: "sess_limit1", model: "m", systemPrompt: "t", maxTurns: 1, now: () => 0 },
+    );
+    await loop.run("一直做");
+    const limit = sink.events.find((e) => e.type === "run_limit_reached");
+    expect(limit).toMatchObject({ type: "run_limit_reached", maxTurns: 1 });
+    const end = sink.events.find((e) => e.type === "session_end");
+    expect(end).toMatchObject({ type: "session_end", reason: "aborted" });
+  });
 });

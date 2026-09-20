@@ -176,7 +176,10 @@ export class AgentLoop {
     await this.ports.sink.append(event);
   }
 
-  async run(userInput: string, runOpts: { images?: string[] } = {}): Promise<RunSummary> {
+  async run(
+    userInput: string,
+    runOpts: { images?: string[]; signal?: AbortSignal } = {},
+  ): Promise<RunSummary> {
     const ts = this.now;
     if (!this.started) {
       this.started = true;
@@ -224,8 +227,12 @@ export class AgentLoop {
     const maxTurns = this.opts.maxTurns ?? 20;
     let turns = 0;
     let toolCalls = 0;
+    const signal = runOpts.signal;
     try {
       while (turns < maxTurns) {
+        if (signal?.aborted) {
+          break;
+        }
         turns++;
         // 压缩在组装之前执行：超预算先生成摘要替换旧历史，再拼装本轮请求
         const compacted = await this.maybeCompact();
@@ -253,36 +260,61 @@ export class AgentLoop {
         let reasoning = "";
         let streamError: string | undefined;
         const calls: PendingCall[] = [];
-        for await (const chunk of this.llm.stream({
-          model: this.model,
-          messages,
-          tools: tools.map((t) => ({
-            name: t.definition.name,
-            description: t.definition.description,
-            parameters: t.definition.parameters,
-          })),
-        })) {
-          if (chunk.type === "reasoning") {
-            reasoning += chunk.text;
-            this.ports.onReasoning?.(chunk.text);
-          } else if (chunk.type === "text") {
-            text += chunk.text;
-            this.ports.onDelta?.(chunk.text);
-          } else if (chunk.type === "tool_call") {
-            calls.push({ callId: chunk.callId, tool: chunk.tool, args: chunk.args });
+        try {
+          for await (const chunk of this.llm.stream({
+            model: this.model,
+            messages,
+            tools: tools.map((t) => ({
+              name: t.definition.name,
+              description: t.definition.description,
+              parameters: t.definition.parameters,
+            })),
+            signal,
+          })) {
+            if (chunk.type === "reasoning") {
+              reasoning += chunk.text;
+              this.ports.onReasoning?.(chunk.text);
+            } else if (chunk.type === "text") {
+              text += chunk.text;
+              this.ports.onDelta?.(chunk.text);
+            } else if (chunk.type === "tool_call") {
+              calls.push({ callId: chunk.callId, tool: chunk.tool, args: chunk.args });
+              await this.emit({
+                v: 1,
+                type: "tool_call",
+                ts: ts(),
+                sessionId: this.sessionId,
+                callId: chunk.callId,
+                tool: chunk.tool,
+                args: chunk.args,
+              });
+            } else if (chunk.type === "end" && chunk.reason === "error") {
+              // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
+              streamError = chunk.error ?? "未知错误";
+            }
+          }
+        } catch (err) {
+          if (signal?.aborted) {
+            // 用户中断：流被掐断是预期行为，不作为错误
+          } else {
+            throw err;
+          }
+        }
+        if (signal?.aborted) {
+          if (text !== "" || reasoning !== "") {
             await this.emit({
               v: 1,
-              type: "tool_call",
+              type: "assistant_message",
               ts: ts(),
               sessionId: this.sessionId,
-              callId: chunk.callId,
-              tool: chunk.tool,
-              args: chunk.args,
+              content: text,
+              ...(reasoning !== "" ? { reasoning } : {}),
             });
-          } else if (chunk.type === "end" && chunk.reason === "error") {
-            // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
-            streamError = chunk.error ?? "未知错误";
+            if (text !== "") {
+              this.history.push({ role: "assistant", content: text });
+            }
           }
+          break;
         }
         if (streamError !== undefined) {
           if (text !== "" || reasoning !== "") {
@@ -328,7 +360,7 @@ export class AgentLoop {
         this.history.push({ role: "assistant", content: text, toolCalls: calls });
 
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
-        const results = await this.executeCalls(calls, tools);
+        const results = await this.executeCalls(calls, tools, signal);
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
           const { result, durationMs } = results[i]!;
@@ -352,12 +384,22 @@ export class AgentLoop {
         }
       }
     } finally {
+      if (turns >= maxTurns && !(signal?.aborted)) {
+        // 防失控上限到顶：明确告知（历史保留，用户可输入「继续」接着做）
+        await this.emit({
+          v: 1,
+          type: "run_limit_reached",
+          ts: ts(),
+          sessionId: this.sessionId,
+          maxTurns,
+        });
+      }
       await this.emit({
         v: 1,
         type: "session_end",
         ts: ts(),
         sessionId: this.sessionId,
-        reason: turns >= maxTurns ? "aborted" : "completed",
+        reason: turns >= maxTurns || signal?.aborted ? "aborted" : "completed",
       });
       await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
     }
@@ -376,6 +418,7 @@ export class AgentLoop {
   private async executeCalls(
     calls: PendingCall[],
     tools: Tool[],
+    signal?: AbortSignal,
   ): Promise<Array<{ result: ToolOutput; durationMs: number }>> {
     const byName = new Map(tools.map((t) => [t.definition.name, t] as const));
     const allReadOnly = calls.every((c) => byName.get(c.tool)?.definition.readOnly === true);
@@ -384,6 +427,14 @@ export class AgentLoop {
     }
     const results: Array<{ result: ToolOutput; durationMs: number }> = [];
     for (const call of calls) {
+      if (signal?.aborted) {
+        // 用户中断：未开始的调用直接按取消结算（已在执行中的由其自身超时收敛）
+        results.push({
+          result: { ok: false, output: "", error: "aborted（用户中断）" },
+          durationMs: 0,
+        });
+        continue;
+      }
       results.push(await this.executeOne(byName, call));
     }
     return results;

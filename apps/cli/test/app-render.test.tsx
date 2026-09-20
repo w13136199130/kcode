@@ -21,7 +21,9 @@ vi.mock("../src/session.js", () => ({
 
 import { KcodeApp } from "../src/tui/App.js";
 
-const fakeClient = {} as DaemonClient;
+const fakeClient = {
+  onClose: () => () => {},
+} as unknown as DaemonClient;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

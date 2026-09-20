@@ -44,6 +44,8 @@ export interface ComposedSession {
   loop: AgentLoop;
   sessionId: string;
   jsonlPath: string;
+  /** 中断当前运行（Esc abort）：流式立即停止、未开始的工具调用取消 */
+  abort(): void;
   /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
   setMode(mode: PermissionMode): void;
   /** 运行期换模型（/model）：重建 LLM 与摘要器，历史保留；解析失败抛错 */
@@ -228,10 +230,23 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       maxTurns: 24,
     },
   );
+  // 当前运行的 abort 控制器（会话内串行运行；run 结束自动清空）
+  let activeAbort: AbortController | null = null;
+  const rawLoopRun = loop.run.bind(loop);
+  loop.run = (input: string, runOpts: { images?: string[] } = {}) => {
+    const controller = new AbortController();
+    activeAbort = controller;
+    return rawLoopRun(input, { ...runOpts, signal: controller.signal }).finally(() => {
+      activeAbort = null;
+    });
+  };
   return {
     loop,
     sessionId,
     jsonlPath,
+    abort: () => {
+      activeAbort?.abort();
+    },
     setMode: (mode: PermissionMode) => {
       // 切入 plan 档清空会话级放行：只读姿态不被历史放行打穿
       if (mode === "plan") {

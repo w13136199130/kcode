@@ -115,6 +115,15 @@ export const PermissionDecisionEvent = z.object({
   detail: z.string().optional(),
 });
 
+/** 单轮步数到顶（防失控保护）：历史保留，用户输入「继续」可接着做 */
+export const RunLimitReachedEvent = z.object({
+  v: v1,
+  type: z.literal("run_limit_reached"),
+  ts,
+  sessionId,
+  maxTurns: z.number().int().positive(),
+});
+
 /** LLM 调用失败（流中断/鉴权错/模型不存在等）：界面必须可见，绝不能静默吞掉 */
 export const LlmErrorEvent = z.object({
   v: v1,
@@ -136,6 +145,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   SessionEndEvent,
   PermissionDecisionEvent,
   LlmErrorEvent,
+  RunLimitReachedEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

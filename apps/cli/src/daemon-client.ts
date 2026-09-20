@@ -157,10 +157,24 @@ export class DaemonClient {
     }
   }
 
-  request(payload: Record<string, unknown>): Promise<ServerMessageType> {
+  request(payload: Record<string, unknown>, timeoutMs = 15_000): Promise<ServerMessageType> {
     const id = this.#nextId++;
     return new Promise((resolvePromise, reject) => {
-      this.#pending.set(id, { resolve: resolvePromise, reject });
+      // 请求必须有界：daemon 丢失/管道断裂时不能让上层永久悬挂
+      const timer = setTimeout(() => {
+        this.#pending.delete(id);
+        reject(new Error("守护进程请求超时（daemon 可能已停止响应）"));
+      }, timeoutMs);
+      this.#pending.set(id, {
+        resolve: (m) => {
+          clearTimeout(timer);
+          resolvePromise(m);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       this.#socket.write(`${JSON.stringify({ ...payload, id })}\n`);
     });
   }

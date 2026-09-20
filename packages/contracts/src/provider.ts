@@ -95,6 +95,8 @@ export interface LLMRequest {
   model: string;
   messages: ChatMessage[];
   tools?: LLMToolSpec[];
+  /** 中断信号（Esc abort）：provider 应传给底层 SDK 立即停止流式 */
+  signal?: AbortSignal;
 }
 
 /**
