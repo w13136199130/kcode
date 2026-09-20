@@ -114,7 +114,23 @@ triggers:
 输入任何包含"审查"的话，技能正文会自动注入本轮上下文（界面显示 📖 已加载）。
 Any prompt containing a trigger word auto-loads the skill body into the turn (shown as 📖 loaded).
 
-**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务 · timeout & background tasks）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
+**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务 · timeout & background tasks）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
+
+## 扩展系统 | Extensions
+
+**钩子 Hooks**（`~/.kcode/hooks.json`；项目级 `.kcode/hooks.json` 需先 `/trust` 信任项目）：
+```json
+{ "hooks": [{ "event": "pre_tool_use", "command": "node ./guard.mjs", "timeoutMs": 10000 }] }
+```
+事件：`session_start` / `pre_tool_use` / `post_tool_use` / `stop`。命令经 shell 执行，stdin 收到 JSON 载荷；裁决协议：退出码 0 放行、退出码 2 拦截（stdout 作为原因）、stdout JSON `{action, args, reason}` 支持改参与拦截；超时/失败放行并告警。
+
+**斜杠命令 Slash commands**：`.kcode/commands/<name>.md`（项目级）或 `~/.kcode/commands/<name>.md`（用户级），同名项目覆盖用户。模板中 `$ARGUMENTS` 替换为命令后参数。内置：`/plan` `/trust` `/help`。
+
+**MCP 服务器**（`~/.kcode/mcp.json`，stdio 独立进程，权限预设中走 ask 确认）：
+```json
+{ "servers": [{ "name": "fs", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] }] }
+```
+接入后工具命名为 `mcp__<服务器>__<工具>`，与内置工具同构——权限、钩子、审计对 MCP 工具同样生效。单个服务器失败不阻断会话。
 
 ---
 

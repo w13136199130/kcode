@@ -8,18 +8,23 @@ import type {
   SessionSink,
   UserPromptPort,
 } from "@kcode/contracts";
-import { AgentLoop, InMemoryToolRegistry, MemoryAudit, noHooks } from "@kcode/core";
+import { McpServersFile } from "@kcode/contracts";
+import { AgentLoop, InMemoryToolRegistry, MemoryAudit } from "@kcode/core";
 import {
+  CommandLibrary,
   DEFAULT_RULES,
   FsSkillLibrary,
   MutablePermissionEngine,
+  ProcessHookRunner,
   READONLY_RULES,
   RuleBasedPermissionEngine,
+  loadHookConfigs,
+  trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
 import { createSessionsTool, JsonlSessionSink } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
-import { createSessionTools } from "@kcode/tools";
+import { connectMcpServers, createSessionTools } from "@kcode/tools";
 import { kcodeHome } from "./bootstrap.js";
 
 export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
@@ -36,10 +41,16 @@ export const PLAN_MODE_SUFFIX = `
 export interface SessionHandle {
   loop: AgentLoop;
   sessionId: string;
-  /** 会话 JSONL（ADR-7：append-only，回放/eval 复用） */
+  /** 会话 JSONL 落盘路径（append-only，回放/续接复用） */
   jsonlPath: string;
-  /** 计划模式切换（§1.1 A 域）：readonly 权限 + 计划 system prompt */
+  /** 计划模式切换：readonly 权限 + 计划 system prompt */
   setPlanMode(on: boolean): void;
+  /** 已发现的斜杠命令（供 /help 展示） */
+  listCommands(): { name: string; source: "project" | "user" }[];
+  /** 展开自定义命令模板；不存在返回 null */
+  expandCommand(name: string, args: string): Promise<string | null>;
+  /** 把当前项目写入受信任清单（项目级 hooks/技能的门控前提） */
+  trustProject(): Promise<void>;
 }
 
 /** AGENTS.md 记忆（§5.3）：项目级优先，用户级追加，均缺失则 undefined */
@@ -99,6 +110,25 @@ export async function createSession(opts: {
     ],
     opts.onNotice,
   );
+  // 钩子：用户级始终生效，项目级需项目受信任（防止克隆仓库自动执行命令）
+  const hookConfigs = await loadHookConfigs({
+    userDir: kcodeHome(),
+    projectDir: opts.cwd,
+    trustFile: join(kcodeHome(), "trusted-projects.json"),
+    onWarn: opts.onNotice,
+  });
+  const hooks = new ProcessHookRunner(hookConfigs, { sessionId, onWarn: opts.onNotice });
+  // 斜杠命令：项目级覆盖用户级同名命令
+  const commands = await CommandLibrary.open(
+    [
+      { dir: join(opts.cwd, ".kcode", "commands"), source: "project" },
+      { dir: join(kcodeHome(), "commands"), source: "user" },
+    ],
+    opts.onNotice,
+  );
+  // MCP 服务器：独立进程接入，单个失败不阻断会话
+  const mcpSessions = await connectMcpServers(await loadMcpConfigs(), { onWarn: opts.onNotice });
+  const mcpTools = mcpSessions.flatMap((s) => s.tools);
   const loop = new AgentLoop(
     {
       llm: opts.llm,
@@ -110,11 +140,11 @@ export async function createSession(opts: {
           sink,
           prompt: opts.askUser,
         }),
-        // sessions 工具在 runtime 包（能力层互引规则，组合层合并）
         createSessionsTool({ sessionsDir: join(kcodeHome(), "cli", "sessions") }),
+        ...mcpTools,
       ]),
       permissions,
-      hooks: noHooks,
+      hooks,
       sink,
       audit: new MemoryAudit().sink,
       asker: opts.asker,
@@ -142,5 +172,33 @@ export async function createSession(opts: {
     );
     loop.updateSystemPrompt(SYSTEM_PROMPT + (on ? PLAN_MODE_SUFFIX : ""));
   };
-  return { loop, sessionId, jsonlPath, setPlanMode };
+  return {
+    loop,
+    sessionId,
+    jsonlPath,
+    setPlanMode,
+    listCommands: () => commands.list().map((c) => ({ name: c.name, source: c.source })),
+    expandCommand: (name, args) => commands.expand(name, args),
+    trustProject: () => trustProjectOnFile(opts.cwd, join(kcodeHome(), "trusted-projects.json")),
+  };
+}
+
+/** 读取用户级 MCP 配置（~/.kcode/mcp.json）；缺失或非法按空处理 */
+async function loadMcpConfigs() {
+  const path = join(kcodeHome(), "mcp.json");
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch {
+    return [];
+  }
+  try {
+    const parsed = McpServersFile.safeParse(JSON.parse(raw));
+    if (!parsed.success) {
+      return [];
+    }
+    return parsed.data.servers;
+  } catch {
+    return [];
+  }
 }

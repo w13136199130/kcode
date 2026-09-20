@@ -130,10 +130,17 @@ export function createBashTool(opts: BashToolOptions): Tool {
   };
 }
 
-/** §6：Windows 优先 PowerShell（-NoProfile -NonInteractive 防配置噪音），fallback 由宿主环境决定 */
+/**
+ * 跨平台 shell 选择：Windows 用 PowerShell（无配置加载），其余用 bash。
+ * Windows 侧显式 `exit $LASTEXITCODE`——PowerShell 默认把子进程非零退出码改写为 1，
+ * 会丢失真实退出码（如 exit 3 的语义）。
+ */
 function shellCommand(command: string): { file: string; args: string[] } {
   if (process.platform === "win32") {
-    return { file: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-Command", command] };
+    return {
+      file: "powershell.exe",
+      args: ["-NoProfile", "-NonInteractive", "-Command", `${command}; exit $LASTEXITCODE`],
+    };
   }
   return { file: "bash", args: ["-c", command] };
 }

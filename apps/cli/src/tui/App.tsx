@@ -253,21 +253,63 @@ export function KcodeApp(props: KcodeAppProps) {
       exit();
       return;
     }
-    if (text === "/plan") {
-      const next = !planMode;
-      setPlanMode(next);
-      sessionRef.current.setPlanMode(next);
-      pushBlock({
-        kind: "info",
-        text: next ? "计划模式已开启（只读研究，写/命令将被拒绝）" : "已切回执行模式（写/命令需确认）",
-      });
+    const session = sessionRef.current;
+
+    if (text.startsWith("/")) {
+      const body = text.slice(1);
+      const spaceIndex = body.indexOf(" ");
+      const name = spaceIndex === -1 ? body : body.slice(0, spaceIndex);
+      const args = spaceIndex === -1 ? "" : body.slice(spaceIndex + 1).trim();
       setInput("");
+
+      if (name === "plan") {
+        const next = !planMode;
+        setPlanMode(next);
+        session.setPlanMode(next);
+        pushBlock({
+          kind: "info",
+          text: next
+            ? "计划模式已开启（只读研究，写/命令将被拒绝）"
+            : "已切回执行模式（写/命令需确认）",
+        });
+        return;
+      }
+      if (name === "trust") {
+        await session.trustProject();
+        pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
+        return;
+      }
+      if (name === "help") {
+        const customs = session
+          .listCommands()
+          .map((c) => `/${c.name}${c.source === "project" ? "（项目）" : "（用户）"}`);
+        const builtins = ["/plan 切换计划模式", "/trust 信任当前项目", "/help 显示本帮助", "exit 退出"];
+        pushBlock({
+          kind: "info",
+          text: `内置命令：\n${builtins.join("\n")}${customs.length > 0 ? `\n自定义命令：\n${customs.join("\n")}` : "\n（暂无自定义命令，可在 .kcode/commands/*.md 添加）"}`,
+        });
+        return;
+      }
+      const expanded = await session.expandCommand(name, args);
+      if (expanded === null) {
+        pushBlock({ kind: "info", text: `未知命令 /${name}（/help 查看可用命令）` });
+        return;
+      }
+      setBusy(true);
+      try {
+        await session.loop.run(expanded);
+      } catch (err) {
+        pushBlock({ kind: "info", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
+      } finally {
+        setBusy(false);
+      }
       return;
     }
+
     setInput("");
     setBusy(true);
     try {
-      await sessionRef.current.loop.run(text);
+      await session.loop.run(text);
     } catch (err) {
       pushBlock({ kind: "info", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
     } finally {

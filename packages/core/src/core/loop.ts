@@ -138,6 +138,7 @@ export class AgentLoop {
         sessionId: this.sessionId,
         model: this.opts.model,
       });
+      await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
     }
     await this.emit({
       v: 1,
@@ -276,8 +277,18 @@ export class AgentLoop {
         sessionId: this.sessionId,
         reason: turns >= maxTurns ? "aborted" : "completed",
       });
+      await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
     }
     return { sessionId: this.sessionId, turns, toolCalls };
+  }
+
+  /** 会话级钩子：失败只记录不抛出——钩子故障不应中断会话主流程 */
+  private async fireLifecycleHook(invoke: (hooks: HookRunner) => Promise<void> | void): Promise<void> {
+    try {
+      await invoke(this.ports.hooks);
+    } catch {
+      // 生命周期钩子异常静默降级；工具级钩子的错误处理在管线内完成
+    }
   }
 
   private async executeCalls(calls: PendingCall[], tools: Tool[]): Promise<ToolOutput[]> {

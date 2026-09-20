@@ -57,10 +57,14 @@ export interface HookPreOutcome {
   reason?: string;
 }
 
-/** hooks 端口（§5.4：stdin JSON、退出码/JSON 决定放行或拦截；P3 接进程实现） */
+/** hooks 端口（stdin JSON、退出码/JSON 决定放行或拦截；进程执行由 extensions 实现） */
 export interface HookRunner {
   preToolUse(call: ToolCallRef): Promise<HookPreOutcome>;
   postToolUse(call: ToolCallRef, result: ToolOutput): Promise<void>;
+  /** 会话开始钩子（可选实现；失败不阻断会话） */
+  onSessionStart?(payload: { sessionId: string }): Promise<void>;
+  /** 会话结束钩子（可选实现；失败不阻断会话） */
+  onStop?(payload: { sessionId: string }): Promise<void>;
 }
 
 /**

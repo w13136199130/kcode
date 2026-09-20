@@ -12,7 +12,7 @@ import {
   noHooks,
 } from "@kcode/core";
 import { JsonlSessionSink, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
-import { echoToolFor } from "./helpers.js";
+import { simpleEchoTool } from "./helpers.js";
 
 let root: string;
 
@@ -36,7 +36,7 @@ describe("P2-3 E2E：会话 A 落盘 → resume 分支续接", () => {
           { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "P23" } }] },
           { text: "旧会话结论：P23 已确认。" },
         ]),
-        tools: new InMemoryToolRegistry([echoToolFor()]),
+        tools: new InMemoryToolRegistry([simpleEchoTool()]),
         permissions: allowAll,
         hooks: noHooks,
         sink: sinkA,
@@ -60,7 +60,7 @@ describe("P2-3 E2E：会话 A 落盘 → resume 分支续接", () => {
     const loopB = new AgentLoop(
       {
         llm: llmB,
-        tools: new InMemoryToolRegistry([echoToolFor()]),
+        tools: new InMemoryToolRegistry([simpleEchoTool()]),
         permissions: allowAll,
         hooks: noHooks,
         sink: new MemorySink(),
