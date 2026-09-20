@@ -7,6 +7,7 @@ import {
   type SessionEvent,
   type SessionSink,
   type SkillPort,
+  type SummarizerPort,
   type Tool,
   type ToolOutput,
   type ToolRegistry,
@@ -14,7 +15,11 @@ import {
 import { newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
 import { DEFAULT_BUDGET, type Budget } from "../context/budget.js";
-import { compactHistory } from "../context/compact.js";
+import {
+  applyCompaction,
+  planCompaction,
+  type CompactionResult,
+} from "../context/compact.js";
 import { ToolPipeline, type AuditSink } from "./pipeline.js";
 
 export interface AgentLoopPorts {
@@ -28,8 +33,10 @@ export interface AgentLoopPorts {
   asker?: PermissionAsker;
   /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在完成时落 assistant_message */
   onDelta?: (delta: string) => void;
-  /** 技能库（§5.2 渐进加载/自动触发；core 零 IO，extensions 实现） */
+  /** 技能库（渐进加载/自动触发；core 零 IO，extensions 实现） */
   skills?: SkillPort;
+  /** 历史摘要器：上下文超预算时生成结构化摘要；缺省时退化为占位压缩 */
+  summarizer?: SummarizerPort;
 }
 
 export interface AgentLoopOptions {
@@ -96,6 +103,26 @@ export class AgentLoop {
     return this.opts.now ?? Date.now;
   }
 
+  /**
+   * 上下文压缩：历史超预算时，把较早消息交给摘要器生成结构化摘要，
+   * 以「任务锚点 + 摘要 + 近期原文」替换原历史；未配置摘要器时退化为计数占位。
+   */
+  private async maybeCompact(): Promise<CompactionResult | null> {
+    const plan = planCompaction(this.history, this.opts.budget ?? DEFAULT_BUDGET);
+    if (plan === null) {
+      return null;
+    }
+    let summary: string;
+    if (this.ports.summarizer !== undefined) {
+      summary = await this.ports.summarizer.summarize({ messages: plan.toSummarize });
+    } else {
+      summary = `【历史压缩】已折叠 ${plan.toSummarize.length} 条较早消息（未配置摘要器，仅保留任务与近期上下文）`;
+    }
+    const applied = applyCompaction(plan, summary);
+    this.history = applied.history;
+    return { summary, dropped: applied.dropped };
+  }
+
   private async emit(event: SessionEvent): Promise<void> {
     await this.ports.sink.append(event);
   }
@@ -150,17 +177,16 @@ export class AgentLoop {
     try {
       while (turns < maxTurns) {
         turns++;
-        // 压缩时机由 context 决定（§5.2）：超预算先压缩再组装，摘要事件写回 JSONL（回放可见）
-        const compaction = compactHistory(this.history, this.opts.budget ?? DEFAULT_BUDGET);
-        if (compaction) {
-          this.history = compaction.history;
+        // 压缩在组装之前执行：超预算先生成摘要替换旧历史，再拼装本轮请求
+        const compacted = await this.maybeCompact();
+        if (compacted !== null) {
           await this.emit({
             v: 1,
             type: "compaction_summary",
             ts: ts(),
             sessionId: this.sessionId,
-            summary: compaction.summary,
-            dropped: compaction.dropped,
+            summary: compacted.summary,
+            dropped: compacted.dropped,
           });
         }
 

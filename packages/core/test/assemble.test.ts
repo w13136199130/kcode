@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage, SkillMeta, ToolDefinition } from "@kcode/contracts";
 import { assembleMessages } from "../src/context/assemble.js";
 import { DEFAULT_BUDGET } from "../src/context/budget.js";
-import { compactHistory } from "../src/context/compact.js";
+import {
+  COMPACTION_KEEP_TAIL,
+  COMPACTION_MIN_MESSAGES,
+  applyCompaction,
+  planCompaction,
+} from "../src/context/compact.js";
 
 const tool = (name: string): ToolDefinition => ({
   name,
@@ -55,25 +60,36 @@ describe("cache 友好组装（§5.2）", () => {
   });
 });
 
-describe("压缩（§5.2）", () => {
-  it("超预算触发压缩：丢中段 tool 消息并产出摘要", () => {
-    const history: ChatMessage[] = [
-      { role: "user", content: "start" },
-      { role: "assistant", content: "ok" },
-      { role: "tool", content: "x".repeat(400), toolCallId: "c1", name: "echo" },
-      { role: "tool", content: "y".repeat(400), toolCallId: "c2", name: "echo" },
-      { role: "assistant", content: "end" },
-      { role: "user", content: "next" },
-    ];
-    const tiny = { ...DEFAULT_BUDGET, history: 100 };
-    const outcome = compactHistory(history, tiny);
-    expect(outcome).not.toBeNull();
-    expect(outcome?.dropped).toBe(2);
-    expect(outcome?.summary).toContain("compacted");
+describe("上下文压缩方案", () => {
+  const tiny = { ...DEFAULT_BUDGET, history: 10 };
+
+  it("未超预算或历史过短不触发压缩", () => {
+    expect(planCompaction([{ role: "user", content: "small" }], DEFAULT_BUDGET)).toBeNull();
+    const tooShort = Array.from({ length: COMPACTION_MIN_MESSAGES - 1 }, (_, i) => ({
+      role: "user" as const,
+      content: `${i}`,
+    }));
+    expect(planCompaction(tooShort, tiny)).toBeNull();
   });
 
-  it("未超预算不压缩", () => {
-    const history: ChatMessage[] = [{ role: "user", content: "small" }];
-    expect(compactHistory(history, DEFAULT_BUDGET)).toBeNull();
+  it("超预算时切分：近期保留、较早进摘要区、首条用户消息为任务锚点", () => {
+    const history: ChatMessage[] = [
+      { role: "user", content: "任务目标" },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        role: (i % 2 === 0 ? "assistant" : "user") as "assistant" | "user",
+        content: "x".repeat(60),
+      })),
+    ];
+    const plan = planCompaction(history, tiny);
+    expect(plan).not.toBeNull();
+    expect(plan?.keepTail).toHaveLength(COMPACTION_KEEP_TAIL);
+    expect(plan?.toSummarize).toHaveLength(history.length - COMPACTION_KEEP_TAIL);
+    expect(plan?.taskAnchor?.content).toBe("任务目标");
+
+    const applied = applyCompaction(plan!, "【摘要】ok");
+    expect(applied.dropped).toBe(history.length - COMPACTION_KEEP_TAIL);
+    expect(applied.history[0]?.content).toBe("任务目标");
+    expect(applied.history[1]).toMatchObject({ role: "assistant", content: "【摘要】ok" });
+    expect(applied.history.at(-1)).toBe(history.at(-1));
   });
 });

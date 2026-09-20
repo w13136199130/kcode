@@ -17,6 +17,7 @@ import {
   RuleBasedPermissionEngine,
 } from "@kcode/extensions";
 import { createSessionsTool, JsonlSessionSink } from "@kcode/runtime";
+import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
 import { createSessionTools } from "@kcode/tools";
 import { kcodeHome } from "./bootstrap.js";
@@ -119,6 +120,8 @@ export async function createSession(opts: {
       asker: opts.asker,
       onDelta: opts.onDelta,
       skills,
+      // 历史压缩摘要器：复用会话模型；后续可按任务路由到更便宜的模型实例
+      summarizer: new LlmSummarizer(opts.llm, opts.model),
     },
     {
       sessionId,

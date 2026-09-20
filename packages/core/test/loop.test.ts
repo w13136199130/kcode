@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent, Tool, ToolDefinition } from "@kcode/contracts";
+import { DEFAULT_BUDGET } from "../src/context/budget.js";
 import { AgentLoop } from "../src/core/loop.js";
 import {
   InMemoryToolRegistry,
@@ -157,6 +158,60 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(
       sink.events.some((e) => e.type === "skill_used" && e.skill === "code-review"),
     ).toBe(true);
+  });
+
+  it("超预算触发模型摘要压缩：摘要与任务锚点进入后续请求", async () => {
+    const llm = new ScriptedLLM([
+      { toolCalls: [{ callId: "c1", tool: "dump", args: {} }] },
+      { toolCalls: [{ callId: "c2", tool: "dump", args: {} }] },
+      { toolCalls: [{ callId: "c3", tool: "dump", args: {} }] },
+      { text: "首轮完成" },
+      { text: "第二轮回答" },
+    ]);
+    const dump: Tool = {
+      definition: {
+        name: "dump",
+        description: "输出大段内容",
+        parameters: { type: "object" },
+        readOnly: false,
+      },
+      execute: async () => ({ ok: true, output: "y".repeat(8000) }),
+    };
+    const summarized: number[] = [];
+    const sink = new MemorySink();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([dump]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        summarizer: {
+          summarize: async (input) => {
+            summarized.push(input.messages.length);
+            return "【摘要】任务=验证压缩；已读取三个大文件，内容无异常。";
+          },
+        },
+      },
+      {
+        sessionId: "sess_compact",
+        model: "m",
+        systemPrompt: "t",
+        now: () => 0,
+        budget: { ...DEFAULT_BUDGET, history: 100 },
+      },
+    );
+    await loop.run("开始任务：保持目标");
+    await loop.run("第二问");
+
+    const event = sink.events.find((e) => e.type === "compaction_summary");
+    expect(event && "summary" in event ? event.summary : "").toContain("【摘要】");
+    expect(summarized.length).toBeGreaterThanOrEqual(1);
+    // 第二次提问的请求是最后一次：压缩后的历史里应同时有任务锚点与摘要
+    const second = llm.requests[llm.requests.length - 1]?.messages ?? [];
+    expect(second.some((m) => m.content === "开始任务：保持目标")).toBe(true);
+    expect(second.some((m) => m.content.includes("任务=验证压缩"))).toBe(true);
   });
 
   it("权限 deny：工具不执行、留审计、结果标记失败", async () => {

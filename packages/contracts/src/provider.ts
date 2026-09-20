@@ -106,3 +106,16 @@ export interface LLMProvider {
   id: string;
   stream(req: LLMRequest): AsyncIterable<LLMChunk>;
 }
+
+/** 历史摘要器的输入：待压缩的历史消息（按时间先后排列） */
+export interface SummarizerInput {
+  messages: ChatMessage[];
+}
+
+/**
+ * 历史摘要器端口：会话历史超出 token 预算时，把较早的对话压缩为摘要文本。
+ * 由组合层注入实现（本地/便宜模型均可），核心层不感知其实现方式。
+ */
+export interface SummarizerPort {
+  summarize(input: SummarizerInput): Promise<string>;
+}
