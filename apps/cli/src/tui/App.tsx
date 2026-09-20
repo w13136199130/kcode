@@ -14,7 +14,7 @@ import type {
 } from "@kcode/contracts";
 import type { DaemonClient } from "../daemon-client.js";
 import { createSession } from "../session.js";
-import { BlockView, TodoPanel, type Block } from "./Transcript.js";
+import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -29,13 +29,16 @@ export interface KcodeAppProps {
   resumeFrom?: string;
 }
 
-/** 四档权限模式的界面元数据（与 extensions/RULES_BY_MODE 一一对应） */
-const MODE_META: Record<PermissionMode, { icon: string; label: string; hint: string; color: string }> = {
-  plan: { icon: "🔒", label: "计划模式·只读", hint: "只读研究，写/命令将被拒绝", color: "magenta" },
-  default: { icon: "🛡️", label: "变更确认", hint: "读放行，写/命令逐次确认", color: "cyan" },
-  acceptEdits: { icon: "✏️", label: "自动编辑", hint: "文件编辑自动放行，命令仍确认", color: "green" },
-  fullAccess: { icon: "⚡", label: "完全访问", hint: "全自动（谨慎使用）", color: "red" },
+/** 四档权限模式的界面元数据（与 extensions/RULES_BY_MODE 一一对应）；符号用等宽字形不用 emoji */
+const MODE_META: Record<PermissionMode, { label: string; hint: string; color: string }> = {
+  plan: { label: "只读", hint: "写/命令将被拒绝", color: "magenta" },
+  default: { label: "变更确认", hint: "写/命令逐次确认", color: "cyan" },
+  acceptEdits: { label: "自动编辑", hint: "编辑自动放行，命令仍确认", color: "green" },
+  fullAccess: { label: "完全访问", hint: "全自动，谨慎使用", color: "red" },
 };
+
+/** spinner 动词池（每轮随机取一，对标 Claude Code 的 Crunching/Pondering） */
+const SPIN_VERBS = ["思考中", "推敲中", "检索中", "整理中", "研磨中", "推演中"];
 
 /** /mode 循环切换顺序：fullAccess 不进循环，只能显式指定并确认 */
 const MODE_CYCLE: PermissionMode[] = ["plan", "default", "acceptEdits"];
@@ -166,15 +169,44 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
   );
 }
 
-/** 输入框——仅交互 TTY 挂载 */
+/**
+ * 输入框（仅交互 TTY 挂载）——↑↓ 翻阅输入历史（最近 50 条）：
+ * 首次上翻暂存当前草稿，下翻到底恢复草稿。
+ */
 function InputBox(props: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
+  history: string[];
 }) {
+  const draft = useRef("");
+  const index = useRef(-1);
+  useInput((_ch, key) => {
+    if (key.upArrow) {
+      if (props.history.length === 0) return;
+      if (index.current === -1) {
+        draft.current = props.value;
+        index.current = props.history.length - 1;
+      } else if (index.current > 0) {
+        index.current -= 1;
+      }
+      props.onChange(props.history[index.current] ?? "");
+      return;
+    }
+    if (key.downArrow) {
+      if (index.current === -1) return;
+      if (index.current < props.history.length - 1) {
+        index.current += 1;
+        props.onChange(props.history[index.current] ?? "");
+      } else {
+        index.current = -1;
+        props.onChange(draft.current);
+      }
+    }
+  });
   return (
     <Box>
-      <Text dimColor>kcode&gt; </Text>
+      <Text dimColor>&gt; </Text>
       <TextInput value={props.value} onChange={props.onChange} onSubmit={props.onSubmit} />
     </Box>
   );
@@ -197,12 +229,14 @@ export function KcodeApp(props: KcodeAppProps) {
   const [modelLabel, setModelLabel] = useState(props.model);
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
   const [input, setInput] = useState("");
+  const [spinVerb, setSpinVerb] = useState("思考中");
   /** 转写展开态（Ctrl+O 切换）：思考全文 / 工具输出多行 */
   const [verbose, setVerbose] = useState(false);
   /** 驱动 running 态动态耗时与 busy 计时的时钟（250ms 一拍） */
   const [tick, setTick] = useState(Date.now());
   const sessionRef = useRef<Awaited<ReturnType<typeof createSession>> | null>(null);
   const streamRef = useRef("");
+  const inputHistory = useRef<string[]>([]);
   const reasoningRef = useRef("");
   const reasoningStartedAt = useRef<number | null>(null);
   const interactive = process.stdin.isTTY === true;
@@ -290,7 +324,7 @@ export function KcodeApp(props: KcodeAppProps) {
           kind: "tool",
           callId: event.callId,
           tool: event.tool,
-          argsPreview: JSON.stringify(event.args).slice(0, 80),
+          argsPreview: formatToolPreview(event.tool, event.args),
           status: "running",
           startedAt: Date.now(),
         });
@@ -339,7 +373,7 @@ export function KcodeApp(props: KcodeAppProps) {
   const applyMode = (next: PermissionMode): void => {
     setMode(next);
     sessionRef.current?.setMode(next);
-    pushBlock({ kind: "info", text: `${MODE_META[next].icon} 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
+    pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
   const asker: PermissionAsker = {
@@ -392,6 +426,7 @@ export function KcodeApp(props: KcodeAppProps) {
         });
         sessionRef.current = handle;
         setReady(true);
+        pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
         if (props.oneShot !== undefined) {
           setBusy(true);
           setBusySince(Date.now());
@@ -408,7 +443,15 @@ export function KcodeApp(props: KcodeAppProps) {
         }
       } catch (err) {
         if (!cancelled) {
-          setFatal(err instanceof Error ? err.message : String(err));
+          const raw = err instanceof Error ? err.message : String(err);
+          // keychain 报错几乎总是「daemon 继承了无口令终端的环境」——给出可操作修复步骤
+          const hint = raw.includes("KCODE_KEYCHAIN_PASSPHRASE")
+            ? "\n\n修复：在设置了口令的终端里结束旧 daemon 后重启 kcode——\n" +
+              "  1) 结束旧 daemon：taskkill /F /PID <pid>（pid 见 ~/.kcode/daemon.pid 文件内容）\n" +
+              '  2) 设置口令：PowerShell $env:KCODE_KEYCHAIN_PASSPHRASE="..." ／ cmd set KCODE_KEYCHAIN_PASSPHRASE=...\n' +
+              "  3) 重新运行 npx tsx src/main.tsx（daemon 将以新环境自动拉起）"
+            : "";
+          setFatal(raw + hint);
           setTimeout(() => exit(), 80);
         }
       }
@@ -566,6 +609,7 @@ ${body}
         pushBlock({ kind: "info", text: `未知命令 /${name}（/help 查看可用命令）` });
         return;
       }
+      inputHistory.current = [...inputHistory.current, text].slice(-50);
       setBusy(true);
       setBusySince(Date.now());
       try {
@@ -580,6 +624,8 @@ ${body}
     }
 
     setInput("");
+    inputHistory.current = [...inputHistory.current, text].slice(-50);
+    setSpinVerb(SPIN_VERBS[Math.floor(Math.random() * SPIN_VERBS.length)] ?? "思考中");
     setBusy(true);
     setBusySince(Date.now());
     try {
@@ -616,23 +662,10 @@ ${body}
   const finalized = blocks.slice(0, blocks.length - runningTail.length);
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} width="100%">
+    <Box flexDirection="column" width="100%">
       <Static items={finalized}>
         {(block, index) => <BlockView key={index} block={block} verbose={verbose} />}
       </Static>
-      <Text wrap="truncate-end">
-        <Text color="cyan" bold>
-          kcode
-        </Text>
-        <Text color={meta.color} bold>
-          {" "}
-          {meta.icon} {meta.label}
-        </Text>
-        <Text dimColor>
-          {" "}
-          {modelLabel} · /mode 切换{verbose ? " · 展开视图" : ""} · exit 退出
-        </Text>
-      </Text>
       {runningTail.map((b, i) => (
         <BlockView key={`live-${i}`} block={b} verbose={verbose} now={tick} />
       ))}
@@ -738,18 +771,20 @@ ${body}
       ) : ready ? (
         busy ? (
           <Text dimColor>
-            {" "}
-            {reasoningText !== "" ? "✻ 思考中" : " … 处理中"}
-            {busyElapsed}（Ctrl+O {verbose ? "折叠" : "展开"} · Ctrl+C 退出）
+            ✻ {reasoningText !== "" ? "思考中" : spinVerb}
+            {busyElapsed}…（Ctrl+O {verbose ? "折叠" : "展开"}）
           </Text>
         ) : interactive ? (
-          <InputBox value={input} onChange={setInput} onSubmit={(v) => void submit(v)} />
+          <InputBox value={input} onChange={setInput} onSubmit={(v) => void submit(v)} history={inputHistory.current} />
         ) : (
           <Text dimColor>（非交互模式：仅执行一次性提问后退出）</Text>
         )
       ) : (
         <Text dimColor>初始化会话…</Text>
       )}
+      <Text dimColor wrap="truncate-end">
+        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
+      </Text>
     </Box>
   );
 }

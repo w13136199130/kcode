@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { newId } from "@kcode/shared";
@@ -218,6 +218,28 @@ function commonBashDirs(): string[] {
   return out;
 }
 
+/**
+ * 由 PATH 上的 git.exe 反推同级 bash（git 常把 \cmd 加入 PATH 而 \usr\bin 不在）：
+ * <gitdir>\cmd\git.exe → <gitdir>\usr\bin\bash.exe / <gitdir>\bin\bash.exe。
+ */
+function bashDirsFromGitExe(dirs: string[], exists: (p: string) => boolean = existsSync): string[] {
+  const out: string[] = [];
+  for (const dir of dirs) {
+    if (dir === "") continue;
+    const lower = dir.toLowerCase();
+    if (lower.startsWith("c:\\windows") || lower.includes("\\windows\\system32")) continue;
+    if (!exists(join(dir.trim(), "git.exe"))) continue;
+    const gitRoot = dirname(dir.trim());
+    for (const sub of ["usr\\bin", "bin"]) {
+      const candidate = join(gitRoot, sub, "bash.exe");
+      if (exists(candidate)) {
+        out.push(candidate);
+      }
+    }
+  }
+  return out;
+}
+
 /** 探针标记：候选 bash 必须能真正执行并回显 */
 const BASH_PROBE_MARKER = "__kcode_bash_ok__";
 
@@ -246,10 +268,12 @@ async function probeBashWorks(bashPath: string): Promise<boolean> {
   });
 }
 
-/** 探测 Windows 上可用的 git-bash：PATH 候选（过滤 WSL）→ 常见安装位 → 逐个探针验证 */
+/** 探测 Windows 上可用的 git-bash：PATH 候选（过滤 WSL）→ git.exe 反推 → 常见安装位 → 探针验证 */
 export async function detectWindowsBash(): Promise<string | undefined> {
+  const pathDirs = (process.env.PATH ?? "").split(delimiter);
   const candidates = [
-    ...pickBashCandidates((process.env.PATH ?? "").split(delimiter)),
+    ...pickBashCandidates(pathDirs),
+    ...bashDirsFromGitExe(pathDirs),
     ...commonBashDirs().filter((p) => existsSync(p)),
   ];
   for (const candidate of candidates) {

@@ -1,7 +1,8 @@
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 import type { TodoItem } from "@kcode/contracts";
 
 export type Block =
+  | { kind: "banner"; model: string; cwd: string }
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "reasoning"; text: string; ms?: number }
@@ -20,6 +21,39 @@ export type Block =
       durationMs?: number;
     }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" };
+
+/** 字符视觉宽度：CJK/全角按 2 列计（终端等宽栅格下的真实占位） */
+export function visualWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    w += ch.codePointAt(0)! > 0xff ? 2 : 1;
+  }
+  return w;
+}
+
+/** 按视觉宽度硬折行（用户消息通栏色块用） */
+export function wrapVisual(text: string, width: number): string[] {
+  if (text === "") {
+    return [""];
+  }
+  const out: string[] = [];
+  let line = "";
+  let w = 0;
+  for (const ch of text) {
+    const cw = ch.codePointAt(0)! > 0xff ? 2 : 1;
+    if (w + cw > width && line !== "") {
+      out.push(line);
+      line = "";
+      w = 0;
+    }
+    line += ch;
+    w += cw;
+  }
+  if (line !== "") {
+    out.push(line);
+  }
+  return out;
+}
 
 /** Todo 面板（§1.1 A 域）：☐ 待办 / ◐ 进行 / ☑ 完成 */
 export function TodoPanel(props: { todos: TodoItem[] }) {
@@ -43,6 +77,42 @@ function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * 按工具智能提取参数预览（替代原始 JSON 转写）：
+ * bash 显示命令、read/glob/grep 显示路径与 pattern、write/edit 显示目标文件。
+ */
+export function formatToolPreview(tool: string, args: unknown): string {
+  const a = (args ?? {}) as Record<string, unknown>;
+  const s = (v: unknown): string => (typeof v === "string" ? v : "");
+  const clip = (t: string, max = 60): string =>
+    t.length > max ? `${t.slice(0, max)}…` : t;
+  switch (tool) {
+    case "bash":
+      return clip(s(a.command).replace(/\s+/g, " "));
+    case "read": {
+      const range =
+        a.offset !== undefined || a.limit !== undefined
+          ? `:${a.offset ?? 1}${a.limit !== undefined ? `+${a.limit}` : ""}`
+          : "";
+      return clip(`${s(a.path)}${range}`);
+    }
+    case "glob":
+    case "grep":
+      return clip(`${s(a.pattern)}${s(a.path) !== "" ? ` @ ${s(a.path)}` : ""}`);
+    case "write":
+    case "edit":
+      return clip(s(a.path));
+    case "todo":
+      return "更新任务清单";
+    case "ask_user":
+      return clip(s(a.question));
+    case "sessions":
+      return s(a.action);
+    default:
+      return clip(JSON.stringify(args));
+  }
+}
+
 /** verbose 态工具输出最多渲染行数 */
 const VERBOSE_TOOL_LINES = 12;
 /** 思考块展开态最多渲染行数 */
@@ -51,19 +121,63 @@ const VERBOSE_REASONING_LINES = 30;
 /**
  * 单个转写块的渲染（Static 滚动区与活跃区共用）。
  * Static 中的块一经打印不再更新——工具块只有在完成（done/failed）后才应进入 Static。
+ * 符号系统对齐主流 CLI：⏺ 助手 / ✻ 思考 / ⎿ 结果——全部等宽字形，不用 emoji。
  */
 export function BlockView(props: { block: Block; verbose?: boolean; now?: number }) {
   const block = props.block;
-  if (block.kind === "user") {
+  const { stdout } = useStdout();
+  if (block.kind === "banner") {
     return (
-      <Text color="green">
-        {"> "}
-        {block.text}
-      </Text>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor="gray"
+        paddingX={1}
+        marginBottom={1}
+      >
+        <Text>
+          <Text color="cyan" bold>
+            kcode
+          </Text>
+          <Text dimColor> · 本地优先代码助手</Text>
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {block.model} · {block.cwd}
+        </Text>
+        <Text dimColor>/help 命令 · /mode 权限模式 · /model 换模型 · Ctrl+O 展开思考</Text>
+      </Box>
+    );
+  }
+  if (block.kind === "user") {
+    // 通栏灰底色块（对标 Claude Code 的用户消息条）
+    const cols = stdout.columns ?? 80;
+    const inner = Math.max(20, cols - 3);
+    const lines = wrapVisual(block.text, inner);
+    return (
+      <Box flexDirection="column">
+        {lines.map((l, j) => (
+          <Text key={j} backgroundColor="gray" color="black" wrap="truncate-end">
+            {j === 0 ? " > " : "   "}
+            {l}
+            {" ".repeat(Math.max(0, inner - visualWidth(l)))}
+          </Text>
+        ))}
+      </Box>
     );
   }
   if (block.kind === "assistant") {
-    return <Text>{block.text}</Text>;
+    const lines = block.text.split("\n");
+    return (
+      <Box flexDirection="column">
+        <Text>
+          <Text color="green">⏺ </Text>
+          {lines[0]}
+        </Text>
+        {lines.slice(1).map((l, j) => (
+          <Text key={j}>{l}</Text>
+        ))}
+      </Box>
+    );
   }
   if (block.kind === "reasoning") {
     const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
@@ -83,11 +197,10 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         </Box>
       );
     }
-    const preview = block.text.split("\n")[0]?.slice(0, 60) ?? "";
+    // 折叠态只报时长 + 展开提示（预览文本混排观感差，砍掉）
     return (
       <Text dimColor italic>
-        ✻ 思考{timing} · {preview}
-        {block.text.length > 60 ? `…（共 ${block.text.length} 字）` : ""}
+        ✻ 思考{timing}（Ctrl+O 展开）
       </Text>
     );
   }
@@ -134,7 +247,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         </Box>
       ) : (
         block.summary !== undefined &&
-        block.summary !== "" && <Text dimColor>  {block.summary}</Text>
+        block.summary !== "" && <Text dimColor>⎿ {block.summary}</Text>
       )}
     </Box>
   );
