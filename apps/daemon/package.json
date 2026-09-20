@@ -4,9 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx src/main.ts",
     "typecheck": "tsc -p ."
   },
+  "dependencies": {
+    "@kcode/contracts": "workspace:*",
+    "@kcode/core": "workspace:*",
+    "@kcode/extensions": "workspace:*",
+    "@kcode/platform": "workspace:*",
+    "@kcode/runtime": "workspace:*",
+    "@kcode/shared": "workspace:*",
+    "@kcode/tools": "workspace:*"
+  },
   "devDependencies": {
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
 }

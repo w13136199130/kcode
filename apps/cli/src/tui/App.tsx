@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type {
-  ChatMessage,
-  LLMProvider,
   PermissionAsker,
   SessionEvent,
   StructuredQuestion,
@@ -11,19 +9,21 @@ import type {
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
+import type { DaemonClient } from "../daemon-client.js";
 import { createSession } from "../session.js";
 import { TodoPanel, Transcript, type Block } from "./Transcript.js";
 
 export interface KcodeAppProps {
-  llm: LLMProvider;
+  /** 守护进程连接：会话在守护进程侧组装与执行 */
+  client: DaemonClient;
   model: string;
   cwd: string;
   /** 一次性提问（非交互/脚本模式）；缺省进 REPL */
   oneShot?: string;
   /** 一次性提问附图（本地文件路径，多模态输入） */
   images?: string[];
-  /** 续接种子历史（--resume） */
-  resumeFrom?: ChatMessage[];
+  /** 续接来源（会话 id / 前缀 / latest，由守护进程解析重建） */
+  resumeFrom?: string;
 }
 
 interface AskState {
@@ -204,7 +204,7 @@ export function KcodeApp(props: KcodeAppProps) {
     void (async () => {
       try {
         const handle = await createSession({
-          llm: props.llm,
+          client: props.client,
           model: props.model,
           cwd: props.cwd,
           resumeFrom: props.resumeFrom,

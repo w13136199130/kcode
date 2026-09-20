@@ -1,11 +1,11 @@
 import { render } from "ink";
 import { join } from "node:path";
-import type { ChatMessage } from "@kcode/contracts";
-import { listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { EncryptedFileKeychain } from "@kcode/platform";
-import { bootstrap, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
+import { ensureDaemon } from "./daemon-client.js";
+import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
 
+/** key 录入子命令：直接操作本地加密文件（不经过守护进程） */
 async function keyCommand(args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
   const keychain = EncryptedFileKeychain.fromEnv(join(kcodeHome(), "keys.json"));
@@ -55,47 +55,25 @@ async function main(): Promise<void> {
   }
   const oneShot = words.length > 0 ? words.join(" ") : undefined;
 
-  // 续接历史会话（§5.3）：新会话作为旧会话的分支
-  let resumeFrom: ChatMessage[] | undefined;
-  if (resumeArg !== undefined) {
-    const summaries = await listSessions(join(kcodeHome(), "cli", "sessions"));
-    if (summaries.length === 0) {
-      throw new Error("无历史会话可续接（~/.kcode/cli/sessions 为空）");
-    }
-    const target =
-      resumeArg === "latest"
-        ? summaries[0]
-        : summaries.find((s) => s.sessionId === resumeArg || s.sessionId.startsWith(resumeArg));
-    if (target === undefined) {
-      throw new Error(
-        `未找到会话 "${resumeArg}"；最近会话：${summaries
-          .slice(0, 5)
-          .map((s) => s.sessionId)
-          .join("、")}`,
-      );
-    }
-    const events = await loadSessionEvents(target.filePath);
-    resumeFrom = rebuildHistory(events);
-    console.error(`⏪ 已续接 ${target.sessionId}（${target.turns} 轮 → ${resumeFrom.length} 条历史）`);
-  }
+  // 模型引用仅作显示与传递，实际供给由守护进程解析（含受众绑定校验）
+  const models = await loadUserConfig();
+  const modelRef = requireDefaultModelRef(models);
 
-  const rt = await bootstrap();
-  const modelRef = requireDefaultModelRef(rt.models);
-  const llm = await rt.router.resolve(modelRef);
+  const client = await ensureDaemon();
+  console.error(`已连接守护进程（模型 ${modelRef}）`);
 
-  // P1-5/P1-6 Ink TUI：流式 / 工具状态 / y-N 确认 / Todo / 结构化提问 / 计划模式 / --image 附图
-  //（需 Windows Terminal，§6）
   const { waitUntilExit } = render(
     <KcodeApp
-      llm={llm}
+      client={client}
       model={modelRef}
       cwd={process.cwd()}
       oneShot={oneShot}
       images={images.length > 0 ? images : undefined}
-      resumeFrom={resumeFrom}
+      resumeFrom={resumeArg}
     />,
   );
   await waitUntilExit();
+  client.close();
 }
 
 main().catch((err) => {

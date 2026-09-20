@@ -32,24 +32,9 @@ importers:
       '@kcode/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@kcode/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@kcode/extensions':
-        specifier: workspace:*
-        version: link:../../packages/extensions
       '@kcode/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@kcode/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
-      '@kcode/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@kcode/tools':
-        specifier: workspace:*
-        version: link:../../packages/tools
       ink:
         specifier: ^4.4.1
         version: 4.4.1(@types/react@18.3.31)(react@18.3.1)
@@ -77,7 +62,32 @@ importers:
         version: 5.9.3
 
   apps/daemon:
+    dependencies:
+      '@kcode/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@kcode/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@kcode/extensions':
+        specifier: workspace:*
+        version: link:../../packages/extensions
+      '@kcode/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@kcode/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@kcode/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@kcode/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
     devDependencies:
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.13
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
