@@ -35,6 +35,16 @@ export const readTool: Tool = {
     const { path, offset, limit } = parsed.data;
     const abs = isAbsolute(path) ? path : resolve(ctx.cwd ?? process.cwd(), path);
 
+    // 二进制文档类型重定向：read 只管文本，文档走 extract
+    const lower = abs.toLowerCase();
+    if (/\.(pdf|docx|xlsx|png|jpe?g|webp|gif|bmp)$/.test(lower)) {
+      return {
+        ok: false,
+        output: "",
+        error: `${path} 是文档/图片类型：请改用 extract 工具（支持 PDF/DOCX/XLSX/图片）`,
+      };
+    }
+
     let content: string;
     try {
       content = await readFile(abs, "utf8");

@@ -24,6 +24,12 @@ export interface ToolOutput {
   ok: boolean;
   output: string;
   error?: string;
+  /**
+   * 工具产出的图片文件路径（extract 图片提取用）：
+   * loop 会以带图 user 消息注入后续请求，供视觉模型查看；
+   * 文本模型忽略。最多挂载 3 张（成本护栏）。
+   */
+  imagePaths?: string[];
 }
 
 /** 统一 Tool 抽象（§5.4）：内置工具与 MCP 工具实现同一接口，permissions/hooks/审计只写一遍 */

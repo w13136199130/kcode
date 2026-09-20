@@ -381,6 +381,15 @@ export class AgentLoop {
             toolCallId: call.callId,
             name: call.tool,
           });
+          // extract 图片挂载：以带图 user 消息注入（ChatMessage.images 既有通道），
+          // 视觉模型可直接查看；文本模型忽略。成本护栏：最多 3 张。
+          if (result.imagePaths !== undefined && result.imagePaths.length > 0) {
+            this.history.push({
+              role: "user",
+              content: `<tool_image tool="extract">${result.imagePaths.join("\n")}</tool_image>（工具挂载的图片，供视觉查看）`,
+              images: result.imagePaths.slice(0, 3),
+            });
+          }
         }
       }
     } finally {

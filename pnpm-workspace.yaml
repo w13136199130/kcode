@@ -9,3 +9,4 @@ allowBuilds:
   # esbuild = tsup 构建内核；ripgrep = 搜索工具捆绑二进制（§3 搜索性能底线）
   esbuild: true
   "@vscode/ripgrep": true
+  canvas: false

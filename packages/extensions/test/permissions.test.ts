@@ -46,9 +46,12 @@ describe("预设语义（§7）", () => {
     expect(await engine.decide(def("write"), {})).toBe("deny");
   });
 
-  it("default：读放行、写/命令询问、未知拒绝", async () => {
+  it("default：读放行（含 extract 文档提取）、写/命令询问、未知拒绝", async () => {
     const engine = engineOf(DEFAULT_RULES);
     expect(await engine.decide(def("grep"), {})).toBe("allow");
+    expect(await engine.decide(def("extract"), {})).toBe("allow");
+    expect(await engine.decide(def("web_search"), {})).toBe("allow");
+    expect(await engine.decide(def("web_fetch"), {})).toBe("allow");
     expect(await engine.decide(def("write"), {})).toBe("ask");
     expect(await engine.decide(def("edit"), {})).toBe("ask");
     expect(await engine.decide(def("bash"), {})).toBe("ask");

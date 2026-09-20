@@ -18,10 +18,18 @@
     "@kcode/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@vscode/ripgrep": "^1.15.9",
+    "exceljs": "^4.4.0",
     "fast-glob": "^3.3.2",
+    "html-to-text": "^10.0.1",
+    "image-size": "^2.0.4",
+    "mammoth": "^1.12.3",
+    "node-html-parser": "^9.0.4",
+    "pdfjs-dist": "3.11.174",
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "docx": "^9.7.1",
+    "pdf-lib": "^1.17.1",
     "typescript": "^5.7.0"
   }
 }

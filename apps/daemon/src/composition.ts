@@ -27,10 +27,12 @@ import {
 import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
-import { connectMcpServers, createSessionTools, currentShellInfo } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo } from "@kcode/tools";
 
 export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
 - 涉及本项目代码的问题先用工具查证（read/glob/grep），结论引用 file:line；能力介绍/常识问答/闲聊不需要工具，直接回答；
+- 读 PDF/DOCX/XLSX/图片一律用 extract 工具（read 只管文本文件）；
+- 需要网络资料时用 web_search 搜索、web_fetch 抓取（引用来源 URL）；
 - 不知道就说不知道，不臆造文件与符号；同一查询不重复发起，失败先换思路而不是原样重试；
 - 多步骤任务用 todo 工具维护任务清单；需要用户决策时用 ask_user 提选择题；
 - 回答简洁，中文。`;
@@ -207,6 +209,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
           prompt: opts.askUser,
         }),
         createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
+        ...createWebTools(),
         ...mcpSessions.flatMap((s) => s.tools),
         ...pluginMcpSessions.flatMap((s) => s.tools),
       ]),
