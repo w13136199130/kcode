@@ -113,6 +113,11 @@ async function main(): Promise<void> {
     console.error(
       "提示：当前 stdout 非直接终端，动态界面可能反复刷屏；建议直接运行：cd apps/cli && npx tsx src/main.tsx",
     );
+  } else if (process.platform === "win32" && process.env["WT_SESSION"] === undefined && process.env["TERM_PROGRAM"] === undefined) {
+    // 老式 conhost 可能未启用 VT 转义序列：Ink 无法擦除旧帧，会整段重复打印
+    console.error(
+      "提示：检测到非 Windows Terminal / VS Code 终端，若界面出现整段重复，请改用 Windows Terminal 或 VS Code 集成终端运行",
+    );
   }
 
   const { waitUntilExit } = render(

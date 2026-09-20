@@ -13,7 +13,7 @@ export { globTool } from "./glob.js";
 export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
-export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, detectWindowsBash } from "./bash.js";
+export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, detectWindowsBash, pickBashCandidates } from "./bash.js";
 export { createTodoTool, type TodoToolOptions } from "./todo.js";
 export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";

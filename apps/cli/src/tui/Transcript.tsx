@@ -45,8 +45,102 @@ function formatMs(ms: number): string {
 
 /** verbose 态工具输出最多渲染行数 */
 const VERBOSE_TOOL_LINES = 12;
+/** 思考块展开态最多渲染行数 */
+const VERBOSE_REASONING_LINES = 30;
 
-/** 会话转写区：完成块 + 流式文本（P1-5 Ink TUI）；now 驱动 running 态动态耗时；verbose 展开思考/输出 */
+/**
+ * 单个转写块的渲染（Static 滚动区与活跃区共用）。
+ * Static 中的块一经打印不再更新——工具块只有在完成（done/failed）后才应进入 Static。
+ */
+export function BlockView(props: { block: Block; verbose?: boolean; now?: number }) {
+  const block = props.block;
+  if (block.kind === "user") {
+    return (
+      <Text color="green">
+        {"> "}
+        {block.text}
+      </Text>
+    );
+  }
+  if (block.kind === "assistant") {
+    return <Text>{block.text}</Text>;
+  }
+  if (block.kind === "reasoning") {
+    const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
+    if (props.verbose === true) {
+      const lines = block.text.split("\n").slice(0, VERBOSE_REASONING_LINES);
+      return (
+        <Box flexDirection="column">
+          <Text dimColor italic>
+            ✻ 思考{timing}（{block.text.length} 字）
+          </Text>
+          {lines.map((line, j) => (
+            <Text key={j} dimColor italic wrap="truncate-end">
+              {"  "}
+              {line.slice(0, 120)}
+            </Text>
+          ))}
+        </Box>
+      );
+    }
+    const preview = block.text.split("\n")[0]?.slice(0, 60) ?? "";
+    return (
+      <Text dimColor italic>
+        ✻ 思考{timing} · {preview}
+        {block.text.length > 60 ? `…（共 ${block.text.length} 字）` : ""}
+      </Text>
+    );
+  }
+  if (block.kind === "info") {
+    const color =
+      block.tone === "ok"
+        ? "green"
+        : block.tone === "deny"
+          ? "red"
+          : block.tone === "warn"
+            ? "yellow"
+            : undefined;
+    return (
+      <Text color={color} dimColor={block.tone === undefined}>
+        {block.text}
+      </Text>
+    );
+  }
+  const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
+  const color = block.status === "failed" ? "red" : block.status === "running" ? "yellow" : "blue";
+  const timing =
+    block.status === "running" && block.startedAt !== undefined && props.now !== undefined
+      ? ` (${formatMs(Math.max(0, props.now - block.startedAt))})`
+      : block.durationMs !== undefined
+        ? ` (${formatMs(block.durationMs)})`
+        : "";
+  return (
+    <Box flexDirection="column">
+      <Text color={color}>
+        {icon} {block.tool} {block.argsPreview}
+        {timing}
+      </Text>
+      {props.verbose === true && block.output !== undefined && block.output !== "" ? (
+        <Box flexDirection="column">
+          {block.output
+            .split("\n")
+            .slice(0, VERBOSE_TOOL_LINES)
+            .map((line, j) => (
+              <Text key={j} dimColor wrap="truncate-end">
+                {"  "}
+                {line.slice(0, 120)}
+              </Text>
+            ))}
+        </Box>
+      ) : (
+        block.summary !== undefined &&
+        block.summary !== "" && <Text dimColor>  {block.summary}</Text>
+      )}
+    </Box>
+  );
+}
+
+/** 会话转写区（兼容保留：一次性渲染全部块；主界面使用 Static 架构的 App 布局） */
 export function Transcript(props: {
   blocks: Block[];
   streamText: string;
@@ -58,89 +152,9 @@ export function Transcript(props: {
 }) {
   return (
     <Box flexDirection="column">
-      {props.blocks.map((block, i) => {
-        if (block.kind === "user") {
-          return (
-            <Text key={i} color="green">
-              {"> "}
-              {block.text}
-            </Text>
-          );
-        }
-        if (block.kind === "assistant") {
-          return (
-            <Text key={i}>{block.text}</Text>
-          );
-        }
-        if (block.kind === "reasoning") {
-          const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
-          if (props.verbose === true) {
-            // 展开态：思考全文（多行，灰色斜体）
-            const lines = block.text.split("\n").slice(0, 30);
-            return (
-              <Box key={i} flexDirection="column">
-                <Text dimColor italic>
-                  ✻ 思考{timing}（{block.text.length} 字）
-                </Text>
-                {lines.map((line, j) => (
-                  <Text key={j} dimColor italic wrap="truncate-end">
-                    {"  "}
-                    {line.slice(0, 120)}
-                  </Text>
-                ))}
-              </Box>
-            );
-          }
-          // 折叠态：单行摘要（完成后的思考不再占屏）
-          const preview = block.text.split("\n")[0]?.slice(0, 60) ?? "";
-          return (
-            <Text key={i} dimColor italic>
-              ✻ 思考{timing} · {preview}
-              {block.text.length > 60 ? `…（共 ${block.text.length} 字）` : ""}
-            </Text>
-          );
-        }
-        if (block.kind === "info") {
-          const color = block.tone === "ok" ? "green" : block.tone === "deny" ? "red" : block.tone === "warn" ? "yellow" : undefined;
-          return (
-            <Text key={i} color={color} dimColor={block.tone === undefined}>
-              {block.text}
-            </Text>
-          );
-        }
-        const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
-        const color = block.status === "failed" ? "red" : block.status === "running" ? "yellow" : "blue";
-        const timing =
-          block.status === "running" && block.startedAt !== undefined && props.now !== undefined
-            ? ` (${formatMs(Math.max(0, props.now - block.startedAt))})`
-            : block.durationMs !== undefined
-              ? ` (${formatMs(block.durationMs)})`
-              : "";
-        return (
-          <Box key={i} flexDirection="column">
-            <Text color={color}>
-              {icon} {block.tool} {block.argsPreview}
-              {timing}
-            </Text>
-            {block.summary !== undefined && block.summary !== "" && block.output === undefined && (
-              <Text dimColor>  {block.summary}</Text>
-            )}
-            {props.verbose === true && block.output !== undefined && block.output !== "" && (
-              <Box flexDirection="column">
-                {block.output
-                  .split("\n")
-                  .slice(0, VERBOSE_TOOL_LINES)
-                  .map((line, j) => (
-                    <Text key={j} dimColor wrap="truncate-end">
-                      {"  "}
-                      {line.slice(0, 120)}
-                    </Text>
-                  ))}
-              </Box>
-            )}
-          </Box>
-        );
-      })}
+      {props.blocks.map((block, i) => (
+        <BlockView key={i} block={block} verbose={props.verbose} now={props.now} />
+      ))}
       {props.reasoningText !== undefined && props.reasoningText !== "" && (
         <Text dimColor italic wrap="truncate-end">
           ✻ {props.reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}

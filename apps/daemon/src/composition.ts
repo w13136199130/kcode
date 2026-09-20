@@ -136,7 +136,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
         };
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
-  const shell = currentShellInfo();
+  const shell = await currentShellInfo();
   const basePrompt = `${SYSTEM_PROMPT}
 
 <env>

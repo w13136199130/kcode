@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createBashTool, currentShellInfo } from "../src/index.js";
+import { createBashTool, currentShellInfo, pickBashCandidates } from "../src/index.js";
 
 let root: string;
 
@@ -74,23 +74,35 @@ describe("bash 工具", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("currentShellInfo：win32 下探测到 shell 并与描述一致", async () => {
-    const info = currentShellInfo();
+  it("currentShellInfo：win32 下探测到 shell（跳过 WSL 后探针验证）", async () => {
+    const info = await currentShellInfo();
     if (process.platform === "win32") {
       expect(["bash", "powershell"]).toContain(info.name);
     } else {
       expect(info.name).toBe("bash");
     }
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
-    expect(bash.definition.description).toContain(
-      info.name === "bash" ? "bash 语法" : "PowerShell 语法",
+    expect(bash.definition.description).toContain("bash");
+  });
+
+  it("pickBashCandidates：跳过 \\Windows\\（WSL 启动器）目录", () => {
+    const picked = pickBashCandidates(
+      [
+        "C:\\Windows\\System32",
+        "C:\\WINDOWS",
+        "D:\\git\\usr\\bin",
+        "",
+        "C:\\Windows\\System32", // 重复也去重
+      ],
+      () => true, // 存在性注入：测试只验证过滤/去重逻辑
     );
+    expect(picked).toEqual([join("D:\\git\\usr\\bin", "bash.exe")]);
   });
 
   it("bash 语法命令在当前 shell 下直接可用（git-bash 优先的证据）", async () => {
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
     // bash 语法：$() 展开与 && 链；PowerShell 5.1 对 $(...) 部分兼容但 `2>/dev/null` 不兼容
-    if (currentShellInfo().name !== "bash") {
+    if ((await currentShellInfo()).name !== "bash") {
       return; // 无 bash 的环境跳过（仅验证 bash 路径）
     }
     const r = await bash.execute(

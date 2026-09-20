@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import type {
   AskPreviewPayload,
@@ -14,7 +14,7 @@ import type {
 } from "@kcode/contracts";
 import type { DaemonClient } from "../daemon-client.js";
 import { createSession } from "../session.js";
-import { TodoPanel, Transcript, type Block } from "./Transcript.js";
+import { BlockView, TodoPanel, type Block } from "./Transcript.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -602,8 +602,24 @@ ${body}
   const busyElapsed =
     busy && busySince !== null && tick > busySince ? ` (${((tick - busySince) / 1000).toFixed(1)}s)` : "";
 
+  // Static 架构：已完成块一次性推进 scrollback（不再重绘，长会话不整帧重印）；
+  // 活跃帧只保留尾部——运行中的工具块 + 流式文本 + 交互区。
+  const runningTail: Block[] = [];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "tool" && b.status === "running") {
+      runningTail.unshift(b);
+    } else {
+      break;
+    }
+  }
+  const finalized = blocks.slice(0, blocks.length - runningTail.length);
+
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} width="100%">
+      <Static items={finalized}>
+        {(block, index) => <BlockView key={index} block={block} verbose={verbose} />}
+      </Static>
       <Text wrap="truncate-end">
         <Text color="cyan" bold>
           kcode
@@ -617,7 +633,15 @@ ${body}
           {modelLabel} · /mode 切换{verbose ? " · 展开视图" : ""} · exit 退出
         </Text>
       </Text>
-      <Transcript blocks={blocks} streamText={streamText} reasoningText={reasoningText} verbose={verbose} now={tick} />
+      {runningTail.map((b, i) => (
+        <BlockView key={`live-${i}`} block={b} verbose={verbose} now={tick} />
+      ))}
+      {reasoningText !== "" && (
+        <Text dimColor italic wrap="truncate-end">
+          ✻ {reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
+        </Text>
+      )}
+      {streamText !== "" && <Text color="white">{streamText}</Text>}
       {todos.length > 0 && <TodoPanel todos={todos} />}
       {notice !== null && (
         <Text color="yellow" wrap="truncate-end">
