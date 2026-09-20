@@ -6,3 +6,5 @@ evals/reports/
 *.tsbuildinfo
 .env
 .env.*
+.idea/
+.vscode/
