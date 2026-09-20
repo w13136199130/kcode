@@ -18,6 +18,8 @@ export interface ToolContext {
   sessionId: string;
   /** 会话工作目录（daemon 注入）；工具的相对路径以此为基准 */
   cwd?: string;
+  /** 用户中断信号（Esc/Ctrl+C）：长任务工具（bash 等）应监听并终止子进程 */
+  signal?: AbortSignal;
 }
 
 export interface ToolOutput {

@@ -17,14 +17,36 @@ describe("parseKeyChunk（raw 按键解析）", () => {
     expect(parseKeyChunk("\x03")).toEqual([expect.objectContaining({ ctrlC: true })]);
   });
 
-  it("裸 ESC 与双 ESC；普通字符整块跳过；多序列拆分", () => {
+  it("Home/End/Delete：CSI/SS3/tilde 三种形态", () => {
+    expect(parseKeyChunk("[H")).toEqual([expect.objectContaining({ home: true })]);
+    expect(parseKeyChunk("OH")).toEqual([expect.objectContaining({ home: true })]);
+    expect(parseKeyChunk("[1~")).toEqual([expect.objectContaining({ home: true })]);
+    expect(parseKeyChunk("[F")).toEqual([expect.objectContaining({ end: true })]);
+    expect(parseKeyChunk("OF")).toEqual([expect.objectContaining({ end: true })]);
+    expect(parseKeyChunk("[4~")).toEqual([expect.objectContaining({ end: true })]);
+    expect(parseKeyChunk("[3~")).toEqual([expect.objectContaining({ delete: true })]);
+  });
+
+  it("裸 ESC 与双 ESC；多序列拆分", () => {
     expect(parseKeyChunk("\x1b")).toEqual([expect.objectContaining({ esc: true })]);
     expect(parseKeyChunk("\x1b\x1b")).toEqual([expect.objectContaining({ esc: true })]);
-    expect(parseKeyChunk("abc")).toEqual([]);
+    expect(parseKeyChunk("abc")).toEqual([expect.objectContaining({ text: "abc" })]);
     const combo = parseKeyChunk("\x1bOA\r");
     expect(combo).toEqual([
       expect.objectContaining({ up: true }),
       expect.objectContaining({ enter: true }),
+    ]);
+  });
+});
+
+describe("parseKeyChunk text 事件（字符输入走 raw 层）", () => {
+  it("连续可打印串一段；混合块按序拆分", () => {
+    expect(parseKeyChunk("abc")).toEqual([expect.objectContaining({ text: "abc" })]);
+    expect(parseKeyChunk("你a")).toEqual([expect.objectContaining({ text: "你a" })]);
+    expect(parseKeyChunk("hi[Dj")).toEqual([
+      expect.objectContaining({ text: "hi" }),
+      expect.objectContaining({ left: true }),
+      expect.objectContaining({ text: "j" }),
     ]);
   });
 });

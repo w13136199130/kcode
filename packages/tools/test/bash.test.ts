@@ -68,6 +68,23 @@ describe("bash 工具", () => {
     expect(log).toContain("bg-done-42");
   });
 
+  it("中断信号杀掉运行中的命令（不再等超时）", async () => {
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    const controller = new AbortController();
+    const started = Date.now();
+    const pending = bash.execute(
+      { command: "sleep 30", timeoutMs: 60_000 },
+      { sessionId: "s", cwd: root, signal: controller.signal },
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    controller.abort();
+    const r = await pending;
+    const elapsed = Date.now() - started;
+    expect(r.ok).toBe(false);
+    expect(elapsed).toBeLessThan(10_000); // 没等到 60s 超时
+    expect(r.output).toContain("已被用户中断");
+  });
+
   it("非法参数被拒绝", async () => {
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
     const r = await bash.execute({ wrong: true }, ctx());

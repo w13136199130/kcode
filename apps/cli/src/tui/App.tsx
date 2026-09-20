@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
-import { useRawKeys } from "./raw-keys.js";
+import { rawDeliveredTextRecently, useRawKeys } from "./raw-keys.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 
 export interface KcodeAppProps {
@@ -295,7 +295,7 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
  * - 输入 / 开头时弹出命令补全菜单（↑↓ 选择、Tab/回车补全、继续输入过滤）；
  * - 无菜单时 ↑↓ 翻阅输入历史（最近 50 条）：首翻暂存草稿，下翻到底恢复。
  */
-function InputBox(props: {
+export function InputBox(props: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
@@ -306,6 +306,20 @@ function InputBox(props: {
   const index = useRef(-1);
   // 菜单高亮必须是 state：ref 变更不触发重渲染（高亮会「冻结」，表现为方向键失灵）
   const [menuIndex, setMenuIndex] = useState(0);
+  /** 光标位置（null = 末尾）；外部改值（历史/补全/清空）时光标回到末尾 */
+  const [cursor, setCursor] = useState<number | null>(null);
+  const prevValue = useRef(props.value);
+  if (prevValue.current !== props.value) {
+    prevValue.current = props.value;
+    if (cursor !== null) {
+      setCursor(null);
+    }
+  }
+  const pos = cursor ?? props.value.length;
+  const setValue = (v: string, at?: number): void => {
+    props.onChange(v);
+    setCursor(at !== undefined ? at : null);
+  };
   const menuOpen =
     props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
   const needle = props.value.slice(1).toLowerCase();
@@ -322,9 +336,32 @@ function InputBox(props: {
       setMenuIndex(0);
     }
   }
-  // 特殊键（↑↓/Tab/回车补全/Esc/历史翻阅）统一走 raw 层
+  // 字符输入：raw 层为主 + Ink useInput 后备（部分终端的 IME 中文块只走 Ink 通道），
+  // 60ms 去重窗口防止双通道各插一份
+  useInput(
+    (ch, key) => {
+      if (key.return || key.escape || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.ctrl || key.tab || key.backspace || key.delete) {
+        return;
+      }
+      if (ch === undefined || ch === "" || ch < " ") {
+        return;
+      }
+      if (rawDeliveredTextRecently()) {
+        return; // raw 层刚交付过同一输入
+      }
+      const at = cursor ?? props.value.length;
+      setValue(`${props.value.slice(0, at)}${ch}${props.value.slice(at)}`, at + ch.length);
+    },
+    { isActive: true },
+  );
+  // 特殊键（↑↓/Home/End/左右/退格/删除/Tab/回车/Esc/历史翻阅）统一走 raw 层
   useRawKeys(
     (key) => {
+      if (key.text !== "") {
+        const at = cursor ?? props.value.length;
+        setValue(`${props.value.slice(0, at)}${key.text}${props.value.slice(at)}`, at + key.text.length);
+        return;
+      }
       if (showMenu) {
         if (key.up) {
           setMenuIndex((s) => (s - 1 + matches.length) % matches.length);
@@ -333,10 +370,10 @@ function InputBox(props: {
         } else if (key.tab || key.enter) {
           const picked = matches[clamped] ?? matches[0];
           if (picked !== undefined) {
-            props.onChange(`/${picked.name} `);
+            setValue(`/${picked.name} `);
           }
         } else if (key.esc) {
-          props.onChange("");
+          setValue("");
         }
         return;
       }
@@ -358,23 +395,39 @@ function InputBox(props: {
           index.current = -1;
           props.onChange(draft.current);
         }
+      } else if (key.left) {
+        setCursor(Math.max(0, pos - 1));
+      } else if (key.right) {
+        setCursor(Math.min(props.value.length, pos + 1));
+      } else if (key.home) {
+        setCursor(0);
+      } else if (key.end) {
+        setCursor(null);
+      } else if (key.backspace) {
+        if (pos > 0) {
+          setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+        }
+      } else if (key.delete) {
+        setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
+      } else if (key.enter) {
+        props.onSubmit(props.value);
       }
     },
     true,
   );
-  // 菜单打开时拦截回车补全： TextInput 自身也会因回车触发 onSubmit（旧值），在此丢弃
-  const guardedSubmit = (v: string): void => {
-    if (showMenu) {
-      return;
-    }
-    props.onSubmit(v);
-  };
   // 菜单在输入行下方（对标 Claude Code：输入框固定、候选列表向下展开）
+  const before = props.value.slice(0, pos);
+  const under = props.value.slice(pos, pos + 1);
+  const after = props.value.slice(pos + 1);
   return (
     <Box flexDirection="column">
       <Box>
         <Text dimColor>&gt; </Text>
-        <TextInput value={props.value} onChange={props.onChange} onSubmit={guardedSubmit} />
+        <Text>
+          {before}
+          <Text inverse>{under === "" ? " " : under}</Text>
+          {after}
+        </Text>
       </Box>
       {showMenu && (
         <Box flexDirection="column">
@@ -458,11 +511,18 @@ export function KcodeApp(props: KcodeAppProps) {
     { isActive: interactive },
   );
 
+  /** 本轮已发送过中断（重复按 Esc/Ctrl+C 不再刷提示，等当前命令退出） */
+  const abortSent = useRef(false);
+
   /** 中断当前运行：发送 abort，并立即收掉挂起的交互（daemon 侧也会结算未决 ask） */
   const interruptRun = (): void => {
     if (!busy) {
       return;
     }
+    if (abortSent.current) {
+      return; // 已请求过：正在等待当前命令被终止
+    }
+    abortSent.current = true;
     if (ask !== null) {
       ask.resolve({ allowed: false });
       setAsk(null);
@@ -908,6 +968,7 @@ ${body}
 
     setInput("");
     inputHistory.current = [...inputHistory.current, text].slice(-50);
+    abortSent.current = false;
     setSpinVerb(SPIN_VERBS[Math.floor(Math.random() * SPIN_VERBS.length)] ?? "思考中");
     setBusy(true);
     setBusySince(Date.now());

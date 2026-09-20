@@ -122,7 +122,13 @@ export function createBashTool(opts: BashToolOptions): Tool {
       }
 
       try {
-        const { code, output } = await runShell(shell.file, shellArgs, workDir, timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        const { code, output } = await runShell(
+          shell.file,
+          shellArgs,
+          workDir,
+          timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          ctx.signal,
+        );
         const capped = capOutput(output);
         if (code === 0) {
           return { ok: true, output: capped };
@@ -292,17 +298,45 @@ export async function currentShellInfo(): Promise<{ name: "bash" | "powershell";
     : { name: "powershell", dialect: "PowerShell（命令必须用 PowerShell 语法）" };
 }
 
+/** 结束子进程树：shell 会派生子进程，直接 kill 只杀壳不杀孙——Windows 用 taskkill /T /F */
+function killTree(child: import("node:child_process").ChildProcess): void {
+  if (child.pid === undefined) {
+    child.kill();
+    return;
+  }
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+  } else {
+    child.kill("SIGKILL");
+  }
+}
+
 function runShell(
   file: string,
   args: string[],
   cwd: string | undefined,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ code: number; output: string }> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(file, args, { cwd, windowsHide: true });
     let output = "";
+    // 用户中断（Esc/Ctrl+C）：立即杀树并结算（不等 120s 超时）
+    const onAbort = (): void => {
+      killTree(child);
+      clearTimeout(timer);
+      resolvePromise({ code: -1, output: `${output}
+（已被用户中断）` });
+    };
+    if (signal !== undefined) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
     const timer = setTimeout(() => {
-      child.kill();
+      killTree(child);
       reject(new Error(`命令超时（${Math.round(timeoutMs / 1000)}s），已终止`));
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
@@ -317,6 +351,7 @@ function runShell(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolvePromise({ code: code ?? -1, output });
     });
   });

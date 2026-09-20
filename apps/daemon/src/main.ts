@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
-import { rmSync } from "node:fs";
+import { appendFileSync, rmSync } from "node:fs";
 import { UserConfigFile, type LLMProvider } from "@kcode/contracts";
 import { createProviderRouter, EncryptedFileKeychain, type KeychainStore } from "@kcode/platform";
 import { startDaemon } from "./server.js";
@@ -68,6 +68,19 @@ async function createLlmFactory(
   };
 }
 
+/** 守护日志：常驻进程的 stderr 与崩溃现场落盘（界面看不到 daemon，无日志无法排查） */
+const LOG_PATH = join(defaultKcodeHome(), "daemon.log");
+
+function log(line: string): void {
+  const stamped = `[${new Date().toISOString()}] ${line}\n`;
+  try {
+    appendFileSync(LOG_PATH, stamped, "utf8");
+  } catch {
+    // 日志失败静默（不能因日志把主流程打挂）
+  }
+  process.stderr.write(stamped);
+}
+
 async function main(): Promise<void> {
   const kcodeHomeDir = defaultKcodeHome();
   const pipePath = daemonPipePath();
@@ -103,7 +116,17 @@ async function main(): Promise<void> {
   process.on("SIGTERM", cleanExit);
 }
 
+// 常驻进程的兜底：未捕获异常记日志后继续存活（一次异常不该杀死所有会话）
+process.on("uncaughtException", (err) => {
+  log(`uncaughtException: ${err.stack ?? String(err)}`);
+});
+process.on("unhandledRejection", (reason) => {
+  log(
+    `unhandledRejection: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`,
+  );
+});
+
 main().catch((err) => {
-  process.stderr.write(`✗ ${err instanceof Error ? err.message : String(err)}\n`);
+  log(`启动失败: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
   process.exit(1);
 });

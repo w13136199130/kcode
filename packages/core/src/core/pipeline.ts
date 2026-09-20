@@ -35,7 +35,7 @@ export class ToolPipeline {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async run(tool: Tool, args: unknown, callId: string): Promise<ToolOutput> {
+  async run(tool: Tool, args: unknown, callId: string, signal?: AbortSignal): Promise<ToolOutput> {
     const name = tool.definition.name;
 
     const decision = await this.permissions.decide(tool.definition, args);
@@ -94,7 +94,11 @@ export class ToolPipeline {
     const effectiveArgs = pre.args ?? args;
     let result: ToolOutput;
     try {
-      result = await tool.execute(effectiveArgs, { sessionId: this.sessionId, cwd: this.cwd });
+      result = await tool.execute(effectiveArgs, {
+        sessionId: this.sessionId,
+        cwd: this.cwd,
+        ...(signal !== undefined ? { signal } : {}),
+      });
     } catch (err) {
       result = { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }

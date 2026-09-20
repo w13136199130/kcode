@@ -1,3 +1,5 @@
+import { appendFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { render } from "ink";
 import { join } from "node:path";
 import { EncryptedFileKeychain } from "@kcode/platform";
@@ -13,6 +15,13 @@ import { KcodeApp } from "./tui/App.js";
 /** key 录入子命令：直接操作本地加密文件（不经过守护进程） */
 async function keyCommand(args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
+  // 环境无口令时交互式询问（set 只对当前窗口生效，新开窗口常见此况）
+  if ((process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && process.stdin.isTTY === true) {
+    const pass = await promptHidden("未检测到 KCODE_KEYCHAIN_PASSPHRASE，请输入 keychain 口令（不回显，回车确认）：");
+    if (pass !== "") {
+      process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
+    }
+  }
   const keychain = EncryptedFileKeychain.fromEnv(join(kcodeHome(), "keys.json"));
   if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
     await keychain.set(ref, key, audiences);
@@ -192,7 +201,7 @@ async function main(): Promise<void> {
           "口令三次校验失败。若忘记原口令，重置方法（注意：会清除已录的 key，需要重新录入）：\n" +
             '  1) set KCODE_KEYCHAIN_PASSPHRASE=新口令\n' +
             "  2) del \"%USERPROFILE%\\.kcode\\keys.json\"\n" +
-            "  3) npx tsx src/main.tsx key add keychain://glm <你的API key> https://open.bigmodel.cn/api/paas/v4",
+            "  3) kcode key add keychain://glm <你的API key> https://open.bigmodel.cn/api/paas/v4（任意目录可执行）",
         );
         process.exit(1);
       }
@@ -240,7 +249,37 @@ async function main(): Promise<void> {
   client.close();
 }
 
+// 进程级兜底：任何未捕获异常都写 ~/kcode-crash.log（拿不到现场的崩溃一次定位）
+process.on("uncaughtException", (err) => {
+  try {
+    appendFileSync(
+      join(homedir(), "kcode-crash.log"),
+      `${new Date().toISOString()} UNCAUGHT\n${err.stack ?? String(err)}\n`,
+      "utf8",
+    );
+  } catch {}
+  console.error(`✗ ${err.message}`);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  try {
+    appendFileSync(
+      join(homedir(), "kcode-crash.log"),
+      `${new Date().toISOString()} UNHANDLED\n${
+        reason instanceof Error ? reason.stack ?? reason.message : String(reason)
+      }\n`,
+      "utf8",
+    );
+  } catch {}
+});
+
 main().catch((err) => {
   console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
+  if (err instanceof Error && err.stack !== undefined) {
+    console.error(err.stack);
+    try {
+      appendFileSync(join(homedir(), "kcode-crash.log"), `${new Date().toISOString()}\n${err.stack}\n`, "utf8");
+    } catch {}
+  }
   process.exit(1);
 });

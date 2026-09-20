@@ -432,7 +432,7 @@ export class AgentLoop {
     const byName = new Map(tools.map((t) => [t.definition.name, t] as const));
     const allReadOnly = calls.every((c) => byName.get(c.tool)?.definition.readOnly === true);
     if (allReadOnly) {
-      return Promise.all(calls.map((c) => this.executeOne(byName, c)));
+      return Promise.all(calls.map((c) => this.executeOne(byName, c, signal)));
     }
     const results: Array<{ result: ToolOutput; durationMs: number }> = [];
     for (const call of calls) {
@@ -444,7 +444,7 @@ export class AgentLoop {
         });
         continue;
       }
-      results.push(await this.executeOne(byName, call));
+      results.push(await this.executeOne(byName, call, signal));
     }
     return results;
   }
@@ -452,6 +452,7 @@ export class AgentLoop {
   private async executeOne(
     byName: Map<string, Tool>,
     call: PendingCall,
+    signal?: AbortSignal,
   ): Promise<{ result: ToolOutput; durationMs: number }> {
     const tool = byName.get(call.tool);
     if (tool === undefined) {
@@ -461,7 +462,7 @@ export class AgentLoop {
       };
     }
     const startedAt = this.now();
-    const result = await this.pipeline.run(tool, call.args, call.callId);
+    const result = await this.pipeline.run(tool, call.args, call.callId, signal);
     return { result, durationMs: Math.max(0, this.now() - startedAt) };
   }
 }

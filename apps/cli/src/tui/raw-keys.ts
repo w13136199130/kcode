@@ -8,10 +8,15 @@ import { useEffect, useRef } from "react";
  */
 
 export interface RawKey {
+  /** 本事件伴随的可打印文本（连续字符串；特殊键事件为空串） */
+  text: string;
   up: boolean;
   down: boolean;
   left: boolean;
   right: boolean;
+  home: boolean;
+  end: boolean;
+  delete: boolean;
   enter: boolean;
   esc: boolean;
   tab: boolean;
@@ -20,10 +25,14 @@ export interface RawKey {
 }
 
 const NONE: RawKey = {
+  text: "",
   up: false,
   down: false,
   left: false,
   right: false,
+  home: false,
+  end: false,
+  delete: false,
   enter: false,
   esc: false,
   tab: false,
@@ -51,6 +60,15 @@ export function parseKeyChunk(chunk: string): RawKey[] {
     } else if (rest.startsWith("\x1b[D") || rest.startsWith("\x1bOD")) {
       out.push(keyOf({ left: true }));
       i += 3;
+    } else if (rest.startsWith("\x1b[H") || rest.startsWith("\x1bOH") || rest.startsWith("\x1b[1~")) {
+      out.push(keyOf({ home: true }));
+      i += rest.startsWith("\x1b[1~") ? 4 : 3;
+    } else if (rest.startsWith("\x1b[F") || rest.startsWith("\x1bOF") || rest.startsWith("\x1b[4~")) {
+      out.push(keyOf({ end: true }));
+      i += rest.startsWith("\x1b[4~") ? 4 : 3;
+    } else if (rest.startsWith("\x1b[3~")) {
+      out.push(keyOf({ delete: true }));
+      i += 4;
     } else if (rest.startsWith("\r") || rest.startsWith("\n")) {
       out.push(keyOf({ enter: true }));
       i += 1;
@@ -68,8 +86,21 @@ export function parseKeyChunk(chunk: string): RawKey[] {
       out.push(keyOf({ esc: true }));
       i += rest.startsWith("\x1b\x1b") ? 2 : 1;
     } else {
-      // 普通字符：跳过整个块（文本输入归 Ink/TextInput 管）
-      i += rest.length;
+      // 连续可打印字符收成一段 text 事件（字符输入统一走 raw 层，
+      // 绕开部分终端/启动期 Ink useInput 送达不稳定的问题）
+      let j = 0;
+      while (j < rest.length) {
+        const c = rest[j]!;
+        if (c < " " || c === "") break;
+        j += c.codePointAt(0)! > 0xffff ? 2 : 1;
+      }
+      if (j === 0) {
+        // 不可识别的控制字符：跳过一个，避免死循环
+        i += 1;
+      } else {
+        out.push(keyOf({ text: rest.slice(0, j) }));
+        i += j;
+      }
     }
   }
   return out;
@@ -79,6 +110,13 @@ type Handler = (key: RawKey) => void;
 
 let installed = false;
 const handlers = new Set<Handler>();
+/** raw 层最近一次交付 text 的时刻：供 Ink useInput 后备通道去重（60ms 内视为同一输入） */
+let lastTextAt = 0;
+
+/** raw 层刚刚交付过字符输入吗（英文可靠；部分终端的 IME 中文块只走 Ink 通道） */
+export function rawDeliveredTextRecently(): boolean {
+  return Date.now() - lastTextAt < 60;
+}
 
 function install(): void {
   if (installed || process.stdin.isTTY !== true) {
@@ -87,10 +125,17 @@ function install(): void {
   installed = true;
   process.stdin.on("data", (chunk: Buffer) => {
     // Ink 开启 raw mode 后此处才可能收到；逐块解析分发
+    let delivered = false;
     for (const key of parseKeyChunk(chunk.toString("utf8"))) {
+      if (key.text !== "") {
+        delivered = true;
+      }
       for (const handler of handlers) {
         handler(key);
       }
+    }
+    if (delivered) {
+      lastTextAt = Date.now();
     }
   });
 }

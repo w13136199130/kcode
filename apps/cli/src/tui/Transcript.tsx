@@ -166,17 +166,15 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "user") {
-    // 通栏灰底色块（对标 Claude Code 的用户消息条）
-    const cols = stdout.columns ?? 80;
-    const inner = Math.max(20, cols - 3);
-    const lines = wrapVisual(block.text, inner);
+    // 用户消息：暗色 > 前缀（Claude Code 现行风格；多行折行显示）
+    void stdout;
+    const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 2);
     return (
       <Box flexDirection="column">
         {lines.map((l, j) => (
-          <Text key={j} backgroundColor="gray" color="black" wrap="truncate-end">
-            {j === 0 ? " > " : "   "}
+          <Text key={j} color="green" dimColor wrap="wrap">
+            {j === 0 ? "> " : "  "}
             {l}
-            {" ".repeat(Math.max(0, inner - visualWidth(l)))}
           </Text>
         ))}
       </Box>

@@ -26,7 +26,12 @@ const child = spawn(
   ["--import", pathToFileURL(tsxImport).href, entry, ...process.argv.slice(2)],
   {
     stdio: "inherit",
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      // tsx 按「当前工作目录」找 tsconfig——用户可能在任意目录启动 kcode，
+      // 不固定的话从仓库外/根目录启动会按默认经典 JSX 编译（React is not defined）
+      TSX_TSCONFIG_PATH: join(cliDir, "tsconfig.json"),
+    },
     windowsHide: false,
   },
 );
