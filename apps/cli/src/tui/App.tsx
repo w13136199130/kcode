@@ -330,6 +330,8 @@ export function InputBox(props: {
       ? Math.min(cursor.at, props.value.length)
       : props.value.length;
   useEffect(() => {
+    // 提交后 InputBox 重挂载：首帧可能被终端/上一轮输出覆盖，挂载即请求一次重绘
+    props.onCjkCommit?.();
     // Home/End 被 Ink 的具名键清空机制丢弃：经 stdin.read tee 回收
     patchStdinReadForKeys();
     const off = onHomeEnd((k) => {
@@ -581,14 +583,21 @@ export function KcodeApp(props: KcodeAppProps) {
   const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
   const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
   /** IME 上屏强制重绘：终端清除组合区覆盖的时机在应用渲染之后（日志实测 0~1.3s 窗口），
-   *  以 150/400/900ms 三连重绘覆盖；交替空格保证每次帧都有 diff 绕过 Ink 去重 */
+   *  0~1.5s 五连重绘覆盖；交替空格保证每次帧都有 diff 绕过 Ink 去重 */
   const [repaintTick, setRepaintTick] = useState(0);
   const pingRepaint = (): void => {
     setRepaintTick((t) => t + 1);
-    for (const delay of [150, 400, 900]) {
+    for (const delay of [150, 400, 900, 1500]) {
       setTimeout(() => setRepaintTick((t) => t + 1), delay);
     }
   };
+  useEffect(() => {
+    if (process.env["KCODE_INPUT_DEBUG"] === "1" && repaintTick > 0) {
+      try {
+        appendInputLog(`repaint tick=${repaintTick}`);
+      } catch {}
+    }
+  }, [repaintTick]);
   /** 转写展开态（Ctrl+O 切换）：思考全文 / 工具输出多行 */
   const [verbose, setVerbose] = useState(false);
   /** 驱动 running 态动态耗时与 busy 计时的时钟（250ms 一拍） */
