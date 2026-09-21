@@ -580,11 +580,14 @@ export function KcodeApp(props: KcodeAppProps) {
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
   const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
   const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
-  /** IME 上屏强制重绘：conhost 提交竞态会擦掉刚画的帧，二次重绘（交替空格保证帧 diff）兜底 */
+  /** IME 上屏强制重绘：终端清除组合区覆盖的时机在应用渲染之后（日志实测 0~1.3s 窗口），
+   *  以 150/400/900ms 三连重绘覆盖；交替空格保证每次帧都有 diff 绕过 Ink 去重 */
   const [repaintTick, setRepaintTick] = useState(0);
   const pingRepaint = (): void => {
     setRepaintTick((t) => t + 1);
-    setTimeout(() => setRepaintTick((t) => t + 1), 80);
+    for (const delay of [150, 400, 900]) {
+      setTimeout(() => setRepaintTick((t) => t + 1), delay);
+    }
   };
   /** 转写展开态（Ctrl+O 切换）：思考全文 / 工具输出多行 */
   const [verbose, setVerbose] = useState(false);
