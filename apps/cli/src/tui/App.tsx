@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import type {
   AskPreviewPayload,
@@ -20,7 +20,6 @@ import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
-import { inputAnchor } from "./cursor-anchor.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
 
 export interface KcodeAppProps {
@@ -338,8 +337,6 @@ export function InputBox(props: {
     }
   }
   const pos = cursor ?? props.value.length;
-  // 光标锚定列 = 提示符 2 列 + 光标前内容视觉宽度（输入行是帧的最后一行，锚定恒为上移一行）
-  inputAnchor.column = 2 + visualWidth(props.value.slice(0, pos));
   useEffect(() => {
     // Home/End 被 Ink 的具名键清空机制丢弃：经 stdin.read tee 回收
     patchStdinReadForKeys();
@@ -353,7 +350,6 @@ export function InputBox(props: {
     });
     return () => {
       off();
-      inputAnchor.column = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -535,12 +531,12 @@ export function InputBox(props: {
   const under = props.value.slice(pos, pos + 1);
   const after = props.value.slice(pos + 1);
   // 布局：上分隔线 → 输入行 → 下分隔线 → 菜单（输入框被两条线夹住，菜单在框外下方弹出）。
+  const { stdout: out } = useStdout();
+  const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
   // 输入行到帧末的行距随菜单行数变化 → 动态上报给光标锚定。
-  const menuLines = showMenu ? Math.min(matches.length, 8) + 1 : 0;
-  inputAnchor.lineOffset = 1 + 1 + menuLines; // 底分隔线 + 菜单(含提示行) + 帧尾换行
   return (
     <Box flexDirection="column">
-      <Text dimColor>{"─".repeat(60)}</Text>
+      <Text dimColor>{separator}</Text>
       <Box>
         <Text dimColor>&gt; </Text>
         <Text>
@@ -549,7 +545,7 @@ export function InputBox(props: {
           {after}
         </Text>
       </Box>
-      <Text dimColor>{"─".repeat(60)}</Text>
+      <Text dimColor>{separator}</Text>
       {showMenu && (
         <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
