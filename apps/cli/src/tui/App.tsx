@@ -13,12 +13,14 @@ import type {
   UserPromptPort,
 } from "@kcode/contracts";
 import { EncryptedFileKeychain } from "@kcode/platform";
+import { appendFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
-import { rawDeliveredTextRecently, useRawKeys } from "./raw-keys.js";
-import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
+import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
+import { inputAnchor } from "./cursor-anchor.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -172,6 +174,15 @@ function PromptInput(props: {
   );
 }
 
+/** 输入事件调试日志：设 KCODE_INPUT_DEBUG=1 后写入 ~/kcode-input.log（排查终端差异用） */
+function appendInputLog(line: string): void {
+  try {
+    appendFileSync(join(homedir(), "kcode-input.log"), `${Date.now()} ${line}\n`, "utf8");
+  } catch {
+    // 调试日志失败静默
+  }
+}
+
 export interface MenuOption {
   /** 快捷键（单选时按下即选中并确认；多选时忽略） */
   key: string;
@@ -194,28 +205,27 @@ function OptionsMenu(props: {
   const count = props.options.length;
   const [selected, setSelected] = useState(props.initialIndex ?? 0);
   const [checked, setChecked] = useState<Set<number>>(new Set());
-  // 特殊键（↑↓/回车/Esc）走自建 raw 层：绕开部分终端/输入法下 Ink 解析不可靠的问题
-  useRawKeys(
-    (key) => {
-      if (key.up) {
-        setSelected((s) => (s - 1 + count) % count);
-      } else if (key.down) {
-        setSelected((s) => (s + 1) % count);
-      } else if (key.enter) {
-        if (props.multi === true) {
-          props.onPick([...checked]);
-        } else {
-          props.onPick([selected]);
-        }
-      } else if (key.esc) {
-        props.onCancel();
-      }
-    },
-    true,
-  );
+  // 单一 Ink 输入通道（与 stdin 的读取模式不再打架——私加 data 监听会饿死 Ink 的 readable 循环）
   useInput((ch, key) => {
-    if (key.return || key.escape || key.upArrow || key.downArrow) {
-      return; // 已由 raw 层处理，避免双触发
+    if (key.upArrow) {
+      setSelected((s) => (s - 1 + count) % count);
+      return;
+    }
+    if (key.downArrow) {
+      setSelected((s) => (s + 1) % count);
+      return;
+    }
+    if (key.return) {
+      if (props.multi === true) {
+        props.onPick([...checked]);
+      } else {
+        props.onPick([selected]);
+      }
+      return;
+    }
+    if (key.escape) {
+      props.onCancel();
+      return;
     }
     if (props.multi === true && ch === " ") {
       setChecked((prev) => {
@@ -308,17 +318,79 @@ export function InputBox(props: {
   const [menuIndex, setMenuIndex] = useState(0);
   /** 光标位置（null = 末尾）；外部改值（历史/补全/清空）时光标回到末尾 */
   const [cursor, setCursor] = useState<number | null>(null);
+  /** IME 组合区起点（连续 [a-z0-9'] 拼音输入的起始下标；null = 无组合区） */
+  const [pinyinTailStart, setPinyinTailStart] = useState<number | null>(null);
   const prevValue = useRef(props.value);
+  /** 自编辑的期望值：值变化若由本组件 setValue 触发，不把光标重置回末尾 */
+  const selfEdit = useRef<string | null>(null);
   if (prevValue.current !== props.value) {
+    const isSelfEdit = selfEdit.current === props.value;
+    selfEdit.current = null;
     prevValue.current = props.value;
-    if (cursor !== null) {
-      setCursor(null);
+    if (!isSelfEdit) {
+      // 外部改值（提交后清空/命令补全等）：组合区作废
+      if (cursor !== null) {
+        setCursor(null);
+      }
+      setPinyinTailStart(null);
     }
   }
   const pos = cursor ?? props.value.length;
+  // 光标锚定：把真实光标列报给 stdout 补丁（帧渲染后归位到输入行末尾，IME 组合窗随之锚定）
+  inputAnchor.column = 2 + visualWidth(props.value);
+  useEffect(() => {
+    return () => {
+      inputAnchor.column = 0;
+    };
+  }, []);
   const setValue = (v: string, at?: number): void => {
+    selfEdit.current = v;
     props.onChange(v);
     setCursor(at !== undefined ? at : null);
+  };
+
+  /**
+   * IME 组合区跟踪：终端把组合期的拼音键（含音节分隔符 '）逐个漏给应用，
+   * 连续的 [a-z0-9'] 记为组合区；中文上屏时把整个组合区替换为中文
+   * （对标 Claude Code：组合期显示拼音，选词后干净替换）。
+   * 任何非组合输入（大写/符号/退格/删除/光标跳转/历史/补全）重置组合区。
+   */
+  const clearTail = (): void => {
+    if (pinyinTailStart !== null) {
+      setPinyinTailStart(null);
+    }
+  };
+
+  /** 最近一次中文上屏时刻：候选选择的数字键可能晚于中文到达（conhost 竞态），短窗口内丢弃 */
+  const lastCjkAt = useRef(0);
+
+  const insertText = (str: string): void => {
+    const base = props.value;
+    const at = cursor ?? props.value.length;
+    // 候选数字泄漏防护：中文上屏后 350ms 内的孤立数字是选词键的竞态泄漏，丢弃
+    if (/^[0-9]$/.test(str) && Date.now() - lastCjkAt.current < 350) {
+      return;
+    }
+    // 组合期按键：延续或新开组合区
+    if (/^[a-z0-9']$/.test(str)) {
+      const start = pinyinTailStart !== null && pinyinTailStart <= at ? pinyinTailStart : at;
+      setPinyinTailStart(start);
+      setValue(`${base.slice(0, at)}${str}${base.slice(at)}`, at + str.length);
+      return;
+    }
+    const hasCjk = /[一-鿿　-〿！-～]/.test(str);
+    if (hasCjk) {
+      lastCjkAt.current = Date.now();
+    }
+    if (hasCjk && pinyinTailStart !== null && pinyinTailStart <= at) {
+      // 上屏替换：整个组合区换成本次的中文串
+      const replacedBase = base.slice(0, pinyinTailStart) + base.slice(at);
+      setPinyinTailStart(null);
+      setValue(`${replacedBase.slice(0, pinyinTailStart)}${str}${replacedBase.slice(pinyinTailStart)}`, pinyinTailStart + str.length);
+      return;
+    }
+    setPinyinTailStart(null);
+    setValue(`${base.slice(0, at)}${str}${base.slice(at)}`, at + str.length);
   };
   const menuOpen =
     props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
@@ -336,49 +408,70 @@ export function InputBox(props: {
       setMenuIndex(0);
     }
   }
-  // 字符输入：raw 层为主 + Ink useInput 后备（部分终端的 IME 中文块只走 Ink 通道），
-  // 60ms 去重窗口防止双通道各插一份
+  // 单一 Ink 输入通道：字符/IME 整串/方向/回车/退格全在此处理。
+  // Home/End 在 Ink 的 key 对象里未暴露，以序列形式到达（[H 被剥掉 ESC 后成 "[H"）。
   useInput(
     (ch, key) => {
-      if (key.return || key.escape || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.ctrl || key.tab || key.backspace || key.delete) {
+      if (process.env["KCODE_INPUT_DEBUG"] === "1") {
+        try {
+          appendInputLog(`ch=${JSON.stringify(ch)} key=${JSON.stringify(key)}`);
+        } catch {}
+      }
+      const homeSeq = ch === "[H" || ch === "OH" || ch === "[1~";
+      const endSeq = ch === "[F" || ch === "OF" || ch === "[4~";
+      if (key.ctrl) {
+        return; // 组合键（Ctrl+C 等）由 App 层处理
+      }
+      if (homeSeq) {
+        clearTail();
+        setCursor(0);
         return;
       }
-      if (ch === undefined || ch === "" || ch < " ") {
-        return;
-      }
-      if (rawDeliveredTextRecently()) {
-        return; // raw 层刚交付过同一输入
-      }
-      const at = cursor ?? props.value.length;
-      setValue(`${props.value.slice(0, at)}${ch}${props.value.slice(at)}`, at + ch.length);
-    },
-    { isActive: true },
-  );
-  // 特殊键（↑↓/Home/End/左右/退格/删除/Tab/回车/Esc/历史翻阅）统一走 raw 层
-  useRawKeys(
-    (key) => {
-      if (key.text !== "") {
-        const at = cursor ?? props.value.length;
-        setValue(`${props.value.slice(0, at)}${key.text}${props.value.slice(at)}`, at + key.text.length);
+      if (endSeq) {
+        clearTail();
+        setCursor(null);
         return;
       }
       if (showMenu) {
-        if (key.up) {
+        if (key.upArrow) {
           setMenuIndex((s) => (s - 1 + matches.length) % matches.length);
-        } else if (key.down) {
+        } else if (key.downArrow) {
           setMenuIndex((s) => (s + 1) % matches.length);
-        } else if (key.tab || key.enter) {
+        } else if (key.tab || key.return) {
           const picked = matches[clamped] ?? matches[0];
           if (picked !== undefined) {
             setValue(`/${picked.name} `);
           }
-        } else if (key.esc) {
+        } else if (key.escape) {
           setValue("");
+        } else if (key.backspace) {
+          clearTail();
+          if (pos > 0) {
+            setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+          }
+        } else if (key.delete) {
+          // 中文 Windows 控制台的退格键发来 delete(0x7f)而非 backspace；
+          // 行尾时向前无字符，退化为向后删（与其他 CLI 的键码归一化一致）
+          clearTail();
+          if (pos < props.value.length) {
+            setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
+          } else if (pos > 0) {
+            setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+          }
+        } else if (key.leftArrow) {
+          clearTail();
+          setCursor(Math.max(0, pos - 1));
+        } else if (key.rightArrow) {
+          clearTail();
+          setCursor(Math.min(props.value.length, pos + 1));
+        } else if (ch !== "" && !key.escape && !key.return && !key.tab) {
+          insertText(ch);
         }
         return;
       }
-      if (key.up) {
+      if (key.upArrow) {
         if (props.history.length === 0) return;
+        clearTail();
         if (index.current === -1) {
           draft.current = props.value;
           index.current = props.history.length - 1;
@@ -386,8 +479,9 @@ export function InputBox(props: {
           index.current -= 1;
         }
         props.onChange(props.history[index.current] ?? "");
-      } else if (key.down) {
+      } else if (key.downArrow) {
         if (index.current === -1) return;
+        clearTail();
         if (index.current < props.history.length - 1) {
           index.current += 1;
           props.onChange(props.history[index.current] ?? "");
@@ -395,25 +489,33 @@ export function InputBox(props: {
           index.current = -1;
           props.onChange(draft.current);
         }
-      } else if (key.left) {
+      } else if (key.leftArrow) {
+        clearTail();
         setCursor(Math.max(0, pos - 1));
-      } else if (key.right) {
+      } else if (key.rightArrow) {
+        clearTail();
         setCursor(Math.min(props.value.length, pos + 1));
-      } else if (key.home) {
-        setCursor(0);
-      } else if (key.end) {
-        setCursor(null);
       } else if (key.backspace) {
+        clearTail();
         if (pos > 0) {
           setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
         }
       } else if (key.delete) {
-        setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
-      } else if (key.enter) {
+        // 同上：delete 行尾退化为向后删（退格键在中文控制台走此分支）
+        clearTail();
+        if (pos < props.value.length) {
+          setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
+        } else if (pos > 0) {
+          setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+        }
+      } else if (key.return) {
         props.onSubmit(props.value);
+      } else if (ch !== "" && !key.escape && !key.tab) {
+        // 可打印字符 / IME 提交的整串（含中文替换拼音）
+        insertText(ch);
       }
     },
-    true,
+    { isActive: true },
   );
   // 菜单在输入行下方（对标 Claude Code：输入框固定、候选列表向下展开）
   const before = props.value.slice(0, pos);
@@ -544,31 +646,37 @@ export function KcodeApp(props: KcodeAppProps) {
     modelPicker !== null ||
     loginWizard !== null;
 
-  // Esc / Ctrl+C：busy 时都触发中断（部分终端/输入法下 Esc 不可靠，Ctrl+C 兜底）
-  useRawKeys(
-    (key) => {
-      if ((key.esc || key.ctrlC) && ready && busy && !menuOccupied) {
+  // Esc：busy 时中断（菜单占用时 Esc 归菜单）
+  useInput(
+    (_ch, key) => {
+      if (key.escape) {
         interruptRun();
       }
     },
-    interactive && busy,
+    { isActive: interactive && busy && !menuOccupied },
   );
 
-  // 空闲时 Ctrl+C：双击退出（Ink 的 exitOnCtrlC 已关，退出语义自己管）
+  // Ctrl+C：busy 时中断；空闲时双击退出（Ink 的 exitOnCtrlC 已关，退出语义自己管）
   const lastCtrlCAt = useRef(0);
-  useRawKeys(
-    (key) => {
-      if (key.ctrlC && ready && !busy) {
-        const now = Date.now();
-        if (now - lastCtrlCAt.current < 1500) {
-          exit();
-        } else {
-          lastCtrlCAt.current = now;
-          pushBlock({ kind: "info", tone: "warn", text: "再按一次 Ctrl+C 退出（运行中按 Ctrl+C 为中断）" });
+  useInput(
+    (ch, key) => {
+      if (key.ctrl && ch === "c") {
+        if (busy && !menuOccupied) {
+          interruptRun();
+          return;
+        }
+        if (!busy) {
+          const now = Date.now();
+          if (now - lastCtrlCAt.current < 1500) {
+            exit();
+          } else {
+            lastCtrlCAt.current = now;
+            pushBlock({ kind: "info", tone: "warn", text: "再按一次 Ctrl+C 退出（运行中按 Ctrl+C 为中断）" });
+          }
         }
       }
     },
-    interactive,
+    { isActive: interactive },
   );
 
   // daemon 掉线：提示重启与续接（pending 运行由 session 层 reject，busy 随之解除）
@@ -1025,6 +1133,9 @@ ${body}
           {notice}
         </Text>
       )}
+      <Text dimColor wrap="truncate-end">
+        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
+      </Text>
       {ask !== null ? (
         <Box flexDirection="column">
           <Text color="magenta">
@@ -1277,9 +1388,6 @@ ${body}
       ) : (
         <Text dimColor>初始化会话…</Text>
       )}
-      <Text dimColor wrap="truncate-end">
-        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
-      </Text>
     </Box>
   );
 }

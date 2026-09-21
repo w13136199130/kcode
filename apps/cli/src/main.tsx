@@ -11,6 +11,7 @@ import {
 import { ensureDaemon, killDaemonByPidfile } from "./daemon-client.js";
 import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
+import { patchStdoutForIme } from "./tui/cursor-anchor.js";
 
 /** key 录入子命令：直接操作本地加密文件（不经过守护进程） */
 async function keyCommand(args: string[]): Promise<void> {
@@ -233,6 +234,8 @@ async function main(): Promise<void> {
     );
   }
 
+  // IME 光标锚定：帧渲染后把真实光标停回输入行末尾（conhost 组合窗据此锚定在 > 后面）
+  patchStdoutForIme();
   // exitOnCtrlC=false：运行中 Ctrl+C = 中断、空闲双击 = 退出（自建 raw 层接管）
   const { waitUntilExit } = render(
     <KcodeApp
