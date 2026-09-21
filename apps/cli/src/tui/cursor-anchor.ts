@@ -33,12 +33,15 @@ export function patchStdoutForIme(): void {
     const s = typeof chunk === "string" ? chunk : "";
     // Ink 帧写入：log-update 的擦除(\x1b[2K..) 或整屏清除(\x1b[2J) 开头
     const isFrame = s.startsWith("\x1b[2K") || s.startsWith("\x1b[2J");
-    if (!isFrame || inputAnchor.column <= 0) {
+    // 仅擦除、无内容的写（Static 刷新序列的 log.clear() 步）必须原样通过且不锚定——
+    // 其后紧跟的 Static 内容写会从光标处落笔，锚定会导致内容写错位置（状态栏重复的根因）
+    const stripped = s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/[\r\n]/g, "");
+    const hasContent = stripped.trim() !== "";
+    if (!isFrame || !hasContent || inputAnchor.column <= 0) {
       return rawWrite(chunk, ...rest);
     }
-    // 1) 撤销锚定（自校正）：多下一行到帧末之下，清屏尾残迹，再上移一行精确落回帧末行首——
-    //    即便上次锚定/终端滚动导致偏差一行，此序列也能把擦除起点纠正到正确位置
-    rawWrite(`\r\x1b[${LINE_OFFSET + 1}B\x1b[J\x1b[1A`);
+    // 1) 撤销锚定：回到帧末行行首（Ink 擦除起点）
+    rawWrite(`\r\x1b[${LINE_OFFSET}B`);
     // 2) 写帧
     const result = rawWrite(chunk, ...rest);
     // 3) 重新锚定：上移到输入行、右移到光标列
