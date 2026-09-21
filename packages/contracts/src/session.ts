@@ -97,6 +97,15 @@ export const SessionEndEvent = z.object({
   ts,
   sessionId,
   reason: z.enum(["completed", "aborted"]),
+  /** 本轮 run 的用量增量（resume 续接 /cost：对全部 session_end 求和即会话累计） */
+  usage: z
+    .object({
+      inputTokens: z.number().nonnegative(),
+      outputTokens: z.number().nonnegative(),
+      /** 本轮 LLM 调用次数（含未回报用量的调用） */
+      calls: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 
 /**

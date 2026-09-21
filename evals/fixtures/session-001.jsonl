@@ -5,4 +5,4 @@
 {"v":1,"type":"tool_result","ts":0,"sessionId":"sess_fix001","callId":"c1","ok":true,"output":"hi","durationMs":0}
 {"v":1,"type":"tool_result","ts":0,"sessionId":"sess_fix001","callId":"c2","ok":true,"output":"yo","durationMs":0}
 {"v":1,"type":"assistant_message","ts":0,"sessionId":"sess_fix001","content":"done"}
-{"v":1,"type":"session_end","ts":0,"sessionId":"sess_fix001","reason":"completed"}
+{"v":1,"type":"session_end","ts":0,"sessionId":"sess_fix001","reason":"completed","usage":{"inputTokens":0,"outputTokens":0,"calls":2}}

@@ -79,7 +79,20 @@ export class OpenAICompatibleProvider implements LLMProvider {
         };
       } else if (part.type === "finish" && !ended) {
         ended = true;
-        yield { type: "end", reason: part.finishReason === "tool-calls" ? "tool_use" : "stop" };
+        // SDK 已发 stream_options.include_usage：支持的端点在流末回报用量（v4 字段名 prompt/completionTokens）
+        const usage = part.usage;
+        yield {
+          type: "end",
+          reason: part.finishReason === "tool-calls" ? "tool_use" : "stop",
+          ...(usage?.promptTokens !== undefined || usage?.completionTokens !== undefined
+            ? {
+                usage: {
+                  inputTokens: usage?.promptTokens ?? 0,
+                  outputTokens: usage?.completionTokens ?? 0,
+                },
+              }
+            : {}),
+        };
       }
     }
     if (!ended) {

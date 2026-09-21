@@ -117,6 +117,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "skill", desc: "手动注入技能正文" },
   { name: "sessions", desc: "最近会话列表" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
+  { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
   { name: "trust", desc: "信任当前项目" },
   { name: "help", desc: "显示帮助" },
@@ -1055,6 +1056,23 @@ ${body}
         });
         return;
       }
+      if (name === "cost") {
+        const usage = await session.usage().catch(() => null);
+        if (usage === null) {
+          pushBlock({ kind: "info", tone: "warn", text: "用量获取失败（守护进程连接异常）" });
+          return;
+        }
+        const fmt = (n: number): string => n.toLocaleString("en-US");
+        const known = usage.inputTokens > 0 || usage.outputTokens > 0;
+        pushBlock({
+          kind: "info",
+          text:
+            `⏱ 本会话用量：输入 ${fmt(usage.inputTokens)} tok · 输出 ${fmt(usage.outputTokens)} tok` +
+            `（合计 ${fmt(usage.inputTokens + usage.outputTokens)}）· LLM 调用 ${usage.calls} 次 · 模型 ${modelLabel}` +
+            (known ? "\n（BYOK 自带 key，按厂商定价计费；旧版本会话或端点未回报用量时仅显示调用次数）" : ""),
+        });
+        return;
+      }
       if (name === "trust") {
         await session.trustProject();
         pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
@@ -1084,6 +1102,7 @@ ${body}
           "/skills · /skill <名称> 查看/手动注入技能",
           "/sessions 最近会话列表（--resume 续接）",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
+          "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",
           "/trust 信任当前项目",
           "/help 显示本帮助",

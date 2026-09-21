@@ -113,9 +113,19 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
       send(conn, { kind: "error", message: "消息不是合法 JSON" });
       return;
     }
+    // 解析失败也尽量回带请求 id：客户端的 pending 请求才能结算，而不是悬挂到超时
+    const rawId =
+      typeof parsedJson === "object" && parsedJson !== null && "id" in parsedJson
+        ? (parsedJson as { id?: unknown }).id
+        : undefined;
+    const replyId = typeof rawId === "number" && Number.isInteger(rawId) && rawId >= 0 ? rawId : undefined;
     const request = ClientRequest.safeParse(parsedJson);
     if (!request.success) {
-      send(conn, { kind: "error", message: `请求不合法: ${request.error.message}` });
+      send(conn, {
+        kind: "error",
+        ...(replyId !== undefined ? { id: replyId } : {}),
+        message: `请求不合法: ${request.error.message}`,
+      });
       return;
     }
     const message = request.data;
@@ -175,7 +185,8 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
             model: message.model,
             cwd: message.cwd,
             kcodeHomeDir: options.kcodeHomeDir,
-            resumeFrom: resume,
+            resumeFrom: resume?.messages,
+            resumeUsage: resume?.usage,
             onEvent: (event) => send(conn, { kind: "event", sessionId: session.sessionId, event }),
             onDelta: (text) => send(conn, { kind: "delta", sessionId: session.sessionId, text }),
             onReasoning: (text) =>
@@ -228,7 +239,7 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
             kind: "session_ok",
             id: message.id,
             sessionId: session.sessionId,
-            resumedMessages: resume?.length ?? 0,
+            resumedMessages: resume?.messages.length ?? 0,
           });
         } catch (err) {
           send(conn, {
@@ -407,6 +418,22 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
         }
         await session.clearPersistentGrants();
         send(conn, { kind: "accepted", id: message.id });
+        return;
+      }
+      case "session_usage": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        const usage = session.usageSummary();
+        send(conn, {
+          kind: "usage",
+          id: message.id,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          calls: usage.calls,
+        });
         return;
       }
       case "ask_reply": {

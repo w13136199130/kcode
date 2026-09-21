@@ -34,6 +34,8 @@ export interface SessionHandle {
   listPersistentGrants(): Promise<string[]>;
   /** 清空本项目持久放行（/permissions）；成功返回 true */
   clearPersistentGrants(): Promise<boolean>;
+  /** 会话累计用量（含 resume 续接历史；/cost） */
+  usage(): Promise<{ inputTokens: number; outputTokens: number; calls: number } | null>;
 }
 
 export interface RemoteSessionOptions {
@@ -241,6 +243,19 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         .request({ method: "permissions_clear", sessionId })
         .catch(() => null);
       return response !== null && response.kind === "accepted";
+    },
+    usage: async () => {
+      const response = await opts.client
+        .request({ method: "session_usage", sessionId })
+        .catch(() => null);
+      if (response === null || response.kind !== "usage") {
+        return null;
+      }
+      return {
+        inputTokens: response.inputTokens,
+        outputTokens: response.outputTokens,
+        calls: response.calls,
+      };
     },
   };
 }

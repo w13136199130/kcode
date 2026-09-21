@@ -51,9 +51,19 @@ export interface AgentLoopOptions {
   agentsMd?: string;
   /** 续接历史（resume/分支：由会话 JSONL 重建，§5.3） */
   initialHistory?: ChatMessage[];
+  /** 续接的历史累计用量（旧会话全部 session_end.usage 求和；/cost 跨续接可见） */
+  initialUsage?: SessionUsage;
   maxTurns?: number;
   now?: () => number;
   budget?: Budget;
+}
+
+/** 会话累计用量（/cost 数据源；initialUsage 种子 + 本进程各轮增量） */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** LLM 调用次数（含端点未回报用量的调用） */
+  calls: number;
 }
 
 export interface RunSummary {
@@ -81,6 +91,7 @@ export class AgentLoop {
   private model: string;
   private llm: LLMProvider;
   private summarizer?: SummarizerPort;
+  private usage: SessionUsage;
 
   constructor(
     private readonly ports: AgentLoopPorts,
@@ -92,6 +103,7 @@ export class AgentLoop {
     this.model = opts.model;
     this.llm = ports.llm;
     this.summarizer = ports.summarizer;
+    this.usage = opts.initialUsage ?? { inputTokens: 0, outputTokens: 0, calls: 0 };
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,
@@ -100,6 +112,11 @@ export class AgentLoop {
       opts.cwd,
       ports.asker,
     );
+  }
+
+  /** 会话累计用量（含 resume 种子）；/cost 经 daemon 读取 */
+  getUsage(): SessionUsage {
+    return { ...this.usage };
   }
 
   /**
@@ -227,6 +244,8 @@ export class AgentLoop {
     const maxTurns = this.opts.maxTurns ?? 20;
     let turns = 0;
     let toolCalls = 0;
+    // 本轮 run 的用量增量：session_end 落盘，resume 侧对全部 session_end 求和
+    const runUsage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
     const signal = runOpts.signal;
     try {
       while (turns < maxTurns) {
@@ -261,6 +280,7 @@ export class AgentLoop {
         let streamError: string | undefined;
         const calls: PendingCall[] = [];
         try {
+          runUsage.calls++;
           for await (const chunk of this.llm.stream({
             model: this.model,
             messages,
@@ -288,9 +308,15 @@ export class AgentLoop {
                 tool: chunk.tool,
                 args: chunk.args,
               });
-            } else if (chunk.type === "end" && chunk.reason === "error") {
-              // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
-              streamError = chunk.error ?? "未知错误";
+            } else if (chunk.type === "end") {
+              if (chunk.reason === "error") {
+                // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
+                streamError = chunk.error ?? "未知错误";
+              }
+              if (chunk.usage !== undefined) {
+                runUsage.inputTokens += chunk.usage.inputTokens;
+                runUsage.outputTokens += chunk.usage.outputTokens;
+              }
             }
           }
         } catch (err) {
@@ -409,7 +435,11 @@ export class AgentLoop {
         ts: ts(),
         sessionId: this.sessionId,
         reason: turns >= maxTurns || signal?.aborted ? "aborted" : "completed",
+        usage: { ...runUsage },
       });
+      this.usage.inputTokens += runUsage.inputTokens;
+      this.usage.outputTokens += runUsage.outputTokens;
+      this.usage.calls += runUsage.calls;
       await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
     }
     return { sessionId: this.sessionId, turns, toolCalls };

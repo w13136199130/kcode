@@ -11,7 +11,7 @@ import type {
   UserPromptPort,
 } from "@kcode/contracts";
 import { normalizePermissionAnswer } from "@kcode/contracts";
-import { AgentLoop, InMemoryToolRegistry, MemoryAudit } from "@kcode/core";
+import { AgentLoop, InMemoryToolRegistry, MemoryAudit, type SessionUsage } from "@kcode/core";
 import {
   CommandLibrary,
   DEFAULT_RULES,
@@ -61,6 +61,8 @@ export interface ComposedSession {
   listPersistentGrants(): Promise<string[]>;
   /** 清空本项目持久放行，返回清除条数（/permissions） */
   clearPersistentGrants(): Promise<number>;
+  /** 会话累计用量（含 resume 种子；/cost） */
+  usageSummary(): SessionUsage;
   close(): Promise<void>;
 }
 
@@ -73,6 +75,8 @@ export interface ComposeSessionOptions {
   kcodeHomeDir: string;
   /** 续接种子历史（由调用方从旧会话重建） */
   resumeFrom?: ChatMessage[];
+  /** 续接的历史累计用量（旧会话 session_end 求和；/cost 跨续接可见） */
+  resumeUsage?: SessionUsage;
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
   /** 思考过程增量（reasoning 模型）：与 onDelta 平行的瞬态通道 */
@@ -250,6 +254,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       cwd: opts.cwd,
       agentsMd,
       initialHistory: opts.resumeFrom,
+      initialUsage: opts.resumeUsage,
       maxTurns: 24,
     },
   );
@@ -290,17 +295,18 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     skillBody: (name) => skills.body(name).catch(() => null),
     listPersistentGrants: () => grantStore.list(),
     clearPersistentGrants: () => grantStore.clear(),
+    usageSummary: () => loop.getUsage(),
     close: async () => {
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
     },
   };
 }
 
-/** 解析续接来源（latest / id 前缀 / 精确 id），返回种子历史；找不到返回 null */
+/** 解析续接来源（latest / id 前缀 / 精确 id），返回种子历史与历史累计用量；找不到返回 null */
 export async function resolveResumeHistory(
   kcodeHomeDir: string,
   resumeFrom: string,
-): Promise<ChatMessage[] | null> {
+): Promise<{ messages: ChatMessage[]; usage: SessionUsage } | null> {
   const sessionsDir = join(kcodeHomeDir, "cli", "sessions");
   const summaries = await listSessions(sessionsDir);
   if (summaries.length === 0) {
@@ -313,7 +319,16 @@ export async function resolveResumeHistory(
   if (target === undefined) {
     return null;
   }
-  return rebuildHistory(await loadSessionEvents(target.filePath));
+  const events = await loadSessionEvents(target.filePath);
+  const usage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
+  for (const event of events) {
+    if (event.type === "session_end" && event.usage !== undefined) {
+      usage.inputTokens += event.usage.inputTokens;
+      usage.outputTokens += event.usage.outputTokens;
+      usage.calls += event.usage.calls;
+    }
+  }
+  return { messages: rebuildHistory(events), usage };
 }
 
 /** 把项目写入受信任清单（幂等） */

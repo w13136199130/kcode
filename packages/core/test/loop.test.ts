@@ -398,4 +398,48 @@ describe("AgentLoop（§5.1 状态机）", () => {
     const end = sink.events.find((e) => e.type === "session_end");
     expect(end).toMatchObject({ type: "session_end", reason: "aborted" });
   });
+
+  it("usage 回传：end chunk 用量累计、session_end 带本轮增量、getUsage 跨 run 累计并叠加 resume 种子", async () => {
+    const llm = new ScriptedLLM([
+      {
+        toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "hi" } }],
+        usage: { inputTokens: 100, outputTokens: 20 },
+      },
+      { text: "done", usage: { inputTokens: 110, outputTokens: 8 } },
+    ]);
+    const sink = new MemorySink();
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([echoTool([])]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+      },
+      {
+        sessionId: "sess_usage1",
+        model: "m",
+        systemPrompt: "t",
+        now: () => 0,
+        initialUsage: { inputTokens: 50, outputTokens: 5, calls: 1 },
+      },
+    );
+    expect(loop.getUsage()).toEqual({ inputTokens: 50, outputTokens: 5, calls: 1 });
+    await loop.run("第一轮");
+    // 种子 + 本轮两次 LLM 调用
+    expect(loop.getUsage()).toEqual({ inputTokens: 260, outputTokens: 33, calls: 3 });
+    const ends = sink.events.filter((e) => e.type === "session_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({
+      type: "session_end",
+      usage: { inputTokens: 210, outputTokens: 28, calls: 2 },
+    });
+    // 第二轮：脚本耗尽（end stop 不带 usage），调用数仍累计
+    await loop.run("第二轮");
+    expect(loop.getUsage()).toEqual({ inputTokens: 260, outputTokens: 33, calls: 4 });
+    const ends2 = sink.events.filter((e) => e.type === "session_end");
+    expect(ends2).toHaveLength(2);
+    expect(ends2[1]).toMatchObject({ type: "session_end", usage: { inputTokens: 0, outputTokens: 0, calls: 1 } });
+  });
 });

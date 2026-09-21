@@ -373,6 +373,52 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     client.close();
   }, 20_000);
 
+  it("session_usage 用量回传：脚本用量累计，resume 续接带入历史用量", async () => {
+    llmScript = [{ text: "带用量的回答。", usage: { inputTokens: 300, outputTokens: 40 } }];
+    const client = new ProtocolClient();
+    await client.open(handle.pipePath);
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
+    const created = await client.request({ method: "session_create", cwd: workspace, model });
+    const sessionId = (created as { sessionId: string }).sessionId;
+    await client.request({ method: "session_send", sessionId, content: "打招呼" });
+    await client.waitForNotification((m) => m.kind === "run_done");
+
+    const usage = await client.request({ method: "session_usage", sessionId });
+    expect(usage.kind === "usage" && usage.inputTokens).toBe(300);
+    expect(usage.kind === "usage" && usage.outputTokens).toBe(40);
+    expect(usage.kind === "usage" && usage.calls).toBe(1);
+    // session_end 事件携带本轮增量（JSONL 落盘，供 resume 求和）
+    const endWithUsage = client.notifications.find(
+      (m) => m.kind === "event" && m.event.type === "session_end" && m.event.usage !== undefined,
+    );
+    expect(endWithUsage).toBeDefined();
+    client.close();
+
+    // resume：新会话续接上一会话，/cost 含历史用量
+    llmScript = [{ text: "续接后的回答。" }];
+    const client2 = new ProtocolClient();
+    await client2.open(handle.pipePath);
+    await client2.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
+    const resumed = await client2.request({
+      method: "session_create",
+      cwd: workspace,
+      model,
+      resumeFrom: "latest",
+    });
+    expect(resumed.kind).toBe("session_ok");
+    const resumedId = (resumed as { sessionId: string }).sessionId;
+    const seeded = await client2.request({ method: "session_usage", sessionId: resumedId });
+    expect(seeded.kind === "usage" && seeded.inputTokens).toBe(300);
+    expect(seeded.kind === "usage" && seeded.calls).toBe(1);
+    // 新一轮调用叠加
+    await client2.request({ method: "session_send", sessionId: resumedId, content: "继续" });
+    await client2.waitForNotification((m) => m.kind === "run_done");
+    const total = await client2.request({ method: "session_usage", sessionId: resumedId });
+    expect(total.kind === "usage" && total.calls).toBe(2);
+    expect(total.kind === "usage" && total.inputTokens).toBe(300); // 新脚本未回报用量，token 不变
+    client2.close();
+  });
+
   it("系统提示注入运行环境块（shell 方言/平台可见，模型不再猜）", async () => {
     llmScript = [{ text: "收到。" }];
     const client = new ProtocolClient();

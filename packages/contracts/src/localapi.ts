@@ -4,7 +4,7 @@ import { SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 const requestId = z.number().int().nonnegative();
 
@@ -97,6 +97,11 @@ export const ClientRequest = z.discriminatedUnion("method", [
     method: z.literal("permissions_clear"),
     sessionId: z.string().min(1),
   }),
+  z.object({
+    id: requestId,
+    method: z.literal("session_usage"),
+    sessionId: z.string().min(1),
+  }),
 ]);
 export type ClientRequest = z.infer<typeof ClientRequest>;
 
@@ -161,6 +166,14 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     kind: z.literal("permissions"),
     id: requestId,
     patterns: z.array(z.string()),
+  }),
+  /** 会话累计用量（/cost）：含 resume 续接的历史用量 */
+  z.object({
+    kind: z.literal("usage"),
+    id: requestId,
+    inputTokens: z.number().nonnegative(),
+    outputTokens: z.number().nonnegative(),
+    calls: z.number().int().nonnegative(),
   }),
   z.object({ kind: z.literal("event"), sessionId: z.string(), event: SessionEvent }),
   z.object({

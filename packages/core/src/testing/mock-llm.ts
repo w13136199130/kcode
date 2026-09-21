@@ -16,6 +16,8 @@ export interface ScriptedTurn {
   /** 模拟 LLM 调用失败（end chunk reason=error） */
   error?: string;
   toolCalls?: ScriptedToolCall[];
+  /** 模拟端点回报的 token 用量（end chunk 携带；缺省不报——旧回放夹具保持字节一致） */
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 /** mock LLM（§11.A ②）：按脚本吐 chunk；记录收到的请求供测试/evals 断言 */
@@ -47,12 +49,16 @@ export class ScriptedLLM implements LLMProvider {
       yield { type: "text", text: turn.text };
     }
     if (turn.error !== undefined) {
-      yield { type: "end", reason: "error", error: turn.error };
+      yield { type: "end", reason: "error", error: turn.error, ...(turn.usage !== undefined ? { usage: turn.usage } : {}) };
       return;
     }
     for (const call of turn.toolCalls ?? []) {
       yield { type: "tool_call", callId: call.callId, tool: call.tool, args: call.args };
     }
-    yield { type: "end", reason: (turn.toolCalls?.length ?? 0) > 0 ? "tool_use" : "stop" };
+    yield {
+      type: "end",
+      reason: (turn.toolCalls?.length ?? 0) > 0 ? "tool_use" : "stop",
+      ...(turn.usage !== undefined ? { usage: turn.usage } : {}),
+    };
   }
 }
