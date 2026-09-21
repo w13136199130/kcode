@@ -21,6 +21,7 @@ import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
+import { inputAnchor } from "./cursor-anchor.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -526,15 +527,20 @@ export function InputBox(props: {
   // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
   // 扁平字符串路径经同一复现用例验证无恙。
   const inputDisplay = `${props.value.slice(0, pos)}█${props.value.slice(pos + 1)}`;
-  // 布局：输入框（真边框盒，文字嵌在框线内，对标 CC）→ 菜单（框外下方弹出）。
+  // 光标锚定：上报输入行内光标列（IME 组合窗据真实光标定位 → 拼音画进输入框内）
+  inputAnchor.column = 2 + visualWidth(props.value.slice(0, pos));
+  useEffect(() => {
+    return () => {
+      inputAnchor.column = 0;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // 布局：菜单（上方）→ 上分割线 → 输入行 → 下分割线。
+  // 输入行下方恒定只有底部分割线 1 行——IME 光标锚定的恒定偏移前提。
   const { stdout: out } = useStdout();
-  void out;
+  const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
   return (
     <Box flexDirection="column">
-      <Box borderStyle="round" borderColor="gray" paddingX={1}>
-        <Text dimColor>&gt; </Text>
-        <Text>{inputDisplay}</Text>
-      </Box>
       {showMenu && (
         <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
@@ -551,6 +557,12 @@ export function InputBox(props: {
           <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
         </Box>
       )}
+      <Text dimColor>{separator}</Text>
+      <Box>
+        <Text dimColor>&gt; </Text>
+        <Text>{inputDisplay}</Text>
+      </Box>
+      <Text dimColor>{separator}</Text>
     </Box>
   );
 }
