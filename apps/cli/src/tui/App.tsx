@@ -21,6 +21,7 @@ import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
 import { inputAnchor } from "./cursor-anchor.js";
+import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -337,12 +338,24 @@ export function InputBox(props: {
     }
   }
   const pos = cursor ?? props.value.length;
-  // 光标锚定：把真实光标列报给 stdout 补丁（帧渲染后归位到输入行末尾，IME 组合窗随之锚定）
-  inputAnchor.column = 2 + visualWidth(props.value);
+  // 光标锚定列 = 提示符 2 列 + 光标前内容视觉宽度（输入行是帧的最后一行，锚定恒为上移一行）
+  inputAnchor.column = 2 + visualWidth(props.value.slice(0, pos));
   useEffect(() => {
+    // Home/End 被 Ink 的具名键清空机制丢弃：经 stdin.read tee 回收
+    patchStdinReadForKeys();
+    const off = onHomeEnd((k) => {
+      if (k === "home") {
+        trimTailTo(0);
+        setCursor(0);
+      } else {
+        setCursor(null);
+      }
+    });
     return () => {
+      off();
       inputAnchor.column = 0;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const setValue = (v: string, at?: number): void => {
     selfEdit.current = v;
@@ -426,19 +439,8 @@ export function InputBox(props: {
           appendInputLog(`ch=${JSON.stringify(ch)} key=${JSON.stringify(key)}`);
         } catch {}
       }
-      const homeSeq = ch === "[H" || ch === "OH" || ch === "[1~";
-      const endSeq = ch === "[F" || ch === "OF" || ch === "[4~";
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
-      }
-      if (homeSeq) {
-        trimTailTo(0);
-        setCursor(0);
-        return;
-      }
-      if (endSeq) {
-        setCursor(null);
-        return;
       }
       if (showMenu) {
         if (key.upArrow) {
@@ -527,20 +529,13 @@ export function InputBox(props: {
     },
     { isActive: true },
   );
-  // 菜单在输入行下方（对标 Claude Code：输入框固定、候选列表向下展开）
+  // 布局对标 Claude Code：菜单在上方 → ── 分隔线 → 输入行（必须是帧的最后一行，
+  // 帧渲染后光标锚定回输入行，IME 组合窗随之显示在 > 后面）
   const before = props.value.slice(0, pos);
   const under = props.value.slice(pos, pos + 1);
   const after = props.value.slice(pos + 1);
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text dimColor>&gt; </Text>
-        <Text>
-          {before}
-          <Text inverse>{under === "" ? " " : under}</Text>
-          {after}
-        </Text>
-      </Box>
       {showMenu && (
         <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
@@ -554,9 +549,18 @@ export function InputBox(props: {
               <Text dimColor={i !== clamped}>  {c.desc}</Text>
             </Text>
           ))}
-          <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭</Text>
+          <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
         </Box>
       )}
+      <Text dimColor>{"─".repeat(60)}</Text>
+      <Box>
+        <Text dimColor>&gt; </Text>
+        <Text>
+          {before}
+          <Text inverse>{under === "" ? " " : under}</Text>
+          {after}
+        </Text>
+      </Box>
     </Box>
   );
 }
