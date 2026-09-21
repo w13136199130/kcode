@@ -534,8 +534,22 @@ export function InputBox(props: {
   const before = props.value.slice(0, pos);
   const under = props.value.slice(pos, pos + 1);
   const after = props.value.slice(pos + 1);
+  // 布局：上分隔线 → 输入行 → 下分隔线 → 菜单（输入框被两条线夹住，菜单在框外下方弹出）。
+  // 输入行到帧末的行距随菜单行数变化 → 动态上报给光标锚定。
+  const menuLines = showMenu ? Math.min(matches.length, 8) + 1 : 0;
+  inputAnchor.lineOffset = 1 + 1 + menuLines; // 底分隔线 + 菜单(含提示行) + 帧尾换行
   return (
     <Box flexDirection="column">
+      <Text dimColor>{"─".repeat(60)}</Text>
+      <Box>
+        <Text dimColor>&gt; </Text>
+        <Text>
+          {before}
+          <Text inverse>{under === "" ? " " : under}</Text>
+          {after}
+        </Text>
+      </Box>
+      <Text dimColor>{"─".repeat(60)}</Text>
       {showMenu && (
         <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
@@ -552,16 +566,6 @@ export function InputBox(props: {
           <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
         </Box>
       )}
-      <Text dimColor>{"─".repeat(60)}</Text>
-      <Box>
-        <Text dimColor>&gt; </Text>
-        <Text>
-          {before}
-          <Text inverse>{under === "" ? " " : under}</Text>
-          {after}
-        </Text>
-      </Box>
-      <Text dimColor>{"─".repeat(60)}</Text>
     </Box>
   );
 }

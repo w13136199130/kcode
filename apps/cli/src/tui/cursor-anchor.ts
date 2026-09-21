@@ -14,10 +14,9 @@ import { visualWidth } from "./Transcript.js";
 export const inputAnchor = {
   /** 输入行光标列（prompt 2 列 + 内容视觉宽度）；0 = 未激活 */
   column: 0,
+  /** 输入行到帧末光标的行距（输入行下方内容行数 + 1）；随菜单开合动态上报 */
+  lineOffset: 2,
 };
-
-/** 帧末锚点撤销序列：回行首 + 下移两行（输入行下方还有一条分隔线） */
-const TO_FRAME_END = "\r\x1b[2B";
 
 let patched = false;
 
@@ -32,12 +31,11 @@ export function patchStdoutForIme(): void {
     if (s.startsWith("\x1b[2K")) {
       // Ink 帧写入：先撤销归位（回帧末下一行行首）让擦除起点正确，写帧后再归位到输入行
       if (inputAnchor.column > 0) {
-        rawWrite(TO_FRAME_END);
+        rawWrite(`\r\x1b[${inputAnchor.lineOffset}B`);
       }
       const result = rawWrite(chunk, ...rest);
       if (inputAnchor.column > 0) {
-        // 输入行距帧末恒为 2 行（输入行 + 底部分隔线）；菜单在上方不改变此距离
-        rawWrite(`\x1b[2A\r\x1b[${inputAnchor.column}C`);
+        rawWrite(`\x1b[${inputAnchor.lineOffset}A\r\x1b[${inputAnchor.column}C`);
       }
       return result;
     }
