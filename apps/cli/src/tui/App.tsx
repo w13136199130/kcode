@@ -522,9 +522,10 @@ export function InputBox(props: {
   );
   // 布局对标 Claude Code：菜单在上方 → ── 分隔线 → 输入行（必须是帧的最后一行，
   // 帧渲染后光标锚定回输入行，IME 组合窗随之显示在 > 后面）
-  const before = props.value.slice(0, pos);
-  const under = props.value.slice(pos, pos + 1);
-  const after = props.value.slice(pos + 1);
+  // 输入行渲染为纯扁平单字符串（before + █ 光标 + after）：
+  // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
+  // 扁平字符串路径经同一复现用例验证无恙。
+  const inputDisplay = `${props.value.slice(0, pos)}█${props.value.slice(pos + 1)}`;
   // 布局：上分隔线 → 输入行 → 下分隔线 → 菜单（输入框被两条线夹住，菜单在框外下方弹出）。
   const { stdout: out } = useStdout();
   const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
@@ -534,11 +535,7 @@ export function InputBox(props: {
       <Text dimColor>{separator}</Text>
       <Box>
         <Text dimColor>&gt; </Text>
-        <Text>
-          {before}
-          <Text inverse>{under === "" ? " " : under}</Text>
-          {after}
-        </Text>
+        <Text>{inputDisplay}</Text>
       </Box>
       <Text dimColor>{separator}</Text>
       {showMenu && (
