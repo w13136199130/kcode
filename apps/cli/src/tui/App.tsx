@@ -526,18 +526,15 @@ export function InputBox(props: {
   // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
   // 扁平字符串路径经同一复现用例验证无恙。
   const inputDisplay = `${props.value.slice(0, pos)}█${props.value.slice(pos + 1)}`;
-  // 布局：上分隔线 → 输入行 → 下分隔线 → 菜单（输入框被两条线夹住，菜单在框外下方弹出）。
+  // 布局：输入框（真边框盒，文字嵌在框线内，对标 CC）→ 菜单（框外下方弹出）。
   const { stdout: out } = useStdout();
-  const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
-  // 输入行到帧末的行距随菜单行数变化 → 动态上报给光标锚定。
+  void out;
   return (
     <Box flexDirection="column">
-      <Text dimColor>{separator}</Text>
-      <Box>
+      <Box borderStyle="round" borderColor="gray" paddingX={1}>
         <Text dimColor>&gt; </Text>
         <Text>{inputDisplay}</Text>
       </Box>
-      <Text dimColor>{separator}</Text>
       {showMenu && (
         <Box flexDirection="column">
           {matches.slice(0, 8).map((c, i) => (
