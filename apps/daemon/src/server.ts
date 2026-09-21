@@ -390,6 +390,25 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
         });
         return;
       }
+      case "permissions_list": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        send(conn, { kind: "permissions", id: message.id, patterns: await session.listPersistentGrants() });
+        return;
+      }
+      case "permissions_clear": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        await session.clearPersistentGrants();
+        send(conn, { kind: "accepted", id: message.id });
+        return;
+      }
       case "ask_reply": {
         conn.pendingAsks.get(message.callId)?.({
           allowed: message.allowed,

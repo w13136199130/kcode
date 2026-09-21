@@ -13,7 +13,7 @@ A TypeScript implementation targeting ZCode-class capability: an agent loop, a p
 ## 亮点 | Highlights
 
 - 🔒 **key 永不上云** · **Keys never leave your machine** —— 受众绑定（key 只能发往 keychain 登记的端点，篡改即硬失败）+ AES-256-GCM 加密存储 / Audience-bound keys (a key can only be sent to endpoints registered in the keychain) with AES-256-GCM encrypted storage.
-- 🛡️ **权限引擎** · **Permission engine** —— 读放行、写与命令逐次 y/N 确认、未知工具拒绝；`/plan` 一键进入只读计划模式 / Reads allowed, writes & commands require per-call y/N confirmation, unknown tools denied; `/plan` toggles a read-only planning mode.
+- 🛡️ **权限引擎** · **Permission engine** —— 读放行、写与命令逐次菜单确认（y/s/p/n）、未知工具拒绝；放行可记**会话级**或**项目级持久**（落盘 `~/.kcode/permissions.json`，`/permissions` 查看/清除）；`/plan` 一键进入只读计划模式（持久放行不穿透只读档）/ Reads allowed, writes & commands confirmed per-call (y/s/p/n); grants persist per-session or **per-project** (`~/.kcode/permissions.json`, inspect via `/permissions`); `/plan` toggles a read-only mode that persistent grants cannot pierce.
 - 🧩 **渐进式技能与记忆** · **Progressive skills & memory** —— SKILL.md 仅元数据常驻上下文，命中触发词才加载正文；AGENTS.md 项目记忆进稳定区 / SKILL.md metadata stays in context, the body loads only on trigger; AGENTS.md project memory in the stable zone.
 - 📼 **可回放会话** · **Replayable sessions** —— JSONL append-only 事件流，回放一致性进 CI，天然作为 eval 夹具 / Append-only JSONL event stream with replay-consistency checks in CI — a natural source of eval fixtures.
 - 🧪 **双模式验收** · **Dual-mode acceptance** —— scripted 框架自检进 CI；真实模型 10 任务评分（GLM-5.3 实测 **10/10** 通过）/ Scripted self-check in CI plus a 10-task real-model suite (10/10 with GLM-5.3).

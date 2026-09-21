@@ -4,7 +4,7 @@ import { SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 const requestId = z.number().int().nonnegative();
 
@@ -63,8 +63,8 @@ export const ClientRequest = z.discriminatedUnion("method", [
     method: z.literal("ask_reply"),
     callId: z.string().min(1),
     allowed: z.boolean(),
-    /** session = 本会话内同工具不再询问（会话级放行） */
-    scope: z.enum(["once", "session"]).optional(),
+    /** session = 本会话内同工具不再询问；project = 本项目持久放行（落盘 ~/.kcode/permissions.json） */
+    scope: z.enum(["once", "session", "project"]).optional(),
   }),
   z.object({
     id: requestId,
@@ -87,6 +87,16 @@ export const ClientRequest = z.discriminatedUnion("method", [
     name: z.string().min(1),
   }),
   z.object({ id: requestId, method: z.literal("sessions_list") }),
+  z.object({
+    id: requestId,
+    method: z.literal("permissions_list"),
+    sessionId: z.string().min(1),
+  }),
+  z.object({
+    id: requestId,
+    method: z.literal("permissions_clear"),
+    sessionId: z.string().min(1),
+  }),
 ]);
 export type ClientRequest = z.infer<typeof ClientRequest>;
 
@@ -145,6 +155,12 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     sessions: z.array(
       z.object({ sessionId: z.string(), preview: z.string(), turns: z.number().int() }),
     ),
+  }),
+  /** 本项目持久放行的工具名清单（/permissions） */
+  z.object({
+    kind: z.literal("permissions"),
+    id: requestId,
+    patterns: z.array(z.string()),
   }),
   z.object({ kind: z.literal("event"), sessionId: z.string(), event: SessionEvent }),
   z.object({

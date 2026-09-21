@@ -179,7 +179,7 @@ export class DaemonClient {
     });
   }
 
-  replyAsk(callId: string, allowed: boolean, scope?: "once" | "session"): void {
+  replyAsk(callId: string, allowed: boolean, scope?: "once" | "session" | "project"): void {
     void this.request({
       method: "ask_reply",
       callId,

@@ -13,8 +13,8 @@ export interface AuditRecord {
   callId: string;
   tool: string;
   decision: "allow" | "ask-allowed" | "ask-denied" | "deny" | "veto" | "executed" | "error";
-  /** ask 应答的放行范围（once/session） */
-  scope?: "once" | "session";
+  /** ask 应答的放行范围（once/session/project；project 为持久放行命中或用户选择） */
+  scope?: "once" | "session" | "project";
   detail?: string;
 }
 

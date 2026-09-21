@@ -75,10 +75,10 @@ export interface HookRunner {
   onStop?(payload: { sessionId: string }): Promise<void>;
 }
 
-/** ask 应答：除是否放行外，可选「本会话总是允许」（scope=session） */
+/** ask 应答：除是否放行外，可选「本会话总是允许」或「本项目总是允许」（持久落盘） */
 export interface PermissionAnswer {
   allowed: boolean;
-  scope?: "once" | "session";
+  scope?: "once" | "session" | "project";
 }
 
 /**

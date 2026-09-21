@@ -30,6 +30,10 @@ export interface SessionHandle {
   listCommands(): { name: string; source: "project" | "user" }[];
   expandCommand(name: string, args: string): Promise<string | null>;
   trustProject(): Promise<void>;
+  /** 本项目持久放行清单（/permissions） */
+  listPersistentGrants(): Promise<string[]>;
+  /** 清空本项目持久放行（/permissions）；成功返回 true */
+  clearPersistentGrants(): Promise<boolean>;
 }
 
 export interface RemoteSessionOptions {
@@ -222,6 +226,21 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
     },
     trustProject: async () => {
       await opts.client.request({ method: "session_trust", cwd: opts.cwd });
+    },
+    listPersistentGrants: async () => {
+      const response = await opts.client
+        .request({ method: "permissions_list", sessionId })
+        .catch(() => null);
+      if (response === null || response.kind !== "permissions") {
+        return [];
+      }
+      return response.patterns;
+    },
+    clearPersistentGrants: async () => {
+      const response = await opts.client
+        .request({ method: "permissions_clear", sessionId })
+        .catch(() => null);
+      return response !== null && response.kind === "accepted";
     },
   };
 }

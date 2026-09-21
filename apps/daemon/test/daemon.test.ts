@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ScriptedLLM } from "@kcode/core";
-import type { ServerMessage } from "@kcode/contracts";
+import { PROTOCOL_VERSION, type ServerMessage } from "@kcode/contracts";
 import { startDaemon, type DaemonHandle } from "../src/server.js";
 
 /**
@@ -147,12 +147,12 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
   it("token 错误被拒绝；正确 token 完成 hello/ping", async () => {
     const bad = new ProtocolClient();
     await bad.open(handle.pipePath);
-    await expect(bad.request({ method: "hello", token: "wrong", protocolVersion: 3 })).rejects.toThrow("token");
+    await expect(bad.request({ method: "hello", token: "wrong", protocolVersion: PROTOCOL_VERSION })).rejects.toThrow("token");
     bad.close();
 
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    const hello = await client.request({ method: "hello", token, protocolVersion: 3 });
+    const hello = await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
     expect(hello.kind).toBe("hello_ok");
     const pong = await client.request({ method: "ping" });
     expect(pong.kind).toBe("pong");
@@ -162,7 +162,7 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
   it("建会话 → 发消息 → 收事件流与 run_done；JSONL 落盘", async () => {
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
 
     const created = await client.request({ method: "session_create", cwd: workspace, model });
     expect(created.kind).toBe("session_ok");
@@ -190,7 +190,7 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     await writeFile(join(workspace, ".kcode", "commands", "demo.md"), "演示命令：$ARGUMENTS", "utf8");
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
     const listed = await client.request({ method: "commands_list", cwd: workspace });
     expect(listed.kind).toBe("commands");
     expect((listed as { commands: { name: string }[] }).commands.some((c) => c.name === "demo")).toBe(true);
@@ -204,7 +204,7 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     llmScript = [{ text: "第二轮回答。" }];
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
     const created = await client.request({ method: "session_create", cwd: workspace, model, resumeFrom: "latest" });
     expect(created.kind).toBe("session_ok");
     expect((created as { resumedMessages: number }).resumedMessages).toBeGreaterThan(0);
@@ -234,7 +234,7 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     ];
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
     const created = await client.request({
       method: "session_create",
       cwd: workspace,
@@ -291,11 +291,93 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     client.close();
   });
 
+  it("ask scope=project 持久放行：落盘、跨会话免问、permissions_clear 可清、清后复问", async () => {
+    // run_done 按 sessionId 计数等待；新 ask 按 callId 判新（通知数组含历史消息，不能全局匹配）
+    const runDoneCount = (sid: string): number =>
+      client.notifications.filter((m) => m.kind === "run_done" && m.sessionId === sid).length;
+    const waitNextRunDone = async (sid: string, before: number): Promise<void> => {
+      await client.waitForNotification(() => runDoneCount(sid) > before);
+    };
+    // 会话 A：写 p-a.txt → ask → scope=project 放行
+    llmScript = [
+      { toolCalls: [{ callId: "p1", tool: "write", args: { path: "p-a.txt", content: "pa" } }] },
+      { text: "A 完成" },
+    ];
+    const client = new ProtocolClient();
+    await client.open(handle.pipePath);
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
+    const createdA = await client.request({ method: "session_create", cwd: workspace, model });
+    const sessionA = (createdA as { sessionId: string }).sessionId;
+    let beforeA = runDoneCount(sessionA);
+    await client.request({ method: "session_send", sessionId: sessionA, content: "写 p-a.txt" });
+    const askA = await client.waitForNotification((m) => m.kind === "ask");
+    expect(askA.kind === "ask" && askA.tool).toBe("write");
+    client.sendRaw({
+      id: 990,
+      method: "ask_reply",
+      callId: (askA as { callId: string }).callId,
+      allowed: true,
+      scope: "project",
+    });
+    await waitNextRunDone(sessionA, beforeA);
+
+    // 落盘验证：permissions.json 按项目路径分键
+    const { readFile } = await import("node:fs/promises");
+    const permsFile = JSON.parse(await readFile(join(home, "permissions.json"), "utf8")) as {
+      projects: Record<string, string[]>;
+    };
+    expect(permsFile.projects[workspace]).toEqual(["write"]);
+
+    // permissions_list
+    const listed = await client.request({ method: "permissions_list", sessionId: sessionA });
+    expect(listed.kind === "permissions" && (listed as { patterns: string[] }).patterns).toEqual(["write"]);
+
+    // 会话 B（新会话）：持久放行跨会话生效，不再询问
+    llmScript = [
+      { toolCalls: [{ callId: "p2", tool: "write", args: { path: "p-b.txt", content: "pb" } }] },
+      { text: "B1 完成" },
+      { toolCalls: [{ callId: "p3", tool: "write", args: { path: "p-c.txt", content: "pc" } }] },
+      { text: "B2 完成" },
+    ];
+    const createdB = await client.request({ method: "session_create", cwd: workspace, model });
+    const sessionB = (createdB as { sessionId: string }).sessionId;
+    const asksBefore = client.notifications.filter((m) => m.kind === "ask").length;
+    let beforeB = runDoneCount(sessionB);
+    await client.request({ method: "session_send", sessionId: sessionB, content: "写 p-b.txt" });
+    await waitNextRunDone(sessionB, beforeB);
+    expect(client.notifications.filter((m) => m.kind === "ask").length).toBe(asksBefore);
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(join(workspace, "p-b.txt"))).toBe(true);
+
+    // 清空后复问
+    const cleared = await client.request({ method: "permissions_clear", sessionId: sessionB });
+    expect(cleared.kind).toBe("accepted");
+    const listedAfter = await client.request({ method: "permissions_list", sessionId: sessionB });
+    expect(listedAfter.kind === "permissions" && (listedAfter as { patterns: string[] }).patterns).toEqual([]);
+    beforeB = runDoneCount(sessionB);
+    await client.request({ method: "session_send", sessionId: sessionB, content: "写 p-c.txt" });
+    const knownCallIds = new Set(
+      client.notifications.filter((m) => m.kind === "ask").map((m) => (m as { callId: string }).callId),
+    );
+    const askC = await client.waitForNotification(
+      (m) => m.kind === "ask" && !knownCallIds.has((m as { callId: string }).callId),
+    );
+    client.sendRaw({
+      id: 991,
+      method: "ask_reply",
+      callId: (askC as { callId: string }).callId,
+      allowed: false,
+    });
+    await waitNextRunDone(sessionB, beforeB);
+    expect(existsSync(join(workspace, "p-c.txt"))).toBe(false);
+    client.close();
+  }, 20_000);
+
   it("系统提示注入运行环境块（shell 方言/平台可见，模型不再猜）", async () => {
     llmScript = [{ text: "收到。" }];
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
     const created = await client.request({ method: "session_create", cwd: workspace, model });
     const sessionId = (created as { sessionId: string }).sessionId;
     await client.request({ method: "session_send", sessionId, content: "嗯" });
@@ -312,7 +394,7 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     llmScript = [{ text: "ok" }, { text: "ok2" }];
     const client = new ProtocolClient();
     await client.open(handle.pipePath);
-    await client.request({ method: "hello", token, protocolVersion: 3 });
+    await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
 
     const models = await client.request({ method: "models_list" });
     expect(models.kind).toBe("models");
@@ -353,10 +435,10 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     await client.open(handle.pipePath);
     // 测试 daemon 环境无口令：客户端声明有口令 → 必须被拒
     await expect(
-      client.request({ method: "hello", token, protocolVersion: 3, passphraseSet: true }),
+      client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION, passphraseSet: true }),
     ).rejects.toThrow("环境不匹配");
     // 声明一致（无口令）→ 正常
-    const okHello = await client.request({ method: "hello", token, protocolVersion: 3, passphraseSet: false });
+    const okHello = await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION, passphraseSet: false });
     expect(okHello.kind).toBe("hello_ok");
     client.close();
   });

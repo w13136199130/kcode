@@ -101,7 +101,7 @@ export const SessionEndEvent = z.object({
 
 /**
  * 权限决策落盘（审计/resume 可见）：规则裁决与 ask 应答各记一条；
- * ask-allowed/ask-denied 为用户交互结果，scope=session 表示本会话级放行。
+ * ask-allowed/ask-denied 为用户交互结果，scope=session 会话级放行、scope=project 项目级持久放行。
  */
 export const PermissionDecisionEvent = z.object({
   v: v1,
@@ -111,7 +111,7 @@ export const PermissionDecisionEvent = z.object({
   callId: z.string().min(1),
   tool: z.string().min(1),
   decision: z.enum(["allow", "deny", "ask-allowed", "ask-denied"]),
-  scope: z.enum(["once", "session"]).optional(),
+  scope: z.enum(["once", "session", "project"]).optional(),
   detail: z.string().optional(),
 });
 

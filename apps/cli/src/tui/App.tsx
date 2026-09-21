@@ -116,6 +116,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "skills", desc: "查看已装载技能" },
   { name: "skill", desc: "手动注入技能正文" },
   { name: "sessions", desc: "最近会话列表" },
+  { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "plan", desc: "计划模式快捷切换" },
   { name: "trust", desc: "信任当前项目" },
   { name: "help", desc: "显示帮助" },
@@ -574,6 +575,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const [mode, setMode] = useState<PermissionMode>("default");
   const [modelLabel, setModelLabel] = useState(props.model);
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
+  /** /permissions 面板：当前项目持久放行清单与清空确认 */
+  const [permissionsPanel, setPermissionsPanel] = useState<string[] | null>(null);
   const [input, setInput] = useState("");
   const [spinVerb, setSpinVerb] = useState("思考中");
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
@@ -666,7 +669,8 @@ export function KcodeApp(props: KcodeAppProps) {
     question !== null ||
     fullAccessConfirm ||
     modelPicker !== null ||
-    loginWizard !== null;
+    loginWizard !== null ||
+    permissionsPanel !== null;
 
   // Esc：busy 时中断（菜单占用时 Esc 归菜单）
   useInput(
@@ -1056,6 +1060,19 @@ ${body}
         pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
         return;
       }
+      if (name === "permissions") {
+        const grants = await session.listPersistentGrants().catch(() => null);
+        if (grants === null) {
+          pushBlock({ kind: "info", tone: "warn", text: "持久放行清单获取失败（守护进程连接异常）" });
+          return;
+        }
+        if (grants.length === 0) {
+          pushBlock({ kind: "info", text: "本项目无持久放行（权限确认时选「允许，本项目不再询问」可添加）" });
+          return;
+        }
+        setPermissionsPanel(grants);
+        return;
+      }
       if (name === "help") {
         const customs = session
           .listCommands()
@@ -1066,6 +1083,7 @@ ${body}
           "/login 配置模型厂商与 API key（向导，自动写配置）",
           "/skills · /skill <名称> 查看/手动注入技能",
           "/sessions 最近会话列表（--resume 续接）",
+          "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/plan 计划模式快捷切换",
           "/trust 信任当前项目",
           "/help 显示本帮助",
@@ -1164,29 +1182,77 @@ ${body}
           <OptionsMenu
             options={[
               { key: "y", label: "允许" },
-              { key: "a", label: "允许，本会话不再询问" },
+              { key: "s", label: "允许，本会话不再询问" },
+              { key: "p", label: "允许，本项目不再询问（持久）" },
               { key: "n", label: "拒绝" },
             ]}
             onPick={(indices) => {
-              const picked = indices[0] ?? 2;
+              const picked = indices[0] ?? 3;
               const answer: PermissionAnswer =
                 picked === 0
                   ? { allowed: true }
                   : picked === 1
                     ? { allowed: true, scope: "session" }
-                    : { allowed: false };
+                    : picked === 2
+                      ? { allowed: true, scope: "project" }
+                      : { allowed: false };
               ask.resolve(answer);
               setAsk(null);
               pushBlock({
                 kind: "info",
                 tone: answer.allowed ? "ok" : "deny",
-                text: `❯ ${picked === 0 ? "允许" : picked === 1 ? "允许（本会话）" : "拒绝"} · ${ask.call.tool}`,
+                text: `❯ ${
+                  picked === 0
+                    ? "允许"
+                    : picked === 1
+                      ? "允许（本会话）"
+                      : picked === 2
+                        ? "允许（本项目持久）"
+                        : "拒绝"
+                } · ${ask.call.tool}`,
               });
             }}
             onCancel={() => {
               ask.resolve({ allowed: false });
               setAsk(null);
               pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}` });
+            }}
+          />
+        </Box>
+      ) : permissionsPanel !== null ? (
+        <Box flexDirection="column">
+          <Text color="magenta" bold>
+            本项目持久放行（{permissionsPanel.length} 项，存于 ~/.kcode/permissions.json）：
+          </Text>
+          {permissionsPanel.map((p) => (
+            <Text key={p}> · {p}</Text>
+          ))}
+          <OptionsMenu
+            options={[
+              { key: "n", label: "关闭" },
+              { key: "c", label: "清空本项目的持久放行" },
+            ]}
+            initialIndex={0}
+            onPick={(indices) => {
+              const grants = permissionsPanel;
+              setPermissionsPanel(null);
+              if ((indices[0] ?? 0) === 1) {
+                void (async () => {
+                  const session = sessionRef.current;
+                  if (session === null) return;
+                  const ok = await session.clearPersistentGrants().catch(() => false);
+                  pushBlock({
+                    kind: "info",
+                    tone: ok ? "ok" : "warn",
+                    text: ok
+                      ? `❯ 已清空本项目持久放行（${grants.length} 项）`
+                      : "✗ 清除失败（守护进程连接异常）",
+                  });
+                })();
+              }
+            }}
+            onCancel={() => {
+              setPermissionsPanel(null);
             }}
           />
         </Box>

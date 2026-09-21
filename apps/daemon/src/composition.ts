@@ -18,6 +18,7 @@ import {
   FsSkillLibrary,
   MutablePermissionEngine,
   ProcessHookRunner,
+  ProjectGrantStore,
   RULES_BY_MODE,
   RuleBasedPermissionEngine,
   listInstalledPlugins,
@@ -56,6 +57,10 @@ export interface ComposedSession {
   expandCommand(name: string, args: string): Promise<string | null>;
   listSkills(): { name: string; description: string; source: string }[];
   skillBody(name: string): Promise<string | null>;
+  /** 本项目持久放行清单（/permissions） */
+  listPersistentGrants(): Promise<string[]>;
+  /** 清空本项目持久放行，返回清除条数（/permissions） */
+  clearPersistentGrants(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -124,16 +129,31 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const permissions = new MutablePermissionEngine(
     new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
   );
-  // asker 装饰：归一化应答；scope=session 时按工具名记会话级放行
+  // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
+  const grantStore = ProjectGrantStore.open(join(opts.kcodeHomeDir, "permissions.json"), opts.cwd);
+  const persistentGrants = await grantStore.list();
+  if (persistentGrants.length > 0) {
+    opts.onNotice?.(
+      `本项目有 ${persistentGrants.length} 项持久放行（${persistentGrants.join("、")}）——/permissions 查看或清除`,
+    );
+  }
+  // asker 装饰：归一化应答；scope=session 记会话级放行，scope=project 落盘持久放行；
+  // 命中持久放行的工具直接免问放行
   const baseAsker = opts.asker;
   const asker: PermissionAsker | undefined =
     baseAsker === undefined
       ? undefined
       : {
           confirm: async (call: ToolCallRef) => {
+            if (await grantStore.matches(call.tool)) {
+              return { allowed: true, scope: "project" };
+            }
             const answer = normalizePermissionAnswer(await baseAsker.confirm(call));
             if (answer.allowed && answer.scope === "session") {
               permissions.grant(call.tool);
+            }
+            if (answer.allowed && answer.scope === "project") {
+              await grantStore.grant(call.tool);
             }
             return answer;
           },
@@ -268,6 +288,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     expandCommand: (name, args) => commands.expand(name, args),
     listSkills: () => skills.meta().map((s) => ({ name: s.name, description: s.description, source: "" })),
     skillBody: (name) => skills.body(name).catch(() => null),
+    listPersistentGrants: () => grantStore.list(),
+    clearPersistentGrants: () => grantStore.clear(),
     close: async () => {
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
     },
