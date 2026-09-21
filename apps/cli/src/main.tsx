@@ -235,22 +235,27 @@ async function main(): Promise<void> {
 
   // 调试：捕获每次实际写屏的帧（剥离转义后的末段）——定位"帧写了但显示不对"类问题
   if (process.env["KCODE_INPUT_DEBUG"] === "1") {
-    const rawWrite = process.stdout.write.bind(process.stdout);
-    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+    const rawWrite = process.stdout.write.bind(process.stdout) as (
+      chunk: unknown,
+      ...rest: unknown[]
+    ) => boolean;
+    const wrapped = (chunk: unknown, ...rest: unknown[]): boolean => {
       try {
         const s = typeof chunk === "string" ? chunk : "";
         if (s.length > 20) {
-          const stripped = s.replace(/\[[0-9;?]*[A-Za-z]/g, "").replace(/[=>78]/g, "");
+          const stripped = s
+            .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+            .replace(/\x1b[=>78]/g, "");
           appendFileSync(
             join(homedir(), "kcode-input.log"),
-            `${Date.now()} WRITE len=${s.length} tail=${JSON.stringify(stripped.slice(-90))}
-`,
+            `${Date.now()} WRITE len=${s.length} tail=${JSON.stringify(stripped.slice(-90))}\n`,
             "utf8",
           );
         }
       } catch {}
       return rawWrite(chunk, ...rest);
-    }) as typeof process.stdout.write;
+    };
+    process.stdout.write = wrapped as typeof process.stdout.write;
   }
 
   // exitOnCtrlC=false：运行中 Ctrl+C = 中断、空闲双击 = 退出（自建 raw 层接管）
