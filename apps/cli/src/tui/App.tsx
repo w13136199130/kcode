@@ -1160,7 +1160,9 @@ ${body}
         </Text>
       )}
       <Text dimColor wrap="truncate-end">
-        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出{repaintTick % 2 === 1 ? " " : ""}
+        {"⧉ "}{meta.label}
+        {repaintTick % 2 === 1 ? "  " : " "}· {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O{" "}
+        {verbose ? "折叠" : "展开"}思考 · exit 退出
       </Text>
       {ask !== null ? (
         <Box flexDirection="column">
