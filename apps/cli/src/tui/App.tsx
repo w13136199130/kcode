@@ -361,6 +361,12 @@ export function InputBox(props: {
       setPinyinTailStart(null);
     }
   };
+  /** 光标移到 newPos 后组合区是否仍有效（组合期内退格=编辑拼音，不应作废整个组合区） */
+  const trimTailTo = (newPos: number): void => {
+    if (pinyinTailStart !== null && newPos < pinyinTailStart) {
+      setPinyinTailStart(null);
+    }
+  };
 
   /** 最近一次中文上屏时刻：候选选择的数字键可能晚于中文到达（conhost 竞态），短窗口内丢弃 */
   const lastCjkAt = useRef(0);
@@ -368,8 +374,9 @@ export function InputBox(props: {
   const insertText = (str: string): void => {
     const base = props.value;
     const at = cursor ?? props.value.length;
-    // 候选数字泄漏防护：中文上屏后 350ms 内的孤立数字是选词键的竞态泄漏，丢弃
-    if (/^[0-9]$/.test(str) && Date.now() - lastCjkAt.current < 350) {
+    // 候选数字泄漏防护：中文上屏后 1.2s 内的孤立数字是选词键泄漏/二次按压，丢弃
+    // （日志实测二次按压间隔 663~1313ms）
+    if (/^[0-9]$/.test(str) && Date.now() - lastCjkAt.current < 1200) {
       return;
     }
     // 组合期按键：延续或新开组合区
@@ -425,12 +432,11 @@ export function InputBox(props: {
         return; // 组合键（Ctrl+C 等）由 App 层处理
       }
       if (homeSeq) {
-        clearTail();
+        trimTailTo(0);
         setCursor(0);
         return;
       }
       if (endSeq) {
-        clearTail();
         setCursor(null);
         return;
       }
@@ -447,24 +453,25 @@ export function InputBox(props: {
         } else if (key.escape) {
           setValue("");
         } else if (key.backspace) {
-          clearTail();
           if (pos > 0) {
+            trimTailTo(pos - 1);
             setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
           }
         } else if (key.delete) {
           // 中文 Windows 控制台的退格键发来 delete(0x7f)而非 backspace；
           // 行尾时向前无字符，退化为向后删（与其他 CLI 的键码归一化一致）
-          clearTail();
           if (pos < props.value.length) {
+            trimTailTo(pos);
             setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
           } else if (pos > 0) {
+            trimTailTo(pos - 1);
             setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
           }
         } else if (key.leftArrow) {
-          clearTail();
+          trimTailTo(pos - 1);
           setCursor(Math.max(0, pos - 1));
         } else if (key.rightArrow) {
-          clearTail();
+          trimTailTo(pos + 1);
           setCursor(Math.min(props.value.length, pos + 1));
         } else if (ch !== "" && !key.escape && !key.return && !key.tab) {
           insertText(ch);
@@ -492,22 +499,23 @@ export function InputBox(props: {
           props.onChange(draft.current);
         }
       } else if (key.leftArrow) {
-        clearTail();
+        trimTailTo(pos - 1);
         setCursor(Math.max(0, pos - 1));
       } else if (key.rightArrow) {
-        clearTail();
+        trimTailTo(pos + 1);
         setCursor(Math.min(props.value.length, pos + 1));
       } else if (key.backspace) {
-        clearTail();
         if (pos > 0) {
+          trimTailTo(pos - 1);
           setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
         }
       } else if (key.delete) {
         // 同上：delete 行尾退化为向后删（退格键在中文控制台走此分支）
-        clearTail();
         if (pos < props.value.length) {
+          trimTailTo(pos);
           setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
         } else if (pos > 0) {
+          trimTailTo(pos - 1);
           setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
         }
       } else if (key.return) {
