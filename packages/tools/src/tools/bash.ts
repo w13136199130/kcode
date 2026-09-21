@@ -58,24 +58,27 @@ export class BackgroundTaskRegistry {
 
 /**
  * bash 工具（§9 B 域）：跨平台 shell（Windows PowerShell / Unix bash）、超时、后台任务。
- * 会话级持久 shell 状态（cd/env 跨调用）留待 P1-6；当前每调用独立 shell。
+ * 每次调用仍是独立短命 shell 进程，但前台命令结束后打点回传 $PWD 作为会话级持久
+ * 工作目录，下次调用以该目录启动——cd 跨调用保留；环境变量/函数不保留。
  */
 export function createBashTool(opts: BashToolOptions): Tool {
   const registry = new BackgroundTaskRegistry();
+  // 会话级持久工作目录：上次前台命令结束时的 $PWD；显式 cwd 参数 > 持久目录 > 会话 cwd
+  let lastCwd: string | undefined;
   // 预热 shell 探测（记忆化，后续 execute 即时可用）
   void shellOnce();
   return {
     definition: {
       name: "bash",
       description:
-        "执行 shell 命令（bash 语法，输出 UTF-8；无 git-bash 时回退 PowerShell，系统提示环境块会注明）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts",
+        "执行 shell 命令（bash 语法，输出 UTF-8；无 git-bash 时回退 PowerShell，系统提示环境块会注明）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts；工作目录跨调用保留（cd 持久），路径优先写绝对路径",
       parameters: {
         type: "object",
         properties: {
           command: { type: "string", description: "命令内容" },
           timeoutMs: { type: "integer", description: "前台超时毫秒数，默认 120000" },
           runInBackground: { type: "boolean", description: "后台执行，立即返回任务号与日志路径" },
-          cwd: { type: "string", description: "工作目录，默认会话 cwd" },
+          cwd: { type: "string", description: "本次调用的 工作目录；缺省延续上次 cd 的目录（会话内持久）" },
         },
         required: ["command"],
       },
@@ -87,9 +90,10 @@ export function createBashTool(opts: BashToolOptions): Tool {
         return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
       }
       const { command, timeoutMs, runInBackground, cwd } = parsed.data;
-      const workDir = cwd ?? ctx.cwd;
+      // 持久目录优先级：显式 cwd > 上次打点回传的 lastCwd（目录可能已被删除，存在性守卫自愈）> 会话 cwd
+      const persisted = lastCwd !== undefined && existsSync(lastCwd) ? lastCwd : undefined;
+      const workDir = cwd ?? persisted ?? ctx.cwd;
       const shell = await shellOnce();
-      const shellArgs = shell.args(command);
 
       if (runInBackground === true) {
         if (opts.artifactsDir === undefined) {
@@ -100,7 +104,8 @@ export function createBashTool(opts: BashToolOptions): Tool {
         const logPath = join(opts.artifactsDir, `${id}.log`);
         // "w" 而非 "a"：MSYS(git-bash) 对 append 模式句柄作为 stdio 会静默 exit 1
         const logFile = await open(logPath, "w");
-        const child = spawn(shell.file, shellArgs, {
+        // 后台命令不打点（保持日志纯净），在当前持久目录启动，也不回写持久目录
+        const child = spawn(shell.file, shell.args(command), {
           cwd: workDir,
           stdio: ["ignore", logFile.fd, logFile.fd],
           windowsHide: true,
@@ -122,14 +127,20 @@ export function createBashTool(opts: BashToolOptions): Tool {
       }
 
       try {
+        const nonce = randomNonce();
         const { code, output } = await runShell(
           shell.file,
-          shellArgs,
+          shell.args(markCommandForSnapshot(shell.name, command, nonce)),
           workDir,
           timeoutMs ?? DEFAULT_TIMEOUT_MS,
           ctx.signal,
         );
-        const capped = capOutput(output);
+        // 打点行剥除后再截断（打点在输出末尾，先剥可免被截断吞掉）；中断/超时/语法错误时无打点，保持旧目录
+        const snapshot = extractShellSnapshot(output, nonce);
+        if (snapshot.cwd !== undefined) {
+          lastCwd = process.platform === "win32" ? msysPathToWin32(snapshot.cwd) : snapshot.cwd;
+        }
+        const capped = capOutput(snapshot.output);
         if (code === 0) {
           return { ok: true, output: capped };
         }
@@ -361,4 +372,62 @@ function capOutput(text: string): string {
   return text.length > MAX_OUTPUT_CHARS
     ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n（截断：输出超过 ${MAX_OUTPUT_CHARS} 字符）`
     : text;
+}
+
+/** 工作目录打点前缀：随机 nonce 后缀防与用户输出巧合碰撞 */
+const SHELL_SNAPSHOT_PREFIX = "__kcode_pwd_";
+
+function randomNonce(): string {
+  return Math.random().toString(36).slice(2, 12);
+}
+
+/**
+ * 前台命令尾部追加打点：命令结束后回传当前目录，供下次调用恢复 cwd。
+ * bash 侧用 cygpath -w 把 $PWD 转成 Win32 路径（git-bash 会把 Windows 目录映射成
+ * /tmp 等 MSYS 视图，无盘符形式 JS 侧无法还原；cygpath 缺失时回退原始 $PWD），
+ * 先记录退出码再打点、末尾 exit 还原（进程退出码语义不变）；
+ * PowerShell 侧退出码沿用外层 `exit $LASTEXITCODE` 不变。
+ * 命令语法错误 / 主动 exit / 被中断杀树时打点不会出现——extractShellSnapshot 判无即跳过。
+ */
+function markCommandForSnapshot(
+  shellName: "bash" | "powershell",
+  command: string,
+  nonce: string,
+): string {
+  if (shellName === "powershell") {
+    return `${command}; Write-Output "${SHELL_SNAPSHOT_PREFIX}${nonce}:$pwd"`;
+  }
+  const reportPwd = `"$(cygpath -w "$PWD" 2>/dev/null || printf '%s' "$PWD")"`;
+  return `${command}; __kcode_rc=$?; printf '\\n${SHELL_SNAPSHOT_PREFIX}${nonce}:%s\\n' ${reportPwd}; exit $__kcode_rc`;
+}
+
+/** 从输出中提取打点行：返回回传目录与剥除打点行后的输出（取最后一次出现） */
+export function extractShellSnapshot(
+  output: string,
+  nonce: string,
+): { cwd?: string; output: string } {
+  const token = `${SHELL_SNAPSHOT_PREFIX}${nonce}:`;
+  const idx = output.lastIndexOf(token);
+  if (idx === -1) {
+    return { output };
+  }
+  const lineEnd = output.indexOf("\n", idx);
+  const cwd = (
+    lineEnd === -1 ? output.slice(idx + token.length) : output.slice(idx + token.length, lineEnd)
+  ).replace(/\r$/, "");
+  const lineStart = output.lastIndexOf("\n", idx - 1);
+  const before = lineStart === -1 ? "" : output.slice(0, lineStart);
+  const after = lineEnd === -1 ? "" : output.slice(lineEnd + 1);
+  return { cwd: cwd.length > 0 ? cwd : undefined, output: before + after };
+}
+
+/** MSYS(git-bash) 的 $PWD 是 POSIX 风格（/e/foo）；转 Win32（E:\foo）供下次 spawn 的 cwd 使用（盘符大写与 Node 一致） */
+export function msysPathToWin32(p: string): string {
+  const m = /^\/([a-zA-Z])\/(.*)$/.exec(p);
+  const drive = m?.[1];
+  const rest = m?.[2];
+  if (m === null || drive === undefined || rest === undefined) {
+    return p;
+  }
+  return `${drive.toUpperCase()}:\\${rest.replace(/\//g, "\\")}`;
 }

@@ -1,8 +1,14 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createBashTool, currentShellInfo, pickBashCandidates } from "../src/index.js";
+import {
+  createBashTool,
+  currentShellInfo,
+  extractShellSnapshot,
+  msysPathToWin32,
+  pickBashCandidates,
+} from "../src/index.js";
 
 let root: string;
 
@@ -129,5 +135,100 @@ describe("bash 工具", () => {
     expect(r.ok).toBe(true);
     expect(r.output).toContain("ver=1");
     expect(r.output).toContain("line2");
+  });
+});
+
+describe("bash 工作目录持久（会话级 cd 跨调用保留）", () => {
+  it("前台 cd 后，下次调用在新目录执行", async () => {
+    const sub = join(root, "persist-sub");
+    await mkdir(sub, { recursive: true });
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    const r1 = await bash.execute({ command: `cd "${sub}" && echo moved` }, ctx());
+    expect(r1.ok).toBe(true);
+    const r2 = await bash.execute({ command: "pwd" }, ctx());
+    expect(r2.ok).toBe(true);
+    expect(r2.output).toContain("persist-sub");
+  });
+
+  it("打点标记不泄漏进输出", async () => {
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    const r = await bash.execute({ command: "echo clean-output" }, ctx());
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("clean-output");
+    expect(r.output).not.toContain("__kcode_pwd_");
+  });
+
+  it("显式 cwd 参数优先于持久目录", async () => {
+    const subA = join(root, "cwd-a");
+    const subB = join(root, "cwd-b");
+    await mkdir(subA, { recursive: true });
+    await mkdir(subB, { recursive: true });
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    await bash.execute({ command: `cd "${subA}"` }, ctx());
+    const r = await bash.execute({ command: "pwd", cwd: subB }, ctx());
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("cwd-b");
+    expect(r.output).not.toContain("cwd-a");
+  });
+
+  it("持久目录被删除后自愈回退会话 cwd", async () => {
+    const gone = join(root, "gone-dir");
+    await mkdir(gone, { recursive: true });
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    await bash.execute({ command: `cd "${gone}"` }, ctx());
+    await rm(gone, { recursive: true, force: true });
+    const r = await bash.execute({ command: "pwd" }, ctx());
+    expect(r.ok).toBe(true);
+    expect(r.output).not.toContain("gone-dir");
+  });
+
+  it("持久目录会话级隔离：另一会话实例不受影响", async () => {
+    const sub = join(root, "iso-sub");
+    await mkdir(sub, { recursive: true });
+    const a = createBashTool({ sessionId: "a", artifactsDir: join(root, "art") });
+    const b = createBashTool({ sessionId: "b", artifactsDir: join(root, "art") });
+    await a.execute({ command: `cd "${sub}"` }, ctx());
+    const rb = await b.execute({ command: "pwd" }, ctx());
+    expect(rb.ok).toBe(true);
+    expect(rb.output).not.toContain("iso-sub");
+  });
+
+  it("exit N 直退：无打点不影响退出码语义，持久目录保持旧值", async () => {
+    const sub = join(root, "exit-sub");
+    await mkdir(sub, { recursive: true });
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    const before = await bash.execute({ command: `cd "${sub}" && pwd` }, ctx());
+    expect(before.ok).toBe(true);
+    const re = await bash.execute({ command: "exit 3" }, ctx());
+    expect(re.ok).toBe(false);
+    expect(re.error).toContain("exit code 3");
+    const after = await bash.execute({ command: "pwd" }, ctx());
+    expect(after.output).toContain("exit-sub");
+  });
+});
+
+describe("工作目录打点辅助函数", () => {
+  it("extractShellSnapshot：提取目录并剥除打点行（保留用户输出的尾换行）", () => {
+    const out = extractShellSnapshot("line1\n\n__kcode_pwd_ab12cd34:C:\\tmp\\x\r\n", "ab12cd34");
+    expect(out.cwd).toBe("C:\\tmp\\x");
+    expect(out.output).toBe("line1\n");
+  });
+
+  it("extractShellSnapshot：打点在输出末尾无换行", () => {
+    const out = extractShellSnapshot("tail\n__kcode_pwd_n1:/e/y", "n1");
+    expect(out.cwd).toBe("/e/y");
+    expect(out.output).toBe("tail");
+  });
+
+  it("extractShellSnapshot：无打点原样返回", () => {
+    const out = extractShellSnapshot("plain output", "zz");
+    expect(out.cwd).toBeUndefined();
+    expect(out.output).toBe("plain output");
+  });
+
+  it("msysPathToWin32：/e/foo → E:\\foo；非 MSYS 路径原样", () => {
+    expect(msysPathToWin32("/e/space/x y")).toBe("E:\\space\\x y");
+    expect(msysPathToWin32("C:\\already")).toBe("C:\\already");
+    expect(msysPathToWin32("/tmp")).toBe("/tmp");
   });
 });
