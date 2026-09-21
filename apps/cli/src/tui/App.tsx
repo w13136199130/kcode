@@ -317,33 +317,25 @@ export function InputBox(props: {
   const index = useRef(-1);
   // 菜单高亮必须是 state：ref 变更不触发重渲染（高亮会「冻结」，表现为方向键失灵）
   const [menuIndex, setMenuIndex] = useState(0);
-  /** 光标位置（null = 末尾）；外部改值（历史/补全/清空）时光标回到末尾 */
-  const [cursor, setCursor] = useState<number | null>(null);
+  /**
+   * 光标以「绑定值」形式存储：仅当 cursor.for 与当前 value 一致时才生效，
+   * 外部改值（提交清空/历史回填）自动失效回末尾——纯派生计算，
+   * 不做任何渲染期 setState（渲染期 setState 会让 Ink 提交空帧 = 不回显）。
+   */
+  const [cursor, setCursor] = useState<{ for: string; at: number } | null>(null);
   /** IME 组合区起点（连续 [a-z0-9'] 拼音输入的起始下标；null = 无组合区） */
   const [pinyinTailStart, setPinyinTailStart] = useState<number | null>(null);
-  const prevValue = useRef(props.value);
-  /** 自编辑的期望值：值变化若由本组件 setValue 触发，不把光标重置回末尾 */
-  const selfEdit = useRef<string | null>(null);
-  if (prevValue.current !== props.value) {
-    const isSelfEdit = selfEdit.current === props.value;
-    selfEdit.current = null;
-    prevValue.current = props.value;
-    if (!isSelfEdit) {
-      // 外部改值（提交后清空/命令补全等）：组合区作废
-      if (cursor !== null) {
-        setCursor(null);
-      }
-      setPinyinTailStart(null);
-    }
-  }
-  const pos = cursor ?? props.value.length;
+  const pos =
+    cursor !== null && cursor.for === props.value
+      ? Math.min(cursor.at, props.value.length)
+      : props.value.length;
   useEffect(() => {
     // Home/End 被 Ink 的具名键清空机制丢弃：经 stdin.read tee 回收
     patchStdinReadForKeys();
     const off = onHomeEnd((k) => {
       if (k === "home") {
         trimTailTo(0);
-        setCursor(0);
+        setCursor({ for: props.value, at: 0 });
       } else {
         setCursor(null);
       }
@@ -354,9 +346,8 @@ export function InputBox(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const setValue = (v: string, at?: number): void => {
-    selfEdit.current = v;
     props.onChange(v);
-    setCursor(at !== undefined ? at : null);
+    setCursor(at !== undefined ? { for: v, at } : null);
   };
 
   /**
@@ -381,8 +372,12 @@ export function InputBox(props: {
   const lastCjkAt = useRef(0);
 
   const insertText = (str: string): void => {
+    if (process.env["VITEST"] === "true") {
+      // eslint-disable-next-line no-console
+      console.error("DBG insert", JSON.stringify(str), "pos", pos);
+    }
     const base = props.value;
-    const at = cursor ?? props.value.length;
+    const at = pos;
     // 候选数字泄漏防护：中文上屏后 1.2s 内的孤立数字是选词键泄漏/二次按压，丢弃
     // （日志实测二次按压间隔 663~1313ms）
     if (/^[0-9]$/.test(str) && Date.now() - lastCjkAt.current < 1200) {
@@ -419,13 +414,6 @@ export function InputBox(props: {
   const showMenu = matches.length > 0;
   const clamped = Math.min(menuIndex, Math.max(0, matches.length - 1));
   // 过滤词变化即重置高亮（渲染期调整 state 的标准模式）
-  const prevNeedle = useRef<string | null>(null);
-  if (prevNeedle.current !== needle) {
-    prevNeedle.current = needle;
-    if (menuIndex !== 0) {
-      setMenuIndex(0);
-    }
-  }
   // 单一 Ink 输入通道：字符/IME 整串/方向/回车/退格全在此处理。
   // Home/End 在 Ink 的 key 对象里未暴露，以序列形式到达（[H 被剥掉 ESC 后成 "[H"）。
   useInput(
@@ -434,6 +422,10 @@ export function InputBox(props: {
         try {
           appendInputLog(`ch=${JSON.stringify(ch)} key=${JSON.stringify(key)}`);
         } catch {}
+      }
+      if (process.env["VITEST"] === "true") {
+        // eslint-disable-next-line no-console
+        console.error("DBG handler", JSON.stringify(ch), JSON.stringify(key).slice(0, 80));
       }
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
@@ -467,10 +459,10 @@ export function InputBox(props: {
           }
         } else if (key.leftArrow) {
           trimTailTo(pos - 1);
-          setCursor(Math.max(0, pos - 1));
+          setCursor({ for: props.value, at: Math.max(0, pos - 1) });
         } else if (key.rightArrow) {
           trimTailTo(pos + 1);
-          setCursor(Math.min(props.value.length, pos + 1));
+          setCursor({ for: props.value, at: Math.min(props.value.length, pos + 1) });
         } else if (ch !== "" && !key.escape && !key.return && !key.tab) {
           insertText(ch);
         }
@@ -498,10 +490,10 @@ export function InputBox(props: {
         }
       } else if (key.leftArrow) {
         trimTailTo(pos - 1);
-        setCursor(Math.max(0, pos - 1));
+        setCursor({ for: props.value, at: Math.max(0, pos - 1) });
       } else if (key.rightArrow) {
         trimTailTo(pos + 1);
-        setCursor(Math.min(props.value.length, pos + 1));
+        setCursor({ for: props.value, at: Math.min(props.value.length, pos + 1) });
       } else if (key.backspace) {
         if (pos > 0) {
           trimTailTo(pos - 1);
