@@ -17,6 +17,7 @@ A TypeScript implementation targeting ZCode-class capability: an agent loop, a p
 - 🧩 **渐进式技能与记忆** · **Progressive skills & memory** —— SKILL.md 仅元数据常驻上下文，命中触发词才加载正文；AGENTS.md 项目记忆进稳定区 / SKILL.md metadata stays in context, the body loads only on trigger; AGENTS.md project memory in the stable zone.
 - 📼 **可回放会话** · **Replayable sessions** —— JSONL append-only 事件流，回放一致性进 CI，天然作为 eval 夹具 / Append-only JSONL event stream with replay-consistency checks in CI — a natural source of eval fixtures.
 - 🧪 **双模式验收** · **Dual-mode acceptance** —— scripted 框架自检进 CI；真实模型 10 任务评分（GLM-5.3 实测 **10/10** 通过）/ Scripted self-check in CI plus a 10-task real-model suite (10/10 with GLM-5.3).
+- ♻️ **瞬态失败自动重试** · **Automatic transient retries** —— 429/网关/网络抖动指数退避重放（清洁重试：仅未出内容时重试，Retry-After 优先）/ Exponential-backoff replays for 429/gateway/network glitches (clean-retry only, honors Retry-After).
 - 🖥️ **Ink TUI** —— 流式输出、工具状态行、Todo 面板、结构化选择题、后台任务通知 / Streaming output, tool status rows, a todo panel, structured questions, background-task notices.
 
 ## 路线图进度 | Roadmap Status
