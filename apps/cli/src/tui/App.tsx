@@ -311,6 +311,7 @@ export function InputBox(props: {
   onSubmit: (value: string) => void;
   history: string[];
   commands: CommandInfo[];
+  onCjkCommit?: () => void;
 }) {
   const draft = useRef("");
   const index = useRef(-1);
@@ -381,6 +382,7 @@ export function InputBox(props: {
     const hasCjk = /[一-鿿　-〿！-～]/.test(str);
     if (hasCjk) {
       lastCjkAt.current = Date.now();
+      props.onCjkCommit?.();
     }
     if (hasCjk && pinyinTailStart !== null && pinyinTailStart <= at) {
       // 上屏替换：整个组合区换成本次的中文串
@@ -572,6 +574,12 @@ export function KcodeApp(props: KcodeAppProps) {
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
   const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
   const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
+  /** IME 上屏强制重绘：conhost 提交竞态会擦掉刚画的帧，二次重绘（交替空格保证帧 diff）兜底 */
+  const [repaintTick, setRepaintTick] = useState(0);
+  const pingRepaint = (): void => {
+    setRepaintTick((t) => t + 1);
+    setTimeout(() => setRepaintTick((t) => t + 1), 80);
+  };
   /** 转写展开态（Ctrl+O 切换）：思考全文 / 工具输出多行 */
   const [verbose, setVerbose] = useState(false);
   /** 驱动 running 态动态耗时与 busy 计时的时钟（250ms 一拍） */
@@ -1134,7 +1142,7 @@ ${body}
         </Text>
       )}
       <Text dimColor wrap="truncate-end">
-        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出
+        ⧉ {meta.label} · {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O {verbose ? "折叠" : "展开"}思考 · exit 退出{repaintTick % 2 === 1 ? " " : ""}
       </Text>
       {ask !== null ? (
         <Box flexDirection="column">
@@ -1381,6 +1389,7 @@ ${body}
             onSubmit={(v) => void submit(v)}
             history={inputHistory.current}
             commands={commands}
+            onCjkCommit={pingRepaint}
           />
         ) : (
           <Text dimColor>（非交互模式：仅执行一次性提问后退出）</Text>
