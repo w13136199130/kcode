@@ -16,8 +16,8 @@ export const inputAnchor = {
   column: 0,
 };
 
-/** 帧末锚点撤销序列：回行首 + 下移一行 */
-const TO_FRAME_END = "\r\x1b[1B";
+/** 帧末锚点撤销序列：回行首 + 下移两行（输入行下方还有一条分隔线） */
+const TO_FRAME_END = "\r\x1b[2B";
 
 let patched = false;
 
@@ -36,7 +36,8 @@ export function patchStdoutForIme(): void {
       }
       const result = rawWrite(chunk, ...rest);
       if (inputAnchor.column > 0) {
-        rawWrite(`\x1b[1A\r\x1b[${inputAnchor.column}C`);
+        // 输入行距帧末恒为 2 行（输入行 + 底部分隔线）；菜单在上方不改变此距离
+        rawWrite(`\x1b[2A\r\x1b[${inputAnchor.column}C`);
       }
       return result;
     }
