@@ -593,9 +593,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const [repaintTick, setRepaintTick] = useState(0);
   const pingRepaint = (): void => {
     setRepaintTick((t) => t + 1);
-    for (const delay of [150, 400, 900, 1500]) {
-      setTimeout(() => setRepaintTick((t) => t + 1), delay);
-    }
+    // 两拍即可（CJK 扁平渲染修复后提交帧本身正确；多拍反而造成底部闪动）
+    setTimeout(() => setRepaintTick((t) => t + 1), 400);
   };
   useEffect(() => {
     if (process.env["KCODE_INPUT_DEBUG"] === "1" && repaintTick > 0) {
