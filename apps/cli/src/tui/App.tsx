@@ -372,9 +372,10 @@ export function InputBox(props: {
   const lastCjkAt = useRef(0);
 
   const insertText = (str: string): void => {
-    if (process.env["VITEST"] === "true") {
-      // eslint-disable-next-line no-console
-      console.error("DBG insert", JSON.stringify(str), "pos", pos);
+    if (process.env["KCODE_INPUT_DEBUG"] === "1") {
+      try {
+        appendInputLog(`insert str=${JSON.stringify(str)} pos=${pos} value=${JSON.stringify(props.value)} tail=${pinyinTailStart}`);
+      } catch {}
     }
     const base = props.value;
     const at = pos;
