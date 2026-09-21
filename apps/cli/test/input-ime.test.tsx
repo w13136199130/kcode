@@ -74,7 +74,7 @@ function renderInput(): {
     write(s: string): void {
       pending += s;
       // 模拟流的 readable 事件：唤醒 Ink 的 handleReadable 循环
-      for (const fn of [...listeners]) fn();
+      for (const fn of [...listeners]) (fn as () => void)();
     },
   };
   const instance = render(<Harness />, {
