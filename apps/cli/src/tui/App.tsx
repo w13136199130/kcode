@@ -1414,7 +1414,7 @@ ${body}
       )}
       <Text dimColor wrap="truncate-end">
         {"⧉ "}{meta.label}
-        {repaintTick % 2 === 1 ? "  " : " "}· {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O{" "}
+        {repaintTick % 2 === 1 ? " " : " "}· {modelLabel} · /mode 切换 · Esc/Ctrl+C 中断 · Ctrl+O{" "}
         {verbose ? "折叠" : "展开"}思考 · exit 退出
       </Text>
     </Box>
