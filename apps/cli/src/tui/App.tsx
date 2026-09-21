@@ -561,6 +561,7 @@ export function InputBox(props: {
           {after}
         </Text>
       </Box>
+      <Text dimColor>{"─".repeat(60)}</Text>
     </Box>
   );
 }
