@@ -21,7 +21,6 @@ import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
-import { inputAnchor } from "./cursor-anchor.js";
 
 export interface KcodeAppProps {
   /** 守护进程连接：会话在守护进程侧组装与执行 */
@@ -527,14 +526,6 @@ export function InputBox(props: {
   // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
   // 扁平字符串路径经同一复现用例验证无恙。
   const inputDisplay = `${props.value.slice(0, pos)}█${props.value.slice(pos + 1)}`;
-  // 光标锚定：上报输入行内光标列（IME 组合窗据真实光标定位 → 拼音画进输入框内）
-  inputAnchor.column = 2 + visualWidth(props.value.slice(0, pos));
-  useEffect(() => {
-    return () => {
-      inputAnchor.column = 0;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   // 布局：菜单（上方）→ 上分割线 → 输入行 → 下分割线。
   // 输入行下方恒定只有底部分割线 1 行——IME 光标锚定的恒定偏移前提。
   const { stdout: out } = useStdout();
