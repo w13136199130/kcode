@@ -116,6 +116,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "skills", desc: "查看已装载技能" },
   { name: "skill", desc: "手动注入技能正文" },
   { name: "sessions", desc: "最近会话列表" },
+  { name: "resume", desc: "续接历史会话（选择菜单或 latest/id）" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
@@ -440,7 +441,7 @@ export function InputBox(props: {
           setMenuIndex((s) => (s - 1 + matches.length) % matches.length);
         } else if (key.downArrow) {
           setMenuIndex((s) => (s + 1) % matches.length);
-        } else if (key.tab || key.return) {
+        } else if (key.tab || (key.return && ch !== "\n")) {
           const picked = matches[clamped] ?? matches[0];
           if (picked !== undefined) {
             setValue(`/${picked.name} `);
@@ -514,7 +515,18 @@ export function InputBox(props: {
           setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
         }
       } else if (key.return) {
-        props.onSubmit(props.value);
+        if (ch === "\n") {
+          // Ctrl+J（LF）：显式换行——多行输入主入口。Enter 发 \r、Ctrl+J 发 \n，
+          // raw 模式下终端恒可区分；粘贴多行文本的换行符也走此路径（不会提前提交）
+          clearTail();
+          setValue(`${props.value.slice(0, pos)}\n${props.value.slice(pos)}`, pos + 1);
+        } else if (pos === props.value.length && props.value.endsWith("\\") && props.value.length > 1) {
+          // 行尾反斜杠 + 回车 = 续行（shell 习惯）：\ 换成换行符，不提交
+          clearTail();
+          setValue(`${props.value.slice(0, -1)}\n`, pos);
+        } else {
+          props.onSubmit(props.value);
+        }
       } else if (ch !== "" && !key.escape && !key.tab) {
         // 可打印字符 / IME 提交的整串（含中文替换拼音）
         insertText(ch);
@@ -524,12 +536,25 @@ export function InputBox(props: {
   );
   // 布局对标 Claude Code：菜单在上方 → ── 分隔线 → 输入行（必须是帧的最后一行，
   // 帧渲染后光标锚定回输入行，IME 组合窗随之显示在 > 后面）
-  // 输入行渲染为纯扁平单字符串（before + █ 光标 + after）：
+  // 输入行渲染为纯扁平字符串（before + █ 光标 + after）：
   // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
-  // 扁平字符串路径经同一复现用例验证无恙。
-  const inputDisplay = `${props.value.slice(0, pos)}█${props.value.slice(pos + 1)}`;
-  // 布局：菜单（上方）→ 上分割线 → 输入行 → 下分割线。
-  // 输入行下方恒定只有底部分割线 1 行——IME 光标锚定的恒定偏移前提。
+  // 扁平字符串路径经同一复现用例验证无恙。多行时按 \n 拆行、每行独立扁平 <Text>（续行缩进两格）。
+  const lines = props.value.split("\n");
+  let cursorLine = lines.length - 1;
+  let cursorCol = lines[lines.length - 1] !== undefined ? lines[lines.length - 1]!.length : 0;
+  {
+    let acc = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (pos <= acc + line.length) {
+        cursorLine = i;
+        cursorCol = pos - acc;
+        break;
+      }
+      acc += line.length + 1;
+    }
+  }
+  // 布局：菜单（上方）→ 上分割线 → 输入行（可多行）→ 下分割线。
   const { stdout: out } = useStdout();
   const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
   return (
@@ -551,9 +576,19 @@ export function InputBox(props: {
         </Box>
       )}
       <Text dimColor>{separator}</Text>
-      <Box>
-        <Text dimColor>&gt; </Text>
-        <Text>{inputDisplay}</Text>
+      <Box flexDirection="column">
+        {lines.map((line, i) => {
+          const active = i === cursorLine;
+          const content = active
+            ? `${line.slice(0, cursorCol)}█${line.slice(cursorCol + 1)}`
+            : line;
+          return (
+            <Box key={i}>
+              <Text dimColor>{i === 0 ? "> " : "  "}</Text>
+              <Text>{content.length > 0 ? content : " "}</Text>
+            </Box>
+          );
+        })}
       </Box>
       <Text dimColor>{separator}</Text>
     </Box>
@@ -578,6 +613,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
   /** /permissions 面板：当前项目持久放行清单与清空确认 */
   const [permissionsPanel, setPermissionsPanel] = useState<string[] | null>(null);
+  /** /resume 会话选择菜单：选项与会话 id 对齐（末位为取消） */
+  const [resumePicker, setResumePicker] = useState<{ options: MenuOption[]; ids: string[] } | null>(null);
   const [input, setInput] = useState("");
   const [spinVerb, setSpinVerb] = useState("思考中");
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
@@ -671,7 +708,8 @@ export function KcodeApp(props: KcodeAppProps) {
     fullAccessConfirm ||
     modelPicker !== null ||
     loginWizard !== null ||
-    permissionsPanel !== null;
+    permissionsPanel !== null ||
+    resumePicker !== null;
 
   // Esc：busy 时中断（菜单占用时 Esc 归菜单）
   useInput(
@@ -855,6 +893,49 @@ export function KcodeApp(props: KcodeAppProps) {
         }
         setQuestion({ question: q, resolve });
       }),
+  };
+
+  /** /resume：换建一个续接旧会话历史的新会话并切换为当前会话（旧转写保留在上方作上下文） */
+  const switchSession = (resumeFrom: string): void => {
+    if (busy) {
+      pushBlock({ kind: "info", tone: "warn", text: "运行中不能续接会话（等本轮完成或 Esc 中断）" });
+      return;
+    }
+    setBusy(true);
+    setBusySince(Date.now());
+    void (async () => {
+      try {
+        const handle = await createSession({
+          client: props.client,
+          model: modelLabel,
+          cwd: props.cwd,
+          resumeFrom,
+          onEvent: handleEvent,
+          onDelta: appendDelta,
+          onReasoning: appendReasoning,
+          onNotice: setNotice,
+          asker,
+          askUser,
+        });
+        sessionRef.current = handle;
+        setTodos([]);
+        setStreamText("");
+        pushBlock({
+          kind: "info",
+          tone: "ok",
+          text: `⭄ 已切换到续接会话 ${handle.sessionId.slice(0, 16)}…（模型 ${modelLabel}）`,
+        });
+      } catch (err) {
+        pushBlock({
+          kind: "info",
+          tone: "warn",
+          text: `✗ 续接失败：${err instanceof Error ? err.message : String(err)}`,
+        });
+      } finally {
+        setBusy(false);
+        setBusySince(null);
+      }
+    })();
   };
 
   useEffect(() => {
@@ -1056,6 +1137,45 @@ ${body}
         });
         return;
       }
+      if (name === "resume") {
+        const sessions = await session.listSessions().catch(() => null);
+        if (sessions === null) {
+          pushBlock({ kind: "info", tone: "warn", text: "会话清单获取失败（守护进程连接异常）" });
+          return;
+        }
+        const currentId = sessionRef.current?.sessionId;
+        // 候选排除当前会话（续接自己没有意义）
+        const candidates = sessions.filter((s) => s.sessionId !== currentId);
+        if (args !== "") {
+          // /resume latest 或 id 前缀：先校验存在，避免无效 id 静默开新会话
+          const target =
+            args.trim() === "latest"
+              ? candidates[0]
+              : candidates.find((s) => s.sessionId === args.trim() || s.sessionId.startsWith(args.trim()));
+          if (target === undefined) {
+            pushBlock({ kind: "info", tone: "warn", text: `✗ 未找到会话「${args.trim()}」（/sessions 查看清单）` });
+            return;
+          }
+          switchSession(target.sessionId);
+          return;
+        }
+        if (candidates.length === 0) {
+          pushBlock({ kind: "info", text: "（暂无可续接的历史会话）" });
+          return;
+        }
+        const top = candidates.slice(0, 10);
+        setResumePicker({
+          options: [
+            ...top.map((s, i) => ({
+              key: String((i + 1) % 10),
+              label: `${s.sessionId.slice(0, 12)}… · ${s.turns} 轮 · ${s.preview || "（空）"}`,
+            })),
+            { key: "q", label: "取消" },
+          ],
+          ids: [...top.map((s) => s.sessionId), ""],
+        });
+        return;
+      }
       if (name === "cost") {
         const usage = await session.usage().catch(() => null);
         if (usage === null) {
@@ -1100,7 +1220,8 @@ ${body}
           "/model [引用] 查看/切换模型（无参出选择菜单）",
           "/login 配置模型厂商与 API key（向导，自动写配置）",
           "/skills · /skill <名称> 查看/手动注入技能",
-          "/sessions 最近会话列表（--resume 续接）",
+          "/sessions 最近会话列表",
+          "/resume [latest|id 前缀] 不重启续接历史会话",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",
@@ -1235,6 +1356,26 @@ ${body}
               ask.resolve({ allowed: false });
               setAsk(null);
               pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}` });
+            }}
+          />
+        </Box>
+      ) : resumePicker !== null ? (
+        <Box flexDirection="column">
+          <Text color="magenta" bold>
+            选择要续接的会话（回车确认 · Esc 取消）
+          </Text>
+          <OptionsMenu
+            options={resumePicker.options}
+            onPick={(indices) => {
+              const idx = indices[0] ?? resumePicker.ids.length - 1;
+              const resumeId = resumePicker.ids[idx];
+              setResumePicker(null);
+              if (resumeId !== undefined && resumeId !== "") {
+                switchSession(resumeId);
+              }
+            }}
+            onCancel={() => {
+              setResumePicker(null);
             }}
           />
         </Box>
