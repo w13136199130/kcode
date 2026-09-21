@@ -36,8 +36,9 @@ export function patchStdoutForIme(): void {
     if (!isFrame || inputAnchor.column <= 0) {
       return rawWrite(chunk, ...rest);
     }
-    // 1) 撤销锚定：从输入行回到帧末行行首，保证 Ink 擦除起点正确
-    rawWrite(`\r\x1b[${LINE_OFFSET}B`);
+    // 1) 撤销锚定（自校正）：多下一行到帧末之下，清屏尾残迹，再上移一行精确落回帧末行首——
+    //    即便上次锚定/终端滚动导致偏差一行，此序列也能把擦除起点纠正到正确位置
+    rawWrite(`\r\x1b[${LINE_OFFSET + 1}B\x1b[J\x1b[1A`);
     // 2) 写帧
     const result = rawWrite(chunk, ...rest);
     // 3) 重新锚定：上移到输入行、右移到光标列
