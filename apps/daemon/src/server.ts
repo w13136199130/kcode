@@ -491,6 +491,39 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
         }
         return;
       }
+      case "session_compact": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        try {
+          const result = await session.compactNow();
+          send(conn, {
+            kind: "compact_ok",
+            id: message.id,
+            dropped: result?.dropped ?? 0,
+            summaryChars: result?.summaryChars ?? 0,
+          });
+        } catch (err) {
+          send(conn, {
+            kind: "error",
+            id: message.id,
+            message: `压缩失败: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
+      case "session_context": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        const stats = session.contextStats();
+        send(conn, { kind: "context_info", id: message.id, ...stats });
+        return;
+      }
       case "ask_reply": {
         conn.pendingAsks.get(message.callId)?.({
           allowed: message.allowed,

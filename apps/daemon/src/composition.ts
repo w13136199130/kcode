@@ -73,6 +73,17 @@ export interface ComposedSession {
   listRewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
   /** 回退到某个 user_message 之前：恢复文件快照（逆序）+ 以事件重建截断历史；运行中拒绝 */
   rewind(eventIndex: number): Promise<{ restoredFiles: number; droppedEvents: number }>;
+  /** /compact 手动压缩 */
+  compactNow(): Promise<{ dropped: number; summaryChars: number } | null>;
+  /** /context 上下文占用 */
+  contextStats(): {
+    model: string;
+    contextWindow: number;
+    historyTokens: number;
+    historyBudget: number;
+    systemTokens: number;
+    pinnedAnchor: boolean;
+  };
   close(): Promise<void>;
 }
 
@@ -290,7 +301,12 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const planSubmitTool = buildPlanSubmitTool({
     currentMode: () => sessionMode,
     planAsker: opts.planAsker,
-    switchToExecute: () => applyMode("default"),
+    // 批准 = 钉固计划为跨压缩锚点（B3）+ 切回执行模式
+    onApproved: (plan) => {
+      loop.pinAnchor(`【已批准的执行计划——执行以本计划为准】
+${plan}`);
+      applyMode("default");
+    },
   });
   const loop = new AgentLoop(
     {
@@ -405,6 +421,25 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       opts.onNotice?.(`已回退：恢复 ${restoredFiles} 个文件 · 对话截断 ${events.length - eventIndex} 个事件`);
       return { restoredFiles, droppedEvents: events.length - eventIndex };
     },
+    compactNow: async () => {
+      if (activeAbort !== null) {
+        throw new Error("运行中不能压缩（等待本轮完成或 Esc 中断）");
+      }
+      const result = await loop.compactNow();
+      if (result === null) {
+        return null;
+      }
+      opts.onEvent?.({
+        v: 1,
+        type: "compaction_summary",
+        ts: Date.now(),
+        sessionId,
+        summary: result.summary,
+        dropped: result.dropped,
+      });
+      return { dropped: result.dropped, summaryChars: result.summary.length };
+    },
+    contextStats: () => loop.contextStats(),
     close: async () => {
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
       await checkpoints.cleanup();

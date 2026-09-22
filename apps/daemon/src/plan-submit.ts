@@ -12,8 +12,8 @@ export interface PlanSubmitToolDeps {
   currentMode: () => PermissionMode;
   /** 计划批准交互端口（daemon 注入；无交互通道时工具降级为未批准） */
   planAsker?: { ask(plan: string): Promise<PlanVerdict> };
-  /** 批准后切回执行模式（composition 的 applyMode） */
-  switchToExecute: () => void;
+  /** 批准后回调（composition：钉固计划锚点 + 切回执行模式） */
+  onApproved: (plan: string) => void;
 }
 
 /**
@@ -58,7 +58,7 @@ export function buildPlanSubmitTool(deps: PlanSubmitToolDeps): Tool {
         verdict = "abandon";
       }
       if (verdict === "approved") {
-        deps.switchToExecute();
+        deps.onApproved(parsed.data.plan);
         return {
           ok: true,
           output:

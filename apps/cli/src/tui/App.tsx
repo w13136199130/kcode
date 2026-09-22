@@ -119,6 +119,8 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "sessions", desc: "最近会话列表" },
   { name: "resume", desc: "续接历史会话（选择菜单或 latest/id）" },
   { name: "rewind", desc: "回退到之前某轮提问（恢复文件+截断对话，双击 Esc 直达）" },
+  { name: "compact", desc: "手动压缩历史（保留任务锚点与近期上下文）" },
+  { name: "context", desc: "查看上下文 token 占用与压缩阈值" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
@@ -1263,6 +1265,48 @@ ${body}
         openRewindPicker();
         return;
       }
+      if (name === "compact") {
+        if (busy) {
+          pushBlock({ kind: "info", tone: "warn", text: "运行中不能压缩（等本轮完成或 Esc 中断）" });
+          return;
+        }
+        const result = await session.compact();
+        if (typeof result === "string") {
+          pushBlock({ kind: "info", tone: "warn", text: `✗ 压缩失败：${result}` });
+          return;
+        }
+        pushBlock({
+          kind: "info",
+          tone: result.dropped > 0 ? "ok" : undefined,
+          text:
+            result.dropped > 0
+              ? `⑂ 已手动压缩：折叠 ${result.dropped} 条较早消息（摘要 ${result.summaryChars} 字），任务锚点与近期上下文保留`
+              : "（历史尚短，未触发压缩——压缩在历史超过预算 60% 时也会自动进行）",
+        });
+        return;
+      }
+      if (name === "context") {
+        const stats = await session.context().catch(() => null);
+        if (stats === null) {
+          pushBlock({ kind: "info", tone: "warn", text: "上下文信息获取失败（守护进程连接异常）" });
+          return;
+        }
+        const fmt = (n: number): string => n.toLocaleString("en-US");
+        const pct = Math.min(100, Math.round((stats.historyTokens / stats.historyBudget) * 100));
+        const barLen = Math.max(1, Math.round(pct / 2.5));
+        pushBlock({
+          kind: "info",
+          text:
+            `Context · 模型 ${stats.model}（窗口 ${(stats.contextWindow / 1000).toFixed(0)}k）
+` +
+            `历史 ${fmt(stats.historyTokens)} / ${fmt(stats.historyBudget)} tok（${pct}%）
+` +
+            `[${"█".repeat(barLen)}${"░".repeat(Math.max(0, 40 - barLen))}]
+` +
+            `系统提示 ${fmt(stats.systemTokens)} tok · ${stats.pinnedAnchor ? "已钉固计划锚点" : "无计划锚点"} · 超预算自动压缩、/compact 手动压缩`,
+        });
+        return;
+      }
       if (name === "permissions") {
         const grants = await session.listPersistentGrants().catch(() => null);
         if (grants === null) {
@@ -1288,6 +1332,7 @@ ${body}
           "/sessions 最近会话列表",
           "/resume [latest|id 前缀] 不重启续接历史会话",
           "/rewind 回退到之前某轮提问（文件快照+对话一起回滚；空闲双击 Esc 直达）",
+          "/compact 手动压缩历史 · /context 查看 token 占用（超预算 60% 自动压缩）",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",

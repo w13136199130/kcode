@@ -4,7 +4,7 @@ import { SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 const requestId = z.number().int().nonnegative();
 
@@ -114,6 +114,8 @@ export const ClientRequest = z.discriminatedUnion("method", [
     /** 回退目标：会话事件流中某个 user_message 事件的序号（回退到该提问之前） */
     eventIndex: z.number().int().nonnegative(),
   }),
+  z.object({ id: requestId, method: z.literal("session_compact"), sessionId: z.string().min(1) }),
+  z.object({ id: requestId, method: z.literal("session_context"), sessionId: z.string().min(1) }),
 ]);
 export type ClientRequest = z.infer<typeof ClientRequest>;
 
@@ -206,6 +208,24 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     id: requestId,
     restoredFiles: z.number().int().nonnegative(),
     droppedEvents: z.number().int().nonnegative(),
+  }),
+  /** /compact 手动压缩结果（dropped=0 表示历史过短未触发） */
+  z.object({
+    kind: z.literal("compact_ok"),
+    id: requestId,
+    dropped: z.number().int().nonnegative(),
+    summaryChars: z.number().int().nonnegative(),
+  }),
+  /** /context 上下文占用 */
+  z.object({
+    kind: z.literal("context_info"),
+    id: requestId,
+    model: z.string(),
+    contextWindow: z.number().int().positive(),
+    historyTokens: z.number().int().nonnegative(),
+    historyBudget: z.number().int().positive(),
+    systemTokens: z.number().int().nonnegative(),
+    pinnedAnchor: z.boolean(),
   }),
   z.object({ kind: z.literal("event"), sessionId: z.string(), event: SessionEvent }),
   z.object({

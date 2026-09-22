@@ -13,7 +13,20 @@ export function jsonlLine(event: unknown): string {
   return `${JSON.stringify(event)}\n`;
 }
 
-/** 粗估 token 数：P0 用长度/3，P1 换真实 tokenizer（providers 能力探测） */
+/**
+ * token 估算（B3）：CJK 感知的分段系数——中文约 0.75 token/字（GLM/DeepSeek 分词实测区间），
+ * 西文约 3.8 字符/token；比长度/3 的失真（中文高估 ~3 倍）显著更接近真实计量。
+ * 真实 tokenizer（按模型族编码表）在 providers 能力探测落地后替换。
+ */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3);
+  let cjk = 0;
+  let other = 0;
+  for (const ch of text) {
+    if (ch.codePointAt(0)! > 0x2e80) {
+      cjk++;
+    } else {
+      other++;
+    }
+  }
+  return Math.ceil(cjk * 0.75 + other / 3.8);
 }

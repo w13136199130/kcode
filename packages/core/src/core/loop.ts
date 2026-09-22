@@ -12,9 +12,9 @@ import {
   type ToolOutput,
   type ToolRegistry,
 } from "@kcode/contracts";
-import { newId } from "@kcode/shared";
+import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
-import { DEFAULT_BUDGET, type Budget } from "../context/budget.js";
+import { capToolResult, contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
 import {
   applyCompaction,
   planCompaction,
@@ -92,6 +92,11 @@ export class AgentLoop {
   private llm: LLMProvider;
   private summarizer?: SummarizerPort;
   private usage: SessionUsage;
+  /** B3：预算随模型窗口派生（opts.budget 显式指定时以指定为准） */
+  private budget: Budget;
+  private contextWindow: number;
+  /** B3：跨压缩保真锚点（已批准的执行计划） */
+  private pinnedAnchor?: ChatMessage;
 
   constructor(
     private readonly ports: AgentLoopPorts,
@@ -104,6 +109,8 @@ export class AgentLoop {
     this.llm = ports.llm;
     this.summarizer = ports.summarizer;
     this.usage = opts.initialUsage ?? { inputTokens: 0, outputTokens: 0, calls: 0 };
+    this.contextWindow = contextWindowFor(opts.model);
+    this.budget = opts.budget ?? deriveBudget(this.contextWindow);
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,
@@ -161,13 +168,39 @@ export class AgentLoop {
     this.history = [...messages];
   }
 
-  /** 运行期更换模型（/model）：LLM 实例与摘要器一并重建，历史保留 */
+  /** 运行期更换模型（/model）：LLM 实例与摘要器一并重建，历史保留；预算随新模型窗口重算 */
   updateModel(model: string, llm: LLMProvider, summarizer?: SummarizerPort): void {
     this.model = model;
     this.llm = llm;
     if (summarizer !== undefined) {
       this.summarizer = summarizer;
     }
+    if (this.opts.budget === undefined) {
+      this.contextWindow = contextWindowFor(model);
+      this.budget = deriveBudget(this.contextWindow);
+    }
+  }
+
+  /** 锚点钉固（B3）：跨压缩保真的上下文（已批准的执行计划） */
+  pinAnchor(text: string): void {
+    this.pinnedAnchor = { role: "user", content: text };
+  }
+
+  /** 手动压缩（/compact）：跳过预算判定，仍受最短历史守卫；空闲时调用 */
+  async compactNow(): Promise<CompactionResult | null> {
+    return this.maybeCompact(true);
+  }
+
+  /** 上下文占用（/context 可视化数据源） */
+  contextStats(): { model: string; contextWindow: number; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean } {
+    return {
+      model: this.model,
+      contextWindow: this.contextWindow,
+      historyTokens: historyTokens(this.history),
+      historyBudget: this.budget.history,
+      systemTokens: estimateTokens(this.systemPrompt),
+      pinnedAnchor: this.pinnedAnchor !== undefined,
+    };
   }
 
   private get now(): () => number {
@@ -178,8 +211,8 @@ export class AgentLoop {
    * 上下文压缩：历史超预算时，把较早消息交给摘要器生成结构化摘要，
    * 以「任务锚点 + 摘要 + 近期原文」替换原历史；未配置摘要器时退化为计数占位。
    */
-  private async maybeCompact(): Promise<CompactionResult | null> {
-    const plan = planCompaction(this.history, this.opts.budget ?? DEFAULT_BUDGET);
+  private async maybeCompact(force = false): Promise<CompactionResult | null> {
+    const plan = planCompaction(this.history, this.budget, force);
     if (plan === null) {
       return null;
     }
@@ -189,7 +222,7 @@ export class AgentLoop {
     } else {
       summary = `【历史压缩】已折叠 ${plan.toSummarize.length} 条较早消息（未配置摘要器，仅保留任务与近期上下文）`;
     }
-    const applied = applyCompaction(plan, summary);
+    const applied = applyCompaction(plan, summary, this.pinnedAnchor !== undefined ? [this.pinnedAnchor] : []);
     this.history = applied.history;
     return { summary, dropped: applied.dropped };
   }
@@ -408,7 +441,8 @@ export class AgentLoop {
           });
           this.history.push({
             role: "tool",
-            content: result.output !== "" ? result.output : (result.error ?? ""),
+            // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文
+            content: capToolResult(result.output !== "" ? result.output : (result.error ?? ""), this.budget),
             toolCallId: call.callId,
             name: call.tool,
           });

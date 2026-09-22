@@ -40,6 +40,17 @@ export interface SessionHandle {
   rewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
   /** 回退到某提问之前（恢复文件快照 + 截断对话）；失败返回错误信息 */
   rewind(eventIndex: number): Promise<string | null>;
+  /** /compact 手动压缩（历史过短未触发时 dropped=0）；失败返回错误信息 */
+  compact(): Promise<{ dropped: number; summaryChars: number } | string>;
+  /** /context 上下文占用 */
+  context(): Promise<{
+    model: string;
+    contextWindow: number;
+    historyTokens: number;
+    historyBudget: number;
+    systemTokens: number;
+    pinnedAnchor: boolean;
+  } | null>;
 }
 
 export interface RemoteSessionOptions {
@@ -301,6 +312,34 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         return [];
       }
       return response.points;
+    },
+    compact: async () => {
+      const response = await opts.client
+        .request({ method: "session_compact", sessionId })
+        .catch((err: Error) => err);
+      if (response instanceof Error) {
+        return response.message;
+      }
+      if (response.kind === "compact_ok") {
+        return { dropped: response.dropped, summaryChars: response.summaryChars };
+      }
+      return response.kind === "error" ? response.message : "未知错误";
+    },
+    context: async () => {
+      const response = await opts.client
+        .request({ method: "session_context", sessionId })
+        .catch(() => null);
+      if (response === null || response.kind !== "context_info") {
+        return null;
+      }
+      return {
+        model: response.model,
+        contextWindow: response.contextWindow,
+        historyTokens: response.historyTokens,
+        historyBudget: response.historyBudget,
+        systemTokens: response.systemTokens,
+        pinnedAnchor: response.pinnedAnchor,
+      };
     },
     rewind: async (eventIndex: number) => {
       const response = await opts.client

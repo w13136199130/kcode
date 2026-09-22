@@ -37,7 +37,7 @@
 - **批准 = 切 default 档 + 计划文本写入上下文**——该计划同时成为压缩锚点（见 B3），一石二鸟。
 - 检查点：写类工具执行前备份目标文件至 `artifacts/checkpoints/<callId>/`；`/rewind` 菜单列出回退点（对话=事件截断重建，文件=快照恢复）；双击 Esc 触发；会话关闭清理。
 
-## 4. B3 上下文三层压缩（约 1 周）
+## 4. B3 上下文三层压缩（✅ 2026-09 交付）
 
 - **micro**：tool result 回灌历史时超阈值截断（保留头尾，中部标记 `[已截断 N 行]`）。
 - **auto**：阈值按模型 context window 归一化（deepseek 1M 与 glm 128K 不同线）；真 tokenizer（tiktoken 或按模型族系数表）替换 len/3；激活 budget.ts 的死代码配额。

@@ -96,7 +96,7 @@ pnpm --filter @kcode/cli start --resume latest             # 续接最近会话�
 pnpm --filter @kcode/cli start --resume sess_xxx "接着说"   # 指定会话续接
 ```
 
-REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/cost` 查看本会话 token 用量（含 resume 续接的历史）；`/resume [latest|id]` 不重启续接历史会话；多行输入用 **Ctrl+J** 换行（行尾 `\`+回车续行，多行粘贴自动保留换行）；`exit` 退出。
+REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**，批准的计划成为压缩锚点）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/compact` 手动压缩、`/context` 查看 token 占用（上下文三层治理：工具结果 micro 截断 → 超预算 60% 自动压缩【预算按模型窗口派生】→ 手动；已批准计划跨压缩保真）；`/cost` 查看本会话 token 用量；`/resume [latest|id]` 不重启续接历史会话；多行输入用 **Ctrl+J** 换行；`exit` 退出。
 In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/cost` shows token usage; `/resume [latest|id]` continues a past session; press **Ctrl+J** for a newline; `exit` quits.
 In the REPL: `/plan` toggles plan mode (read-only research → switch back after approval); `exit` to quit.
 

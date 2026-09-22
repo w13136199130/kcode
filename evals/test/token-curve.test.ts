@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Tool } from "@kcode/contracts";
 import {
   AgentLoop,
+  COMPACTION_KEEP_TAIL,
   InMemoryToolRegistry,
   MemoryAudit,
   MemorySink,
@@ -82,11 +83,13 @@ describe("长会话 token 曲线（上下文工程验收）", () => {
 
     // 初期确实在增长（历史不断累积）
     expect(curve[2] ?? 0).toBeGreaterThan(curve[0] ?? 0);
-    // 全程有界：注入了约 5 倍预算的文本量，峰值仍被压在预算附近
-    expect(peak).toBeLessThan(HISTORY_BUDGET + 2000);
-    // 曲线走平：终点回到预算内，且后半程在窄幅区间震荡（不再持续爬升）
-    expect(curve[curve.length - 1] ?? 0).toBeLessThan(HISTORY_BUDGET);
-    expect(tailSpread).toBeLessThan(3500);
+    // 全程有界：注入了约 5 倍预算的文本量，峰值被压在「预算 + 保留区地板」附近
+    // （B3：保留区 6→10 条，压缩后的平台期含不可再压的近期原文地板）
+    const tailFloor = COMPACTION_KEEP_TAIL * estimateTokens(BIG_OUTPUT);
+    expect(peak).toBeLessThan(HISTORY_BUDGET + tailFloor + 2000);
+    // 曲线走平：终点不超过「预算 + 保留区地板」，后半程窄幅震荡（不再持续爬升）
+    expect(curve[curve.length - 1] ?? 0).toBeLessThan(HISTORY_BUDGET + tailFloor);
+    expect(tailSpread).toBeLessThan(2 * estimateTokens(BIG_OUTPUT) + 1500);
 
     // 压缩确实发生过，且锚点与摘要保留在最后一轮请求中
     expect(sink.events.filter((e) => e.type === "compaction_summary").length).toBeGreaterThanOrEqual(1);
