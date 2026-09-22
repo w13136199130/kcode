@@ -21,6 +21,8 @@ import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
 import { markdownToLines } from "./markdown.js";
+import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
+import { appendHistory, loadInputHistory, saveInputHistory } from "../history-store.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
 
 export interface KcodeAppProps {
@@ -121,6 +123,8 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "rewind", desc: "回退到之前某轮提问（恢复文件+截断对话，双击 Esc 直达）" },
   { name: "compact", desc: "手动压缩历史（保留任务锚点与近期上下文）" },
   { name: "context", desc: "查看上下文 token 占用与压缩阈值" },
+  { name: "clear", desc: "清屏并开启全新会话（上下文一并清空）" },
+  { name: "status", desc: "会话/模型/模式/用量一览" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
@@ -318,6 +322,8 @@ export function InputBox(props: {
   onSubmit: (value: string) => void;
   history: string[];
   commands: CommandInfo[];
+  /** @ 补全的项目根目录 */
+  cwd: string;
   onCjkCommit?: () => void;
 }) {
   const draft = useRef("");
@@ -423,6 +429,39 @@ export function InputBox(props: {
     : [];
   const showMenu = matches.length > 0;
   const clamped = Math.min(menuIndex, Math.max(0, matches.length - 1));
+  /** @ 文件补全（B4）：光标前「@query」触发；菜单与命令补全互斥（命令态以 / 开头） */
+  const [fileMenu, setFileMenu] = useState<{ items: string[]; index: number } | null>(null);
+  const fileList = useRef<string[] | null>(null);
+  useEffect(() => {
+    const before = props.value.slice(0, pos);
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(before);
+    if (m === null || menuOpen) {
+      setFileMenu(null);
+      return;
+    }
+    void (async () => {
+      if (fileList.current === null) {
+        fileList.current = await listProjectFiles(props.cwd);
+      }
+      const items = filterFileCandidates(fileList.current, m[1] ?? "");
+      setFileMenu(items.length > 0 ? { items, index: 0 } : null);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value, pos, menuOpen]);
+  /** 把候选路径替换掉光标前的 @query */
+  const insertFileCandidate = (path: string): void => {
+    const before = props.value.slice(0, pos);
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(before);
+    if (m === null) {
+      setFileMenu(null);
+      return;
+    }
+    const keep = before.length - m[0].length;
+    const leading = m[0].startsWith(" ") ? " " : "";
+    const inserted = `${leading}${path} `;
+    setValue(`${props.value.slice(0, keep)}${inserted}${props.value.slice(pos)}`, keep + inserted.length);
+    setFileMenu(null);
+  };
   // 过滤词变化即重置高亮（渲染期调整 state 的标准模式）
   // 单一 Ink 输入通道：字符/IME 整串/方向/回车/退格全在此处理。
   // Home/End 在 Ink 的 key 对象里未暴露，以序列形式到达（[H 被剥掉 ESC 后成 "[H"）。
@@ -439,6 +478,25 @@ export function InputBox(props: {
       }
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
+      }
+      if (fileMenu !== null) {
+        if (key.upArrow) {
+          setFileMenu({ ...fileMenu, index: (fileMenu.index - 1 + fileMenu.items.length) % fileMenu.items.length });
+          return;
+        }
+        if (key.downArrow) {
+          setFileMenu({ ...fileMenu, index: (fileMenu.index + 1) % fileMenu.items.length });
+          return;
+        }
+        if (key.tab || key.return) {
+          insertFileCandidate(fileMenu.items[fileMenu.index] ?? fileMenu.items[0]!);
+          return;
+        }
+        if (key.escape) {
+          setFileMenu(null);
+          return;
+        }
+        // 其余按键落入正常输入处理（继续输入即实时过滤）
       }
       if (showMenu) {
         if (key.upArrow) {
@@ -577,6 +635,17 @@ export function InputBox(props: {
             </Text>
           ))}
           <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
+        </Box>
+      )}
+      {fileMenu !== null && (
+        <Box flexDirection="column">
+          {fileMenu.items.map((f, i) => (
+            <Text key={f} color={i === fileMenu.index ? "cyan" : undefined} bold={i === fileMenu.index}>
+              {i === fileMenu.index ? "❯ @" : "  @"}
+              {f}
+            </Text>
+          ))}
+          <Text dimColor>↑↓ 选择 · Tab/回车 插入路径 · Esc 关闭</Text>
         </Box>
       )}
       <Text dimColor>{separator}</Text>
@@ -749,6 +818,18 @@ export function KcodeApp(props: KcodeAppProps) {
       }
     },
     { isActive: interactive && !menuOccupied },
+  );
+
+  // Shift+Tab：权限模式循环 plan → default → acceptEdits → plan（fullAccess 需菜单确认，不参与循环）
+  useInput(
+    (_ch, key) => {
+      if (key.tab === true && key.shift === true && !busy && !menuOccupied) {
+        const order: PermissionMode[] = ["plan", "default", "acceptEdits"];
+        const idx = order.indexOf(mode);
+        applyMode(order[(idx + 1) % order.length] ?? "default");
+      }
+    },
+    { isActive: interactive },
   );
 
   // Ctrl+C：busy 时中断；空闲时双击退出（Ink 的 exitOnCtrlC 已关，退出语义自己管）
@@ -1027,6 +1108,7 @@ export function KcodeApp(props: KcodeAppProps) {
         });
         sessionRef.current = handle;
         setReady(true);
+        inputHistory.current = (await loadInputHistory()).slice(-50);
         pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
         // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）
         const mergeCommands = (): void => {
@@ -1079,6 +1161,36 @@ export function KcodeApp(props: KcodeAppProps) {
     if (text === "" || busy || sessionRef.current === null) return;
     if (text === "exit" || text === "quit") {
       exit();
+      return;
+    }
+    // ! 前缀：用户直执行 shell（不经 LLM、不问权限；结果仅显示）
+    if (text.startsWith("!") && text.slice(1).trim() !== "") {
+      const session = sessionRef.current;
+      const command = text.slice(1).trim();
+      pushBlock({ kind: "user", text });
+      inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
+      void saveInputHistory(inputHistory.current);
+      setBusy(true);
+      setBusySince(Date.now());
+      try {
+        const result = await session.runBash(command);
+        if (result === null) {
+          pushBlock({ kind: "info", tone: "warn", text: "✗ 命令执行失败（守护进程连接异常）" });
+        } else {
+          const shown = result.output.length > 2000 ? `${result.output.slice(0, 2000)}
+（截断显示）` : result.output;
+          pushBlock({
+            kind: "info",
+            tone: result.ok ? "ok" : "deny",
+            text: `!${result.ok ? "" : " ✗"} ${command}（${Math.round(result.durationMs / 100) / 10}s）
+${shown === "" ? "（无输出）" : shown}${result.error !== undefined && result.error !== "" ? `
+${result.error}` : ""}`,
+          });
+        }
+      } finally {
+        setBusy(false);
+        setBusySince(null);
+      }
       return;
     }
     const session = sessionRef.current;
@@ -1256,6 +1368,62 @@ ${body}
         });
         return;
       }
+      if (name === "clear") {
+        if (busy) {
+          pushBlock({ kind: "info", tone: "warn", text: "运行中不能清屏开新会话（等本轮完成或 Esc 中断）" });
+          return;
+        }
+        setBusy(true);
+        setBusySince(Date.now());
+        try {
+          const handle = await createSession({
+            client: props.client,
+            model: modelLabel,
+            cwd: props.cwd,
+            onEvent: handleEvent,
+            onDelta: appendDelta,
+            onReasoning: appendReasoning,
+            onNotice: setNotice,
+            asker,
+            askUser,
+            onPlanApproval,
+          });
+          sessionRef.current = handle;
+          setTodos([]);
+          setStreamText("");
+          setBlocks([]);
+          // 清屏 + 重绘 banner（Static 里已打印的旧内容随滚动缓冲一并清除）
+          process.stdout.write("[2J[0f");
+          pushBlock({ kind: "banner", model: modelLabel, cwd: props.cwd });
+          pushBlock({ kind: "info", tone: "ok", text: "已开启全新会话（上下文与转写已清空）" });
+        } catch (err) {
+          pushBlock({ kind: "info", tone: "warn", text: `✗ 新会话创建失败：${err instanceof Error ? err.message : String(err)}` });
+        } finally {
+          setBusy(false);
+          setBusySince(null);
+        }
+        return;
+      }
+      if (name === "status") {
+        const session = sessionRef.current;
+        const usage = await session.usage().catch(() => null);
+        const stats = await session.context().catch(() => null);
+        const skills = await session.listSkills().catch(() => []);
+        const fmt = (n: number): string => n.toLocaleString("en-US");
+        const pct = stats !== null ? Math.min(100, Math.round((stats.historyTokens / stats.historyBudget) * 100)) : 0;
+        pushBlock({
+          kind: "info",
+          text:
+            `kcode · 会话 ${session.sessionId.slice(0, 16)}…
+` +
+            `模型 ${modelLabel} · 模式 ${MODE_META[mode].label} · 上下文 ${stats !== null ? `${fmt(stats.historyTokens)}/${fmt(stats.historyBudget)} tok（${pct}%）` : "未知"}
+` +
+            `LLM 调用 ${usage !== null ? usage.calls : "?"} 次 · 输入 ${usage !== null ? fmt(usage.inputTokens) : "?"} tok · 输出 ${usage !== null ? fmt(usage.outputTokens) : "?"} tok
+` +
+            `技能 ${skills.length} 个 · 子代理 可用（/help 查看） · cwd ${props.cwd}`,
+        });
+        return;
+      }
       if (name === "trust") {
         await session.trustProject();
         pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
@@ -1333,6 +1501,8 @@ ${body}
           "/resume [latest|id 前缀] 不重启续接历史会话",
           "/rewind 回退到之前某轮提问（文件快照+对话一起回滚；空闲双击 Esc 直达）",
           "/compact 手动压缩历史 · /context 查看 token 占用（超预算 60% 自动压缩）",
+          "/clear 清屏开新会话 · /status 会话状态一览",
+          "!命令 直接执行 shell（结果仅显示） · Shift+Tab 循环权限模式 · @ 补全文件路径",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",
@@ -1351,7 +1521,8 @@ ${body}
         pushBlock({ kind: "info", text: `未知命令 /${name}（/help 查看可用命令）` });
         return;
       }
-      inputHistory.current = [...inputHistory.current, text].slice(-50);
+      inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
+      void saveInputHistory(inputHistory.current);
       setBusy(true);
       setBusySince(Date.now());
       try {
@@ -1366,7 +1537,8 @@ ${body}
     }
 
     setInput("");
-    inputHistory.current = [...inputHistory.current, text].slice(-50);
+    inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
+    void saveInputHistory(inputHistory.current);
     abortSent.current = false;
     setSpinVerb(SPIN_VERBS[Math.floor(Math.random() * SPIN_VERBS.length)] ?? "思考中");
     setBusy(true);
@@ -1825,6 +1997,7 @@ ${body}
             onSubmit={(v) => void submit(v)}
             history={inputHistory.current}
             commands={commands}
+            cwd={props.cwd}
             onCjkCommit={pingRepaint}
           />
         ) : (

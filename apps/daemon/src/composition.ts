@@ -30,7 +30,7 @@ import {
 import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
-import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
+import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
@@ -75,6 +75,8 @@ export interface ComposedSession {
   rewind(eventIndex: number): Promise<{ restoredFiles: number; droppedEvents: number }>;
   /** /compact 手动压缩 */
   compactNow(): Promise<{ dropped: number; summaryChars: number } | null>;
+  /** !命令 用户直执行（不经 LLM、不问权限；结果仅返回显示） */
+  runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }>;
   /** /context 上下文占用 */
   contextStats(): {
     model: string;
@@ -438,6 +440,24 @@ ${plan}`);
         dropped: result.dropped,
       });
       return { dropped: result.dropped, summaryChars: result.summary.length };
+    },
+    runBash: async (command, timeoutMs) => {
+      const bash = createBashTool({
+        sessionId: `${sessionId}-user`,
+        artifactsDir: join(opts.kcodeHomeDir, "cli", "artifacts", `${sessionId}-user`),
+        onNotice: opts.onNotice,
+      });
+      const started = Date.now();
+      const result = await bash.execute(
+        { command, ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
+        { sessionId, cwd: opts.cwd },
+      );
+      return {
+        ok: result.ok,
+        output: result.output,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+        durationMs: Date.now() - started,
+      };
     },
     contextStats: () => loop.contextStats(),
     close: async () => {

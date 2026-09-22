@@ -161,3 +161,14 @@ describe("/rewind（检查点回退）", () => {
     await h.session.close();
   }, 20_000);
 });
+
+describe("runBash（!命令 直执行，B4）", () => {
+  it("不经 LLM 直接执行并返回输出", async () => {
+    const h = await compose([[{ text: "ok" }]]);
+    const result = await h.session.runBash("echo b4-direct-ok");
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("b4-direct-ok");
+    expect(h.llms.length).toBe(1); // LLM 实例只创建了父会话一个，未因 bash 调用新增
+    await h.session.close();
+  });
+});

@@ -14,7 +14,7 @@ function Harness(): ReactElement {
       onSubmit={() => {}}
       history={["第一句"]}
       commands={COMMANDS}
-    />
+    cwd="/tmp" />
   );
 }
 

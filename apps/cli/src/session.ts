@@ -42,6 +42,8 @@ export interface SessionHandle {
   rewind(eventIndex: number): Promise<string | null>;
   /** /compact 手动压缩（历史过短未触发时 dropped=0）；失败返回错误信息 */
   compact(): Promise<{ dropped: number; summaryChars: number } | string>;
+  /** !命令 用户直执行（不经 LLM；结果仅显示） */
+  runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number } | null>;
   /** /context 上下文占用 */
   context(): Promise<{
     model: string;
@@ -312,6 +314,25 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         return [];
       }
       return response.points;
+    },
+    runBash: async (command, timeoutMs) => {
+      const response = await opts.client
+        .request({
+          method: "bash_run",
+          sessionId,
+          command,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        })
+        .catch(() => null);
+      if (response === null || response.kind !== "bash_result") {
+        return null;
+      }
+      return {
+        ok: response.ok,
+        output: response.output,
+        ...(response.error !== undefined ? { error: response.error } : {}),
+        durationMs: response.durationMs,
+      };
     },
     compact: async () => {
       const response = await opts.client

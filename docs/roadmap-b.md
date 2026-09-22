@@ -44,7 +44,11 @@
 - **manual**：`/compact` 命令。
 - 锚点三级：系统提示 → 已批准计划 → 最近 N 轮；`/context` 可视化各区 token 占用。
 
-## 5. B4 交互补齐包（约 1 周）
+## 5. B4 交互补齐包（✅ 2026-09 交付）
+
+> 实际交付：Shift+Tab 权限循环、@ 文件引用补全、!命令 直执行（bash_run 协议）、
+> 输入历史持久化（~/.kcode/cli/history.json）、/clear（清屏开新会话）、/status。
+> /mcp 与 ask_user preview 移交 B5（与 MCP 改造同批）。
 
 Shift+Tab 权限循环 + 状态栏常显档位；`@` 文件路径补全（glob 菜单注入路径）；`!命令` 直接执行 shell（结果进上下文）；输入历史持久化（`~/.kcode/cli/history.json`）；`/clear` `/status` `/mcp` `/context`；ask_user 增加 preview 参数。
 

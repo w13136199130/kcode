@@ -14,7 +14,7 @@ function Harness(props: { onSubmit: (v: string) => void }): ReactElement {
       onSubmit={props.onSubmit}
       history={[]}
       commands={COMMANDS}
-    />
+    cwd="/tmp" />
   );
 }
 

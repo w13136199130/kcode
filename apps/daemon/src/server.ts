@@ -524,6 +524,31 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
         send(conn, { kind: "context_info", id: message.id, ...stats });
         return;
       }
+      case "bash_run": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        try {
+          const result = await session.runBash(message.command, message.timeoutMs);
+          send(conn, {
+            kind: "bash_result",
+            id: message.id,
+            ok: result.ok,
+            output: result.output,
+            ...(result.error !== undefined ? { error: result.error } : {}),
+            durationMs: result.durationMs,
+          });
+        } catch (err) {
+          send(conn, {
+            kind: "error",
+            id: message.id,
+            message: `命令执行失败: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
       case "ask_reply": {
         conn.pendingAsks.get(message.callId)?.({
           allowed: message.allowed,

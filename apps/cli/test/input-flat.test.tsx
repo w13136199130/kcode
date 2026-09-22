@@ -7,7 +7,7 @@ const COMMANDS: CommandInfo[] = [];
 
 function Harness(): ReactElement {
   const [value, setValue] = useState("");
-  return <InputBox value={value} onChange={setValue} onSubmit={() => {}} history={[]} commands={COMMANDS} />;
+  return <InputBox value={value} onChange={setValue} onSubmit={() => {}} history={[]} commands={COMMANDS} cwd="/tmp" />;
 }
 
 /** 真 Ink 渲染管线稳定桩（与 input-ime 共用形态） */

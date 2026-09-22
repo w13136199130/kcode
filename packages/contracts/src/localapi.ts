@@ -4,7 +4,7 @@ import { SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 const requestId = z.number().int().nonnegative();
 
@@ -116,6 +116,14 @@ export const ClientRequest = z.discriminatedUnion("method", [
   }),
   z.object({ id: requestId, method: z.literal("session_compact"), sessionId: z.string().min(1) }),
   z.object({ id: requestId, method: z.literal("session_context"), sessionId: z.string().min(1) }),
+  z.object({
+    id: requestId,
+    method: z.literal("bash_run"),
+    sessionId: z.string().min(1),
+    /** 用户直执行的 shell 命令（输入框 ! 前缀）：不经 LLM、不问权限（用户发起） */
+    command: z.string().min(1),
+    timeoutMs: z.number().int().positive().optional(),
+  }),
 ]);
 export type ClientRequest = z.infer<typeof ClientRequest>;
 
@@ -215,6 +223,15 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     id: requestId,
     dropped: z.number().int().nonnegative(),
     summaryChars: z.number().int().nonnegative(),
+  }),
+  /** !命令 直执行结果（仅显示，不进模型上下文） */
+  z.object({
+    kind: z.literal("bash_result"),
+    id: requestId,
+    ok: z.boolean(),
+    output: z.string(),
+    error: z.string().optional(),
+    durationMs: z.number().int().nonnegative(),
   }),
   /** /context 上下文占用 */
   z.object({
