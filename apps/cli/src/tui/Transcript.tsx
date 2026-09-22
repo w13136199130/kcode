@@ -74,6 +74,8 @@ export function formatToolPreview(tool: string, args: unknown): string {
     case "write":
     case "edit":
       return clip(s(a.path));
+    case "task":
+      return clip(`[${s(a.subagent_type)}] ${s(a.description)}`);
     case "todo":
       return "更新任务清单";
     case "ask_user":

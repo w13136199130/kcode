@@ -13,12 +13,14 @@ import type {
 import { normalizePermissionAnswer } from "@kcode/contracts";
 import { AgentLoop, InMemoryToolRegistry, MemoryAudit, type SessionUsage } from "@kcode/core";
 import {
+  AgentLibrary,
   CommandLibrary,
   DEFAULT_RULES,
   FsSkillLibrary,
   MutablePermissionEngine,
   ProcessHookRunner,
   ProjectGrantStore,
+  READONLY_RULES,
   RULES_BY_MODE,
   RuleBasedPermissionEngine,
   listInstalledPlugins,
@@ -29,6 +31,7 @@ import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, 
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
 import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo } from "@kcode/tools";
+import { buildTaskTool } from "./subagent.js";
 
 export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
 - 涉及本项目代码的问题先用工具查证（read/glob/grep），结论引用 file:line；能力介绍/常识问答/闲聊不需要工具，直接回答；
@@ -165,7 +168,23 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
   const shell = await currentShellInfo();
+  // B1 子代理定义：project > user，同名先见者胜；保留名不可覆盖
+  const agents = await AgentLibrary.open(
+    [
+      { dir: join(opts.cwd, ".kcode", "agents"), source: "project" as const },
+      { dir: join(opts.kcodeHomeDir, "agents"), source: "user" as const },
+    ],
+    opts.onNotice,
+  );
+  const customAgents = agents.list();
+  if (customAgents.length > 0) {
+    opts.onNotice?.(
+      `已装载 ${customAgents.length} 个自定义子代理：${customAgents.map((a) => a.name).join("、")}`,
+    );
+  }
+  const subagentLine = `- 大范围搜索/多文件调研/可独立的子任务用 task 工具派生子代理（隔离上下文，只回传结论，不占用本会话历史）；可用类型：general-purpose（通用）、explore（只读搜索）${customAgents.length > 0 ? `、${customAgents.map((a) => `${a.name}（${a.description}）`).join("、")}` : ""}`;
   const basePrompt = `${SYSTEM_PROMPT}
+${subagentLine}
 
 <env>
 OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
@@ -221,22 +240,42 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     opts.onNotice?.(`已装载 ${plugins.length} 个插件：${plugins.map((p) => `${p.manifest.name}@${p.manifest.version}`).join("、")}`);
   }
   const initialLlm = await opts.llmFactory(opts.model);
+  // 父会话当前模型（setModel 后更新；task 子代理默认沿用）
+  let currentModel = opts.model;
+  // B1 子代理：会话工具全集先成数组（task 不在其中——子代理不嵌套派生），再挂 task 工具
+  const baseTools = [
+    ...createSessionTools({
+      sessionId,
+      artifactsDir: join(opts.kcodeHomeDir, "cli", "artifacts", sessionId),
+      onNotice: opts.onNotice,
+      sink,
+      prompt: opts.askUser,
+    }),
+    createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
+    ...createWebTools(),
+    ...mcpSessions.flatMap((s) => s.tools),
+    ...pluginMcpSessions.flatMap((s) => s.tools),
+  ];
+  const taskTool = buildTaskTool({
+    llmFactory: opts.llmFactory,
+    currentModel: () => currentModel,
+    cwd: opts.cwd,
+    kcodeHomeDir: opts.kcodeHomeDir,
+    baseTools,
+    hooks,
+    permissionFor: (kind) =>
+      new RuleBasedPermissionEngine({ rules: kind === "readonly" ? READONLY_RULES : DEFAULT_RULES, fallback: "deny" }),
+    asker,
+    agents,
+    envBlock: `<env>
+OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
+</env>`,
+    onNotice: opts.onNotice,
+  });
   const loop = new AgentLoop(
     {
       llm: initialLlm,
-      tools: new InMemoryToolRegistry([
-        ...createSessionTools({
-          sessionId,
-          artifactsDir: join(opts.kcodeHomeDir, "cli", "artifacts", sessionId),
-          onNotice: opts.onNotice,
-          sink,
-          prompt: opts.askUser,
-        }),
-        createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
-        ...createWebTools(),
-        ...mcpSessions.flatMap((s) => s.tools),
-        ...pluginMcpSessions.flatMap((s) => s.tools),
-      ]),
+      tools: new InMemoryToolRegistry([...baseTools, taskTool]),
       permissions,
       hooks,
       sink,
@@ -287,6 +326,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     },
     setModel: async (model) => {
       const llm = await opts.llmFactory(model);
+      currentModel = model;
       loop.updateModel(model, llm, new LlmSummarizer(llm, model));
     },
     listCommands: () => commands.list().map((c) => ({ name: c.name, source: c.source })),

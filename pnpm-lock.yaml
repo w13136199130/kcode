@@ -93,6 +93,9 @@ importers:
       '@kcode/tools':
         specifier: workspace:*
         version: link:../../packages/tools
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
     devDependencies:
       tsx:
         specifier: ^4.19.0

@@ -2,6 +2,7 @@ export * from "./session.js";
 export * from "./tool.js";
 export * from "./permissions.js";
 export * from "./skill.js";
+export * from "./agent.js";
 export * from "./mcp.js";
 export * from "./provider.js";
 export * from "./keyhierarchy.js";

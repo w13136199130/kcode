@@ -26,8 +26,10 @@ A TypeScript implementation targeting ZCode-class capability: an agent loop, a p
 |---|---|---|
 | P0 地基 | monorepo / contracts / 会话回放 / CI 门禁 | ✅ |
 | P1 单机 CLI | 工具链（rg/bash/write/edit）、providers、权限 v1、TUI、Plan/Todo/ask_user/图片 | ✅ 真实模型验收 10/10 |
-| P2 上下文工程 | SKILL.md 渐进加载 ✅ · AGENTS.md 记忆 ✅ · resume/摘要压缩/token 曲线 | 🚧 进行中 |
-| P3 扩展 + daemon | MCP / hooks / 插件 / 本地 API（UDS） | ⏳ |
+| P2 上下文工程 | SKILL.md 渐进加载 ✅ · AGENTS.md 记忆 ✅ · resume ✅ · 摘要压缩 ✅（分窗压缩/真 tokenizer 见 B3） | ✅ 主体完成 |
+| P3 扩展 + daemon | MCP（stdio）✅ / hooks ✅ / 斜杠命令 ✅ / 插件装卸+沙箱 v1 ✅ / 本地 API（pipe/UDS）✅ / epoch E2E 加密层（P4-1 提前）✅ | ✅ |
+| A 级体验轮 | bash cd 持久 · 项目级放行+`/permissions` · `/cost` 用量 · LLM 重试退避 · `/resume`+多行输入 · Markdown 渲染+代码高亮 | ✅ 2026-09 |
+| B 级 Agent 能力核 | 子代理（`.kcode/agents` + task 工具）· 计划双闸门+`/rewind` 检查点 · 上下文三层压缩 · 交互补齐（Shift+Tab/@引用/!bash）· 稳固性（MCP 超时/原生 keychain） | 🚧 设计定稿，[docs/roadmap-b.md](./docs/roadmap-b.md) |
 | P4 账户 / 云 / 市场 | IdP / relay E2E / registry + Sigstore | ⏳ |
 | P5–P6 | 自动化调度 / 电脑控制 | ⏳ |
 
@@ -116,7 +118,7 @@ triggers:
 输入任何包含"审查"的话，技能正文会自动注入本轮上下文（界面显示 📖 已加载）。
 Any prompt containing a trigger word auto-loads the skill body into the turn (shown as 📖 loaded).
 
-**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
+**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`task`（派生子代理 · spawn subagents: `general-purpose` 通用 / `explore` 只读搜索 / `.kcode/agents/*.md` 自定义 · custom agent files）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
 
 ## 扩展系统 | Extensions
 

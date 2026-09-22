@@ -36,6 +36,7 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { match: "bash", decision: "ask" },
   { match: "plugin:*", decision: "ask" },
   { match: "mcp__*", decision: "ask" },
+  { match: "task", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
@@ -58,6 +59,7 @@ export const ACCEPT_EDITS_RULES: PermissionRule[] = [
   { match: "bash", decision: "ask" },
   { match: "plugin:*", decision: "ask" },
   { match: "mcp__*", decision: "ask" },
+  { match: "task", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
