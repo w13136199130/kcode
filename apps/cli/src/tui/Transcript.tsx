@@ -1,5 +1,10 @@
 import { Box, Text, useStdout } from "ink";
 import type { TodoItem } from "@kcode/contracts";
+import { markdownToLines, type MdLine } from "./markdown.js";
+// 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
+import { visualWidth, wrapVisual } from "./width.js";
+
+export { visualWidth, wrapVisual };
 
 export type Block =
   | { kind: "banner"; model: string; cwd: string }
@@ -21,39 +26,6 @@ export type Block =
       durationMs?: number;
     }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" };
-
-/** 字符视觉宽度：CJK/全角按 2 列计（终端等宽栅格下的真实占位） */
-export function visualWidth(text: string): number {
-  let w = 0;
-  for (const ch of text) {
-    w += ch.codePointAt(0)! > 0xff ? 2 : 1;
-  }
-  return w;
-}
-
-/** 按视觉宽度硬折行（用户消息通栏色块用） */
-export function wrapVisual(text: string, width: number): string[] {
-  if (text === "") {
-    return [""];
-  }
-  const out: string[] = [];
-  let line = "";
-  let w = 0;
-  for (const ch of text) {
-    const cw = ch.codePointAt(0)! > 0xff ? 2 : 1;
-    if (w + cw > width && line !== "") {
-      out.push(line);
-      line = "";
-      w = 0;
-    }
-    line += ch;
-    w += cw;
-  }
-  if (line !== "") {
-    out.push(line);
-  }
-  return out;
-}
 
 /** Todo 面板（§1.1 A 域）：☐ 待办 / ◐ 进行 / ☑ 完成 */
 export function TodoPanel(props: { todos: TodoItem[] }) {
@@ -181,15 +153,30 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "assistant") {
-    const lines = block.text.split("\n");
+    // 落定的助手消息按 Markdown 渲染（KCODE_NO_MD=1 逃生口回退纯文本）；
+    // 流式期间 App 层的 streamText 仍是纯文本——避免未闭合围栏的结构抖动
+    const lines: MdLine[] =
+      process.env["KCODE_NO_MD"] === "1"
+        ? block.text.split("\n").map((l) => ({ segments: [{ text: l }] }))
+        : markdownToLines(block.text);
     return (
       <Box flexDirection="column">
-        <Text>
-          <Text color="green">⏺ </Text>
-          {lines[0]}
-        </Text>
-        {lines.slice(1).map((l, j) => (
-          <Text key={j}>{l}</Text>
+        {lines.map((line, j) => (
+          <Text key={j}>
+            {j === 0 ? <Text color="green">⏺ </Text> : null}
+            {line.segments.map((s, k) => (
+              <Text
+                key={k}
+                color={s.color}
+                bold={s.bold}
+                italic={s.italic}
+                dimColor={s.dimColor}
+                strikethrough={s.strikethrough}
+              >
+                {s.text}
+              </Text>
+            ))}
+          </Text>
         ))}
       </Box>
     );

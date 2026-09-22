@@ -11,8 +11,10 @@
     "@kcode/contracts": "workspace:*",
     "@kcode/extensions": "workspace:*",
     "@kcode/platform": "workspace:*",
+    "highlight.js": "^11.12.0",
     "ink": "^4.4.1",
     "ink-text-input": "^5.0.1",
+    "marked": "^18.0.13",
     "react": "^18.3.1"
   },
   "devDependencies": {
