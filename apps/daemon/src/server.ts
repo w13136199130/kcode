@@ -233,6 +233,34 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
                   send(conn, { kind: "question", questionId, question });
                 }),
             },
+            planAsker: {
+              ask: (plan) =>
+                new Promise((resolve) => {
+                  const questionId = randomUUID();
+                  const timer = setTimeout(() => {
+                    conn.pendingQuestions.delete(questionId);
+                    resolve("abandon");
+                  }, INTERACTION_TIMEOUT_MS);
+                  conn.pendingQuestions.set(questionId, (labels) => {
+                    clearTimeout(timer);
+                    const picked = labels[0] ?? "";
+                    resolve(picked === "批准并执行" ? "approved" : picked === "继续研究" ? "revise" : "abandon");
+                  });
+                  send(conn, {
+                    kind: "plan_question",
+                    questionId,
+                    question: {
+                      question: "以上是模型提交的执行计划，是否批准执行？",
+                      options: [
+                        { label: "批准并执行", description: "切换到执行模式，按计划执行" },
+                        { label: "继续研究", description: "留在计划模式，补充调研后重新提交" },
+                        { label: "放弃", description: "放弃该计划，等待新指示" },
+                      ],
+                    },
+                    plan,
+                  });
+                }),
+            },
           });
           conn.sessions.set(session.sessionId, session);
           send(conn, {
@@ -434,6 +462,33 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           outputTokens: usage.outputTokens,
           calls: usage.calls,
         });
+        return;
+      }
+      case "session_rewind_points": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        send(conn, { kind: "rewind_points", id: message.id, points: await session.listRewindPoints() });
+        return;
+      }
+      case "session_rewind": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        try {
+          const result = await session.rewind(message.eventIndex);
+          send(conn, { kind: "rewind_ok", id: message.id, ...result });
+        } catch (err) {
+          send(conn, {
+            kind: "error",
+            id: message.id,
+            message: `回退失败: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
         return;
       }
       case "ask_reply": {

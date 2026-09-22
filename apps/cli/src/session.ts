@@ -36,6 +36,10 @@ export interface SessionHandle {
   clearPersistentGrants(): Promise<boolean>;
   /** 会话累计用量（含 resume 续接历史；/cost） */
   usage(): Promise<{ inputTokens: number; outputTokens: number; calls: number } | null>;
+  /** /rewind 回退点清单（每个 user_message 一项） */
+  rewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
+  /** 回退到某提问之前（恢复文件快照 + 截断对话）；失败返回错误信息 */
+  rewind(eventIndex: number): Promise<string | null>;
 }
 
 export interface RemoteSessionOptions {
@@ -59,6 +63,12 @@ export interface RemoteSessionOptions {
     }): Promise<boolean | PermissionAnswer>;
   };
   askUser?: { ask: (question: StructuredQuestion) => Promise<string[]> };
+  /** 计划批准交互（plan_submit 工具推送的 plan_question）：渲染计划全文 + 批准菜单 */
+  onPlanApproval?: (payload: {
+    plan: string;
+    question: StructuredQuestion;
+    reply: (labels: string[]) => void;
+  }) => void;
 }
 
 /**
@@ -111,8 +121,34 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
   if (opts.askUser !== undefined) {
     opts.client.onQuestion((questionId, raw) => {
       const question = raw as unknown as { question: string; options: { label: string; description?: string }[]; multiSelect?: boolean };
+      // 计划批准走专用通道（渲染计划全文 + 批准菜单）
+      if (raw.kind === "plan_question" && opts.onPlanApproval !== undefined) {
+        const plan = (raw as unknown as { plan: string }).plan;
+        opts.onPlanApproval({
+          plan,
+          question,
+          reply: (labels) => {
+            opts.client.replyQuestion(questionId, labels);
+          },
+        });
+        return;
+      }
       void opts.askUser!.ask(question).then((labels) => {
         opts.client.replyQuestion(questionId, labels);
+      });
+    });
+  } else if (opts.onPlanApproval !== undefined) {
+    // 无 ask_user 端口也要接计划批准（plan_submit 独立于 ask_user 工具）
+    opts.client.onQuestion((questionId, raw) => {
+      if (raw.kind !== "plan_question") return;
+      const plan = (raw as unknown as { plan: string }).plan;
+      const question = raw as unknown as { question: string; options: { label: string; description?: string }[]; multiSelect?: boolean };
+      opts.onPlanApproval!({
+        plan,
+        question,
+        reply: (labels) => {
+          opts.client.replyQuestion(questionId, labels);
+        },
       });
     });
   }
@@ -256,6 +292,27 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         outputTokens: response.outputTokens,
         calls: response.calls,
       };
+    },
+    rewindPoints: async () => {
+      const response = await opts.client
+        .request({ method: "session_rewind_points", sessionId })
+        .catch(() => null);
+      if (response === null || response.kind !== "rewind_points") {
+        return [];
+      }
+      return response.points;
+    },
+    rewind: async (eventIndex: number) => {
+      const response = await opts.client
+        .request({ method: "session_rewind", sessionId, eventIndex })
+        .catch((err: Error) => err);
+      if (response instanceof Error) {
+        return response.message;
+      }
+      if (response.kind === "rewind_ok") {
+        return null;
+      }
+      return response.kind === "error" ? response.message : "未知错误";
     },
   };
 }

@@ -16,6 +16,8 @@ export type ToolDefinition = z.infer<typeof ToolDefinition>;
 
 export interface ToolContext {
   sessionId: string;
+  /** 本次工具调用的 callId（与 tool_call 事件对应；检查点/审计关联用） */
+  callId?: string;
   /** 会话工作目录（daemon 注入）；工具的相对路径以此为基准 */
   cwd?: string;
   /** 用户中断信号（Esc/Ctrl+C）：长任务工具（bash 等）应监听并终止子进程 */

@@ -156,6 +156,11 @@ export class AgentLoop {
     this.systemPrompt = prompt;
   }
 
+  /** 整体替换历史（/rewind 回退：由会话 JSONL 事件重建后注入；须在空闲时调用） */
+  replaceHistory(messages: ChatMessage[]): void {
+    this.history = [...messages];
+  }
+
   /** 运行期更换模型（/model）：LLM 实例与摘要器一并重建，历史保留 */
   updateModel(model: string, llm: LLMProvider, summarizer?: SummarizerPort): void {
     this.model = model;

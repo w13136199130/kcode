@@ -96,8 +96,8 @@ pnpm --filter @kcode/cli start --resume latest             # 续接最近会话�
 pnpm --filter @kcode/cli start --resume sess_xxx "接着说"   # 指定会话续接
 ```
 
-REPL 内：`/plan` 切换计划模式（只读研究 → 确认后切回执行）；`/cost` 查看本会话 token 用量（含 resume 续接的历史）；`/resume [latest|id]` 不重启续接历史会话；多行输入用 **Ctrl+J** 换行（行尾 `\`+回车续行，多行粘贴自动保留换行）；`exit` 退出。
-In the REPL: `/plan` toggles plan mode, `/cost` shows token usage, `/resume [latest|id]` continues a past session without restart; press **Ctrl+J** for a newline (trailing `\`+Enter continues a line; pasted newlines are kept); `exit` quits.
+REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/cost` 查看本会话 token 用量（含 resume 续接的历史）；`/resume [latest|id]` 不重启续接历史会话；多行输入用 **Ctrl+J** 换行（行尾 `\`+回车续行，多行粘贴自动保留换行）；`exit` 退出。
+In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/cost` shows token usage; `/resume [latest|id]` continues a past session; press **Ctrl+J** for a newline; `exit` quits.
 In the REPL: `/plan` toggles plan mode (read-only research → switch back after approval); `exit` to quit.
 
 **试试技能自动触发 | Try skill auto-trigger** —— 建一个技能目录（项目级 `.kcode/skills/<name>/SKILL.md`）：

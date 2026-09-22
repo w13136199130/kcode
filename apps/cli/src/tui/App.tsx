@@ -20,6 +20,7 @@ import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
+import { markdownToLines } from "./markdown.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
 
 export interface KcodeAppProps {
@@ -117,6 +118,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "skill", desc: "手动注入技能正文" },
   { name: "sessions", desc: "最近会话列表" },
   { name: "resume", desc: "续接历史会话（选择菜单或 latest/id）" },
+  { name: "rewind", desc: "回退到之前某轮提问（恢复文件+截断对话，双击 Esc 直达）" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
@@ -615,6 +617,16 @@ export function KcodeApp(props: KcodeAppProps) {
   const [permissionsPanel, setPermissionsPanel] = useState<string[] | null>(null);
   /** /resume 会话选择菜单：选项与会话 id 对齐（末位为取消） */
   const [resumePicker, setResumePicker] = useState<{ options: MenuOption[]; ids: string[] } | null>(null);
+  /** /rewind 回退点选择菜单（/rewind 命令或空闲双击 Esc 打开） */
+  const [rewindPicker, setRewindPicker] = useState<
+    { points: { eventIndex: number; preview: string; ts: number; fileChanges: number }[] } | null
+  >(null);
+  /** 计划批准面板（plan_submit 工具推送）：渲染计划全文 + 批准菜单 */
+  const [planApproval, setPlanApproval] = useState<{
+    plan: string;
+    question: { question: string; options: { label: string; description?: string }[] };
+    reply: (labels: string[]) => void;
+  } | null>(null);
   const [input, setInput] = useState("");
   const [spinVerb, setSpinVerb] = useState("思考中");
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
@@ -709,16 +721,32 @@ export function KcodeApp(props: KcodeAppProps) {
     modelPicker !== null ||
     loginWizard !== null ||
     permissionsPanel !== null ||
-    resumePicker !== null;
+    resumePicker !== null ||
+    rewindPicker !== null ||
+    planApproval !== null;
 
-  // Esc：busy 时中断（菜单占用时 Esc 归菜单）
+  // Esc：busy 时中断（菜单占用时 Esc 归菜单）；空闲且输入为空时双击 → /rewind 回退菜单
+  const lastIdleEscAt = useRef(0);
   useInput(
     (_ch, key) => {
-      if (key.escape) {
+      if (!key.escape) return;
+      if (busy) {
         interruptRun();
+        return;
+      }
+      if (input !== "" || sessionRef.current === null) {
+        lastIdleEscAt.current = 0;
+        return; // 正在输入（可能是 IME 取消）不触发；双击窗口重置
+      }
+      const now = Date.now();
+      if (now - lastIdleEscAt.current < 600) {
+        lastIdleEscAt.current = 0;
+        void openRewindPicker();
+      } else {
+        lastIdleEscAt.current = now;
       }
     },
-    { isActive: interactive && busy && !menuOccupied },
+    { isActive: interactive && !menuOccupied },
   );
 
   // Ctrl+C：busy 时中断；空闲时双击退出（Ink 的 exitOnCtrlC 已关，退出语义自己管）
@@ -754,6 +782,28 @@ export function KcodeApp(props: KcodeAppProps) {
       });
     });
   }, []);
+
+  /** /rewind：取回退点并打开选择菜单（空闲时才可用） */
+  const openRewindPicker = (): void => {
+    if (busy) {
+      pushBlock({ kind: "info", tone: "warn", text: "运行中不能回退（等本轮完成或 Esc 中断）" });
+      return;
+    }
+    void (async () => {
+      const session = sessionRef.current;
+      if (session === null) return;
+      const points = await session.rewindPoints().catch(() => null);
+      if (points === null) {
+        pushBlock({ kind: "info", tone: "warn", text: "回退点获取失败（守护进程连接异常）" });
+        return;
+      }
+      if (points.length === 0) {
+        pushBlock({ kind: "info", text: "（暂无可回退的提问点——本会话还没有用户消息或文件改动）" });
+        return;
+      }
+      setRewindPicker({ points: points.slice(-10).reverse() });
+    })();
+  };
 
   const pushBlock = (block: Block): void => {
     setBlocks((prev) => [...prev, block]);
@@ -871,6 +921,15 @@ export function KcodeApp(props: KcodeAppProps) {
     pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
+  /** 计划批准交互（plan_submit 推送）：批准后本地同步模式（daemon 侧已切换，双保险） */
+  const onPlanApproval = (payload: {
+    plan: string;
+    question: { question: string; options: { label: string; description?: string }[] };
+    reply: (labels: string[]) => void;
+  }): void => {
+    setPlanApproval(payload);
+  };
+
   const asker: PermissionAsker = {
     confirm: (call) =>
       new Promise<boolean | PermissionAnswer>((resolve) => {
@@ -916,6 +975,7 @@ export function KcodeApp(props: KcodeAppProps) {
           onNotice: setNotice,
           asker,
           askUser,
+          onPlanApproval,
         });
         sessionRef.current = handle;
         setTodos([]);
@@ -961,6 +1021,7 @@ export function KcodeApp(props: KcodeAppProps) {
           },
           asker,
           askUser,
+          onPlanApproval,
         });
         sessionRef.current = handle;
         setReady(true);
@@ -1198,6 +1259,10 @@ ${body}
         pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
         return;
       }
+      if (name === "rewind") {
+        openRewindPicker();
+        return;
+      }
       if (name === "permissions") {
         const grants = await session.listPersistentGrants().catch(() => null);
         if (grants === null) {
@@ -1222,6 +1287,7 @@ ${body}
           "/skills · /skill <名称> 查看/手动注入技能",
           "/sessions 最近会话列表",
           "/resume [latest|id 前缀] 不重启续接历史会话",
+          "/rewind 回退到之前某轮提问（文件快照+对话一起回滚；空闲双击 Esc 直达）",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",
@@ -1356,6 +1422,94 @@ ${body}
               ask.resolve({ allowed: false });
               setAsk(null);
               pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}` });
+            }}
+          />
+        </Box>
+      ) : planApproval !== null ? (
+        <Box flexDirection="column">
+          <Text color="cyan" bold>
+            📋 执行计划（plan_submit 提交，等待批准）
+          </Text>
+          {markdownToLines(planApproval.plan).map((line, i) => (
+            <Text key={i}>
+              {line.segments.map((seg, j) => (
+                <Text
+                  key={j}
+                  color={seg.color}
+                  bold={seg.bold}
+                  italic={seg.italic}
+                  dimColor={seg.dimColor}
+                  strikethrough={seg.strikethrough}
+                >
+                  {seg.text}
+                </Text>
+              ))}
+            </Text>
+          ))}
+          <OptionsMenu
+            options={planApproval.question.options.map((o, i) => ({
+              key: String(i + 1),
+              label: o.description !== undefined ? `${o.label} — ${o.description}` : o.label,
+            }))}
+            initialIndex={2}
+            onPick={(indices) => {
+              const picked = planApproval.question.options[indices[0] ?? 2];
+              const approve = picked?.label === "批准并执行";
+              planApproval.reply(picked !== undefined ? [picked.label] : []);
+              setPlanApproval(null);
+              if (approve) {
+                setMode("default");
+                sessionRef.current?.setMode("default");
+                pushBlock({ kind: "info", tone: "ok", text: "✓ 计划已批准——切换到执行模式" });
+              } else {
+                pushBlock({
+                  kind: "info",
+                  tone: "warn",
+                  text: `❯ ${picked?.label ?? "取消"} · 计划未执行`,
+                });
+              }
+            }}
+            onCancel={() => {
+              planApproval.reply(["放弃"]);
+              setPlanApproval(null);
+              pushBlock({ kind: "info", tone: "deny", text: "❯ 放弃 · 计划未执行" });
+            }}
+          />
+        </Box>
+      ) : rewindPicker !== null ? (
+        <Box flexDirection="column">
+          <Text color="magenta" bold>
+            选择回退点（回到该提问之前：恢复文件快照 + 截断对话 · Esc 取消）
+          </Text>
+          <OptionsMenu
+            options={[
+              ...rewindPicker.points.map((pt, i) => ({
+                key: String((i + 1) % 10),
+                label: `${pt.preview || "（空）"}${pt.fileChanges > 0 ? ` · ${pt.fileChanges} 处文件改动` : ""}`,
+              })),
+              { key: "q", label: "取消" },
+            ]}
+            initialIndex={0}
+            onPick={(indices) => {
+              const pt = rewindPicker.points[indices[0] ?? -1];
+              setRewindPicker(null);
+              if (pt === undefined) return;
+              void (async () => {
+                const session = sessionRef.current;
+                if (session === null) return;
+                const error = await session.rewind(pt.eventIndex);
+                pushBlock({
+                  kind: "info",
+                  tone: error === null ? "ok" : "warn",
+                  text:
+                    error === null
+                      ? `⏪ 已回退到「${pt.preview || "（空）"}」之前（文件快照已恢复，对话已截断；上方转写仅作显示）`
+                      : `✗ 回退失败：${error}`,
+                });
+              })();
+            }}
+            onCancel={() => {
+              setRewindPicker(null);
             }}
           />
         </Box>

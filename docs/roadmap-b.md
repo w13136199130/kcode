@@ -31,7 +31,7 @@
 3. agent 定义：`.kcode/agents/<name>.md`（frontmatter: tools / model / description），内置 `general-purpose`（全套工具）与 `explore`（强制 READONLY_RULES）。
 4. 并发与护栏：explore 子代理并行（复用 readOnly 并发机制）；子代理轮次上限 + 摘要截断（成本护栏）。
 
-## 3. B2 计划双闸门 + /rewind 检查点（约 1 周，与 B3 咬合）
+## 3. B2 计划双闸门 + /rewind 检查点（✅ 2026-09 交付）
 
 - `plan_submit` 工具：模型在 plan 档产出计划后调用提交；UI 渲染计划全文 +「批准执行 / 继续研究 / 放弃」。
 - **批准 = 切 default 档 + 计划文本写入上下文**——该计划同时成为压缩锚点（见 B3），一石二鸟。

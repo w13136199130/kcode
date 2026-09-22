@@ -96,6 +96,7 @@ export class ToolPipeline {
     try {
       result = await tool.execute(effectiveArgs, {
         sessionId: this.sessionId,
+        callId,
         cwd: this.cwd,
         ...(signal !== undefined ? { signal } : {}),
       });

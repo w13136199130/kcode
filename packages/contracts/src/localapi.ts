@@ -4,7 +4,7 @@ import { SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 const requestId = z.number().int().nonnegative();
 
@@ -102,6 +102,18 @@ export const ClientRequest = z.discriminatedUnion("method", [
     method: z.literal("session_usage"),
     sessionId: z.string().min(1),
   }),
+  z.object({
+    id: requestId,
+    method: z.literal("session_rewind_points"),
+    sessionId: z.string().min(1),
+  }),
+  z.object({
+    id: requestId,
+    method: z.literal("session_rewind"),
+    sessionId: z.string().min(1),
+    /** 回退目标：会话事件流中某个 user_message 事件的序号（回退到该提问之前） */
+    eventIndex: z.number().int().nonnegative(),
+  }),
 ]);
 export type ClientRequest = z.infer<typeof ClientRequest>;
 
@@ -175,6 +187,26 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     outputTokens: z.number().nonnegative(),
     calls: z.number().int().nonnegative(),
   }),
+  /** /rewind 回退点清单（每个 user_message 一项） */
+  z.object({
+    kind: z.literal("rewind_points"),
+    id: requestId,
+    points: z.array(
+      z.object({
+        eventIndex: z.number().int().nonnegative(),
+        preview: z.string(),
+        ts: z.number(),
+        fileChanges: z.number().int().nonnegative(),
+      }),
+    ),
+  }),
+  /** /rewind 执行结果 */
+  z.object({
+    kind: z.literal("rewind_ok"),
+    id: requestId,
+    restoredFiles: z.number().int().nonnegative(),
+    droppedEvents: z.number().int().nonnegative(),
+  }),
   z.object({ kind: z.literal("event"), sessionId: z.string(), event: SessionEvent }),
   z.object({
     kind: z.literal("delta"),
@@ -192,6 +224,13 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     preview: AskPreviewPayload.optional(),
   }),
   z.object({ kind: z.literal("question"), questionId: z.string(), question: StructuredQuestion }),
+  /** 计划批准载荷（plan_submit 工具触发）：plan 为计划全文，界面以 Markdown 渲染后出批准菜单 */
+  z.object({
+    kind: z.literal("plan_question"),
+    questionId: z.string(),
+    question: StructuredQuestion,
+    plan: z.string(),
+  }),
   z.object({
     kind: z.literal("run_done"),
     sessionId: z.string(),

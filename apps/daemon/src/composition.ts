@@ -30,8 +30,10 @@ import {
 import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
-import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
+import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
+import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
 
 export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
 - 涉及本项目代码的问题先用工具查证（read/glob/grep），结论引用 file:line；能力介绍/常识问答/闲聊不需要工具，直接回答；
@@ -44,7 +46,8 @@ export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码�
 export const PLAN_MODE_SUFFIX = `
 
 【计划模式】只读研究：可用读工具调研，不得修改文件或执行有副作用的命令；
-产出一份明确的执行计划并等待用户确认，用户用 /mode default 切回执行模式。`;
+产出完整计划（目标/步骤/涉及文件/风险）后调用 plan_submit 工具提交等待用户批准——
+批准后自动切回执行模式；用户要求继续研究则补充调研后重新提交。`;
 
 export interface ComposedSession {
   loop: AgentLoop;
@@ -66,6 +69,10 @@ export interface ComposedSession {
   clearPersistentGrants(): Promise<number>;
   /** 会话累计用量（含 resume 种子；/cost） */
   usageSummary(): SessionUsage;
+  /** /rewind 回退点清单（每个 user_message 一项；fileChanges = 其后的写/编辑次数） */
+  listRewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
+  /** 回退到某个 user_message 之前：恢复文件快照（逆序）+ 以事件重建截断历史；运行中拒绝 */
+  rewind(eventIndex: number): Promise<{ restoredFiles: number; droppedEvents: number }>;
   close(): Promise<void>;
 }
 
@@ -87,6 +94,8 @@ export interface ComposeSessionOptions {
   onNotice?: (message: string) => void;
   asker?: PermissionAsker;
   askUser?: UserPromptPort;
+  /** 计划批准交互（plan_submit 工具，B2）：daemon 注入，推 plan_question 给客户端 */
+  planAsker?: { ask(plan: string): Promise<PlanVerdict> };
 }
 
 /** 读取用户级 MCP 配置；缺失或非法按空处理 */
@@ -242,6 +251,9 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const initialLlm = await opts.llmFactory(opts.model);
   // 父会话当前模型（setModel 后更新；task 子代理默认沿用）
   let currentModel = opts.model;
+  // 权限模式与切换（plan_submit 批准后也要切回 default——先用占位，loop 创建后赋真身）
+  let sessionMode: PermissionMode = "default";
+  let applyMode: (mode: PermissionMode) => void = () => {};
   // B1 子代理：会话工具全集先成数组（task 不在其中——子代理不嵌套派生），再挂 task 工具
   const baseTools = [
     ...createSessionTools({
@@ -256,12 +268,15 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     ...mcpSessions.flatMap((s) => s.tools),
     ...pluginMcpSessions.flatMap((s) => s.tools),
   ];
+  // B2 /rewind：写类工具执行前快照目标文件（bash 造成的改动无法快照——与 CC 检查点同边界）
+  const checkpoints = new CheckpointStore(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
+  const guardedTools = baseTools.map((t) => withFileCheckpoints(t, checkpoints, resolveInCtx));
   const taskTool = buildTaskTool({
     llmFactory: opts.llmFactory,
     currentModel: () => currentModel,
     cwd: opts.cwd,
     kcodeHomeDir: opts.kcodeHomeDir,
-    baseTools,
+    baseTools: guardedTools,
     hooks,
     permissionFor: (kind) =>
       new RuleBasedPermissionEngine({ rules: kind === "readonly" ? READONLY_RULES : DEFAULT_RULES, fallback: "deny" }),
@@ -272,10 +287,15 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
 </env>`,
     onNotice: opts.onNotice,
   });
+  const planSubmitTool = buildPlanSubmitTool({
+    currentMode: () => sessionMode,
+    planAsker: opts.planAsker,
+    switchToExecute: () => applyMode("default"),
+  });
   const loop = new AgentLoop(
     {
       llm: initialLlm,
-      tools: new InMemoryToolRegistry([...baseTools, taskTool]),
+      tools: new InMemoryToolRegistry([...guardedTools, taskTool, planSubmitTool]),
       permissions,
       hooks,
       sink,
@@ -307,6 +327,18 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       activeAbort = null;
     });
   };
+  // applyMode 真身（plan_submit 批准后经占位闭包调用到这里的最终绑定）
+  applyMode = (mode: PermissionMode) => {
+    // 切入 plan 档清空会话级放行：只读姿态不被历史放行打穿
+    if (mode === "plan") {
+      permissions.clearGrants();
+    }
+    sessionMode = mode;
+    permissions.set(
+      new RuleBasedPermissionEngine({ rules: RULES_BY_MODE[mode], fallback: "deny" }),
+    );
+    loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
+  };
   return {
     loop,
     sessionId,
@@ -314,16 +346,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     abort: () => {
       activeAbort?.abort();
     },
-    setMode: (mode: PermissionMode) => {
-      // 切入 plan 档清空会话级放行：只读姿态不被历史放行打穿
-      if (mode === "plan") {
-        permissions.clearGrants();
-      }
-      permissions.set(
-        new RuleBasedPermissionEngine({ rules: RULES_BY_MODE[mode], fallback: "deny" }),
-      );
-      loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
-    },
+    setMode: applyMode,
     setModel: async (model) => {
       const llm = await opts.llmFactory(model);
       currentModel = model;
@@ -336,8 +359,55 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     listPersistentGrants: () => grantStore.list(),
     clearPersistentGrants: () => grantStore.clear(),
     usageSummary: () => loop.getUsage(),
+    listRewindPoints: async () => {
+      const events = await loadSessionEvents(jsonlPath);
+      const points: { eventIndex: number; preview: string; ts: number; fileChanges: number }[] = [];
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i]!;
+        if (event.type === "user_message") {
+          points.push({
+            eventIndex: i,
+            preview: event.content.slice(0, 40),
+            ts: event.ts,
+            fileChanges: 0,
+          });
+        } else if (
+          event.type === "tool_call" &&
+          (event.tool === "write" || event.tool === "edit") &&
+          points.length > 0 &&
+          checkpoints.get(event.callId) !== undefined
+        ) {
+          points[points.length - 1]!.fileChanges++;
+        }
+      }
+      return points;
+    },
+    rewind: async (eventIndex: number) => {
+      if (activeAbort !== null) {
+        throw new Error("运行中不能回退（等待本轮完成或 Esc 中断）");
+      }
+      const events = await loadSessionEvents(jsonlPath);
+      const target = events[eventIndex];
+      if (target === undefined || target.type !== "user_message") {
+        throw new Error("回退点无效");
+      }
+      // 恢复该提问起的全部写/编辑前像（store 内部按逆序回滚）
+      const callIds = events
+        .slice(eventIndex)
+        .filter(
+          (e): e is Extract<(typeof events)[number], { type: "tool_call" }> =>
+            e.type === "tool_call" && (e.tool === "write" || e.tool === "edit"),
+        )
+        .map((e) => e.callId)
+        .filter((id) => checkpoints.get(id) !== undefined);
+      const restoredFiles = await checkpoints.restore(callIds);
+      loop.replaceHistory(rebuildHistory(events.slice(0, eventIndex)));
+      opts.onNotice?.(`已回退：恢复 ${restoredFiles} 个文件 · 对话截断 ${events.length - eventIndex} 个事件`);
+      return { restoredFiles, droppedEvents: events.length - eventIndex };
+    },
     close: async () => {
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
+      await checkpoints.cleanup();
     },
   };
 }

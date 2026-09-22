@@ -17,6 +17,7 @@ export const READONLY_RULES: PermissionRule[] = [
   { match: "todo", decision: "allow" },
   { match: "ask_user", decision: "allow" },
   { match: "sessions", decision: "allow" },
+  { match: "plan_submit", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
@@ -37,6 +38,7 @@ export const DEFAULT_RULES: PermissionRule[] = [
   { match: "plugin:*", decision: "ask" },
   { match: "mcp__*", decision: "ask" },
   { match: "task", decision: "allow" },
+  { match: "plan_submit", decision: "allow" },
   { match: "*", decision: "deny" },
 ];
 
