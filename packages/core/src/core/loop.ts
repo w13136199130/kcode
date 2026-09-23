@@ -1,5 +1,7 @@
 import {
   type ChatMessage,
+  type RunStatus,
+  type HookPreOutcome,
   type HookRunner,
   type LLMProvider,
   type PermissionAsker,
@@ -67,6 +69,7 @@ export interface SessionUsage {
 }
 
 export interface RunSummary {
+  status: RunStatus;
   sessionId: string;
   turns: number;
   toolCalls: number;
@@ -216,6 +219,13 @@ export class AgentLoop {
     if (plan === null) {
       return null;
     }
+    // pre_compact 钩子（B5）：退出码 2 = 跳过本次压缩
+    const gate = await this.gateHook((h) =>
+      h.onPreCompact?.({ sessionId: this.sessionId, dropped: plan.toSummarize.length }),
+    );
+    if (gate.veto) {
+      return null;
+    }
     let summary: string;
     if (this.summarizer !== undefined) {
       summary = await this.summarizer.summarize({ messages: plan.toSummarize });
@@ -233,7 +243,7 @@ export class AgentLoop {
 
   async run(
     userInput: string,
-    runOpts: { images?: string[]; signal?: AbortSignal } = {},
+    runOpts: { images?: string[]; signal?: AbortSignal; runId?: string } = {},
   ): Promise<RunSummary> {
     const ts = this.now;
     if (!this.started) {
@@ -246,6 +256,17 @@ export class AgentLoop {
         model: this.model,
       });
       await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
+    }
+    // 否决必须先于用户消息和技能注入，避免下一轮重新发送被拒绝内容。
+    const promptGate = await this.gateHook((h) =>
+      h.onUserPromptSubmit?.({ sessionId: this.sessionId, prompt: userInput }),
+    );
+    if (promptGate.veto || runOpts.signal?.aborted) {
+      const status = runOpts.signal?.aborted ? "aborted" : "rejected";
+      await this.emit({ v: 1, type: "session_end", ts: ts(), sessionId: this.sessionId,
+        reason: status, ...(promptGate.reason !== undefined ? { detail: promptGate.reason } : {}) });
+      await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
+      return { sessionId: this.sessionId, turns: 0, toolCalls: 0, status };
     }
     await this.emit({
       v: 1,
@@ -282,6 +303,7 @@ export class AgentLoop {
     const maxTurns = this.opts.maxTurns ?? 20;
     let turns = 0;
     let toolCalls = 0;
+    let status: RunStatus = "limit_reached";
     // 本轮 run 的用量增量：session_end 落盘，resume 侧对全部 session_end 求和
     const runUsage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
     const signal = runOpts.signal;
@@ -381,6 +403,7 @@ export class AgentLoop {
           break;
         }
         if (streamError !== undefined) {
+          status = "failed";
           if (text !== "" || reasoning !== "") {
             await this.emit({
               v: 1,
@@ -414,6 +437,7 @@ export class AgentLoop {
           });
         }
         if (calls.length === 0) {
+          status = "completed";
           if (text !== "") {
             this.history.push({ role: "assistant", content: text });
           }
@@ -457,8 +481,12 @@ export class AgentLoop {
           }
         }
       }
+    } catch (err) {
+      status = "failed";
+      throw err;
     } finally {
-      if (turns >= maxTurns && !(signal?.aborted)) {
+      if (signal?.aborted) status = "aborted";
+      if (status === "limit_reached") {
         // 防失控上限到顶：明确告知（历史保留，用户可输入「继续」接着做）
         await this.emit({
           v: 1,
@@ -473,7 +501,7 @@ export class AgentLoop {
         type: "session_end",
         ts: ts(),
         sessionId: this.sessionId,
-        reason: turns >= maxTurns || signal?.aborted ? "aborted" : "completed",
+        reason: status,
         usage: { ...runUsage },
       });
       this.usage.inputTokens += runUsage.inputTokens;
@@ -481,7 +509,7 @@ export class AgentLoop {
       this.usage.calls += runUsage.calls;
       await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
     }
-    return { sessionId: this.sessionId, turns, toolCalls };
+    return { sessionId: this.sessionId, turns, toolCalls, status };
   }
 
   /** 会话级钩子：失败只记录不抛出——钩子故障不应中断会话主流程 */
@@ -490,6 +518,17 @@ export class AgentLoop {
       await invoke(this.ports.hooks);
     } catch {
       // 生命周期钩子异常静默降级；工具级钩子的错误处理在管线内完成
+    }
+  }
+
+  /** 门型钩子（可否决）：未实现/异常按放行（fail-open 的兜底在 runner 内处理） */
+  private async gateHook(
+    invoke: (hooks: HookRunner) => Promise<HookPreOutcome> | undefined,
+  ): Promise<HookPreOutcome> {
+    try {
+      return (await invoke(this.ports.hooks)) ?? { veto: false };
+    } catch {
+      return { veto: false };
     }
   }
 

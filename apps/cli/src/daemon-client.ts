@@ -41,7 +41,7 @@ export class DaemonClient {
     notice: new Set<(message: string) => void>(),
     ask: new Set<(callId: string, tool: string, args: unknown, preview?: AskPreviewPayload) => void>(),
     question: new Set<(questionId: string, question: ServerMessageType) => void>(),
-    runDone: new Set<(sessionId: string, turns: number, toolCalls: number) => void>(),
+    runDone: new Set<(sessionId: string, turns: number, toolCalls: number, runId: string, status: import("@kcode/contracts").RunStatus) => void>(),
     close: new Set<() => void>(),
   };
 
@@ -149,7 +149,7 @@ export class DaemonClient {
         return;
       case "run_done":
         for (const l of this.#listeners.runDone) {
-          l(message.sessionId, message.turns, message.toolCalls);
+          l(message.sessionId, message.turns, message.toolCalls, message.runId, message.status);
         }
         return;
       default:
@@ -242,7 +242,7 @@ export class DaemonClient {
     };
   }
 
-  onRunDone(listener: (sessionId: string, turns: number, toolCalls: number) => void): () => void {
+  onRunDone(listener: (sessionId: string, turns: number, toolCalls: number, runId: string, status: import("@kcode/contracts").RunStatus) => void): () => void {
     this.#listeners.runDone.add(listener);
     return () => {
       this.#listeners.runDone.delete(listener);

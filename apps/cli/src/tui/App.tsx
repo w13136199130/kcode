@@ -1,3 +1,4 @@
+import { previousBoundary, nextBoundary, truncateVisual } from "./width.js";
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
@@ -12,7 +13,7 @@ import type {
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
-import { EncryptedFileKeychain } from "@kcode/platform";
+import { DpapiKeychain, EncryptedFileKeychain } from "@kcode/platform";
 import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -125,6 +126,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "context", desc: "查看上下文 token 占用与压缩阈值" },
   { name: "clear", desc: "清屏并开启全新会话（上下文一并清空）" },
   { name: "status", desc: "会话/模型/模式/用量一览" },
+  { name: "mcp", desc: "MCP 服务器接入状态" },
   { name: "permissions", desc: "查看/清除本项目的持久放行" },
   { name: "cost", desc: "查看本会话 token 用量" },
   { name: "plan", desc: "计划模式快捷切换" },
@@ -149,7 +151,7 @@ function HiddenInput(props: { label: string; onDone: (v: string) => void; onCanc
       return;
     }
     if (key.backspace || key.delete) {
-      setValue((s) => s.slice(0, -1));
+      setValue((s) => s.slice(0, previousBoundary(s, s.length)));
       return;
     }
     if (ch !== undefined && ch !== "" && ch >= " ") {
@@ -210,6 +212,8 @@ function OptionsMenu(props: {
   multi?: boolean;
   /** 初始高亮项（危险操作默认停在取消项） */
   initialIndex?: number;
+  /** 选中项联动渲染（B5：ask_user 的 preview 展示） */
+  footer?: (selectedIndex: number) => React.ReactNode;
   onPick: (indices: number[]) => void;
   onCancel: () => void;
 }) {
@@ -269,6 +273,7 @@ function OptionsMenu(props: {
           </Text>
         );
       })}
+      {props.footer !== undefined ? props.footer(selected) : null}
       <Text dimColor>
         {props.multi === true
           ? " ↑↓ 移动 · 空格勾选 · 回车确认 · Esc 取消"
@@ -299,7 +304,7 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
           dimColor={!line.startsWith("+") && !line.startsWith("-")}
         >
           {"  "}
-          {line.slice(0, 120)}
+          {truncateVisual(line, 120)}
         </Text>
       ))}
       {lines.length > PREVIEW_MAX_LINES && (
@@ -336,8 +341,6 @@ export function InputBox(props: {
    * 不做任何渲染期 setState（渲染期 setState 会让 Ink 提交空帧 = 不回显）。
    */
   const [cursor, setCursor] = useState<{ for: string; at: number } | null>(null);
-  /** IME 组合区起点（连续 [a-z0-9'] 拼音输入的起始下标；null = 无组合区） */
-  const [pinyinTailStart, setPinyinTailStart] = useState<number | null>(null);
   const pos =
     cursor !== null && cursor.for === props.value
       ? Math.min(cursor.at, props.value.length)
@@ -365,61 +368,12 @@ export function InputBox(props: {
     setCursor(at !== undefined ? { for: v, at } : null);
   };
 
-  /**
-   * IME 组合区跟踪：终端把组合期的拼音键（含音节分隔符 '）逐个漏给应用，
-   * 连续的 [a-z0-9'] 记为组合区；中文上屏时把整个组合区替换为中文
-   * （对标 Claude Code：组合期显示拼音，选词后干净替换）。
-   * 任何非组合输入（大写/符号/退格/删除/光标跳转/历史/补全）重置组合区。
-   */
-  const clearTail = (): void => {
-    if (pinyinTailStart !== null) {
-      setPinyinTailStart(null);
-    }
-  };
-  /** 光标移到 newPos 后组合区是否仍有效（组合期内退格=编辑拼音，不应作废整个组合区） */
-  const trimTailTo = (newPos: number): void => {
-    if (pinyinTailStart !== null && newPos < pinyinTailStart) {
-      setPinyinTailStart(null);
-    }
-  };
-
-  /** 最近一次中文上屏时刻：候选选择的数字键可能晚于中文到达（conhost 竞态），短窗口内丢弃 */
-  const lastCjkAt = useRef(0);
-
+  // 终端没有可靠的 DOM composition 事件：保留收到的文字，不猜拼音，不丢数字。
+  const clearTail = (): void => {};
+  const trimTailTo = (_at: number): void => {};
   const insertText = (str: string): void => {
-    if (process.env["KCODE_INPUT_DEBUG"] === "1") {
-      try {
-        appendInputLog(`insert str=${JSON.stringify(str)} pos=${pos} value=${JSON.stringify(props.value)} tail=${pinyinTailStart}`);
-      } catch {}
-    }
-    const base = props.value;
-    const at = pos;
-    // 候选数字泄漏防护：中文上屏后 1.2s 内的孤立数字是选词键泄漏/二次按压，丢弃
-    // （日志实测二次按压间隔 663~1313ms）
-    if (/^[0-9]$/.test(str) && Date.now() - lastCjkAt.current < 1200) {
-      return;
-    }
-    // 组合期按键：延续或新开组合区
-    if (/^[a-z0-9']$/.test(str)) {
-      const start = pinyinTailStart !== null && pinyinTailStart <= at ? pinyinTailStart : at;
-      setPinyinTailStart(start);
-      setValue(`${base.slice(0, at)}${str}${base.slice(at)}`, at + str.length);
-      return;
-    }
-    const hasCjk = /[一-鿿　-〿！-～]/.test(str);
-    if (hasCjk) {
-      lastCjkAt.current = Date.now();
-      props.onCjkCommit?.();
-    }
-    if (hasCjk && pinyinTailStart !== null && pinyinTailStart <= at) {
-      // 上屏替换：整个组合区换成本次的中文串
-      const replacedBase = base.slice(0, pinyinTailStart) + base.slice(at);
-      setPinyinTailStart(null);
-      setValue(`${replacedBase.slice(0, pinyinTailStart)}${str}${replacedBase.slice(pinyinTailStart)}`, pinyinTailStart + str.length);
-      return;
-    }
-    setPinyinTailStart(null);
-    setValue(`${base.slice(0, at)}${str}${base.slice(at)}`, at + str.length);
+    const text = str.replace(/\r\n?/g, "\n");
+    setValue(props.value.slice(0, pos) + text + props.value.slice(pos), pos + text.length);
   };
   const menuOpen =
     props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
@@ -472,10 +426,7 @@ export function InputBox(props: {
           appendInputLog(`ch=${JSON.stringify(ch)} key=${JSON.stringify(key)}`);
         } catch {}
       }
-      if (process.env["VITEST"] === "true") {
-        // eslint-disable-next-line no-console
-        console.error("DBG handler", JSON.stringify(ch), JSON.stringify(key).slice(0, 80));
-      }
+
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
       }
@@ -512,25 +463,25 @@ export function InputBox(props: {
           setValue("");
         } else if (key.backspace) {
           if (pos > 0) {
-            trimTailTo(pos - 1);
-            setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+            trimTailTo(previousBoundary(props.value, pos));
+            setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
           }
         } else if (key.delete) {
           // 中文 Windows 控制台的退格键发来 delete(0x7f)而非 backspace；
           // 行尾时向前无字符，退化为向后删（与其他 CLI 的键码归一化一致）
           if (pos < props.value.length) {
             trimTailTo(pos);
-            setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
+            setValue(`${props.value.slice(0, pos)}${props.value.slice(nextBoundary(props.value, pos))}`, pos);
           } else if (pos > 0) {
-            trimTailTo(pos - 1);
-            setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+            trimTailTo(previousBoundary(props.value, pos));
+            setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
           }
         } else if (key.leftArrow) {
-          trimTailTo(pos - 1);
-          setCursor({ for: props.value, at: Math.max(0, pos - 1) });
+          trimTailTo(previousBoundary(props.value, pos));
+          setCursor({ for: props.value, at: Math.max(0, previousBoundary(props.value, pos)) });
         } else if (key.rightArrow) {
-          trimTailTo(pos + 1);
-          setCursor({ for: props.value, at: Math.min(props.value.length, pos + 1) });
+          trimTailTo(nextBoundary(props.value, pos));
+          setCursor({ for: props.value, at: Math.min(props.value.length, nextBoundary(props.value, pos)) });
         } else if (ch !== "" && !key.escape && !key.return && !key.tab) {
           insertText(ch);
         }
@@ -557,24 +508,24 @@ export function InputBox(props: {
           props.onChange(draft.current);
         }
       } else if (key.leftArrow) {
-        trimTailTo(pos - 1);
-        setCursor({ for: props.value, at: Math.max(0, pos - 1) });
+        trimTailTo(previousBoundary(props.value, pos));
+        setCursor({ for: props.value, at: Math.max(0, previousBoundary(props.value, pos)) });
       } else if (key.rightArrow) {
-        trimTailTo(pos + 1);
-        setCursor({ for: props.value, at: Math.min(props.value.length, pos + 1) });
+        trimTailTo(nextBoundary(props.value, pos));
+        setCursor({ for: props.value, at: Math.min(props.value.length, nextBoundary(props.value, pos)) });
       } else if (key.backspace) {
         if (pos > 0) {
-          trimTailTo(pos - 1);
-          setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+          trimTailTo(previousBoundary(props.value, pos));
+          setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
         }
       } else if (key.delete) {
         // 同上：delete 行尾退化为向后删（退格键在中文控制台走此分支）
         if (pos < props.value.length) {
           trimTailTo(pos);
-          setValue(`${props.value.slice(0, pos)}${props.value.slice(pos + 1)}`, pos);
+          setValue(`${props.value.slice(0, pos)}${props.value.slice(nextBoundary(props.value, pos))}`, pos);
         } else if (pos > 0) {
-          trimTailTo(pos - 1);
-          setValue(`${props.value.slice(0, pos - 1)}${props.value.slice(pos)}`, pos - 1);
+          trimTailTo(previousBoundary(props.value, pos));
+          setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
         }
       } else if (key.return) {
         if (ch === "\n") {
@@ -653,7 +604,7 @@ export function InputBox(props: {
         {lines.map((line, i) => {
           const active = i === cursorLine;
           const content = active
-            ? `${line.slice(0, cursorCol)}█${line.slice(cursorCol + 1)}`
+            ? `${line.slice(0, cursorCol)}█${line.slice(cursorCol)}`
             : line;
           return (
             <Box key={i}>
@@ -771,6 +722,7 @@ export function KcodeApp(props: KcodeAppProps) {
       return; // 已请求过：正在等待当前命令被终止
     }
     abortSent.current = true;
+    setNotice("正在取消，等待当前操作退出…");
     if (ask !== null) {
       ask.resolve({ allowed: false });
       setAsk(null);
@@ -982,6 +934,13 @@ export function KcodeApp(props: KcodeAppProps) {
       case "llm_error":
         flushStream();
         pushBlock({ kind: "info", tone: "warn", text: `✗ 模型调用失败：${event.error}` });
+        break;
+      case "session_end":
+        if (event.reason !== "completed") {
+          flushStream();
+          const labels = { failed: "本轮执行失败", aborted: "已取消本轮执行", limit_reached: "已达到运行上限，任务可能未完成", rejected: "输入被 user_prompt_submit 钩子拒绝" };
+          pushBlock({ kind: "info", tone: "warn", text: labels[event.reason] + (event.detail ? "：" + event.detail : "") });
+        }
         break;
       case "todo_update":
         setTodos(event.todos);
@@ -1424,6 +1383,25 @@ ${body}
         });
         return;
       }
+      if (name === "mcp") {
+        const servers = await session.mcpStatus().catch(() => null);
+        pushBlock({
+          kind: "info",
+          text:
+            servers === null
+              ? "MCP 状态获取失败（守护进程连接异常）"
+              : servers.length === 0
+                ? "（未配置 MCP 服务器——~/.kcode/mcp.json 可添加；支持 stdio / http / sse 三种传输）"
+                : `MCP 服务器（${servers.filter((x) => x.ok).length}/${servers.length} 接入成功）：
+${servers
+                    .map(
+                      (x) =>
+                        `${x.ok ? "✓" : "✗"} ${x.name} · ${x.transport} · ${x.tools} 个工具${x.ok ? "" : "（连接失败，查看启动告警）"}`,
+                    )
+                    .join("\n")}`,
+        });
+        return;
+      }
       if (name === "trust") {
         await session.trustProject();
         pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
@@ -1501,7 +1479,7 @@ ${body}
           "/resume [latest|id 前缀] 不重启续接历史会话",
           "/rewind 回退到之前某轮提问（文件快照+对话一起回滚；空闲双击 Esc 直达）",
           "/compact 手动压缩历史 · /context 查看 token 占用（超预算 60% 自动压缩）",
-          "/clear 清屏开新会话 · /status 会话状态一览",
+          "/clear 清屏开新会话 · /status 会话状态一览 · /mcp MCP 接入状态",
           "!命令 直接执行 shell（结果仅显示） · Shift+Tab 循环权限模式 · @ 补全文件路径",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
@@ -1884,6 +1862,9 @@ ${body}
               <Text color="magenta" bold>
                 Login · 设置 keychain 口令（不回显；解锁本地 key 存储）
               </Text>
+              {DpapiKeychain.available ? (
+                <Text dimColor>Windows：口令留空回车 = 使用系统 DPAPI 免口令存储</Text>
+              ) : null}
               <HiddenInput
                 label="口令: "
                 onDone={(pass) => {
@@ -1902,12 +1883,16 @@ ${body}
                           },
                         },
                       });
-                      const kc = new EncryptedFileKeychain(
-                        join(kcodeHome(), "keys.json"),
-                        pass,
-                      );
-                      await kc.set(keyRef, w.apiKey, [w.baseURL]);
-                      process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
+                      if (pass !== "") {
+                        const kc = new EncryptedFileKeychain(join(kcodeHome(), "keys.json"), pass);
+                        await kc.set(keyRef, w.apiKey, [w.baseURL]);
+                        process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
+                      } else if (DpapiKeychain.available) {
+                        const kc = new DpapiKeychain(join(kcodeHome(), "keys.dpapi.json"));
+                        await kc.set(keyRef, w.apiKey, [w.baseURL]);
+                      } else {
+                        throw new Error("口令不能为空（当前平台无 DPAPI，需设置口令）");
+                      }
                       killDaemonByPidfile();
                       pushBlock({
                         kind: "info",
@@ -1967,6 +1952,20 @@ ${body}
               key: String(question.question.options.indexOf(o) + 1),
               label: o.label + (o.description !== undefined ? ` — ${o.description}` : ""),
             }))}
+            footer={(i) => {
+              const preview = question.question.options[i]?.preview;
+              if (preview === undefined) {
+                return null;
+              }
+              return (
+                <Box flexDirection="column" marginTop={1}>
+                  <Text dimColor>预览：</Text>
+                  {preview.split("\n").slice(0, 12).map((line, j) => (
+                    <Text key={j}>{truncateVisual(line, 120)}</Text>
+                  ))}
+                </Box>
+              );
+            }}
             multi={question.question.multiSelect === true}
             onPick={(indices) => {
               const labels = indices.map((i) => question.question.options[i]?.label ?? "");

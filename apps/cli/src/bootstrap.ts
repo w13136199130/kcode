@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { UserConfigFile, type UserModelsConfig } from "@kcode/contracts";
 import {
-  EncryptedFileKeychain,
+  openKeychain,
   createProviderRouter,
   type KeychainStore,
   type ProviderRouter,
@@ -50,14 +50,15 @@ export async function loadUserConfig(
  */
 export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise<Runtime> {
   const models = await loadUserConfig();
-  const passphrase = process.env["KCODE_KEYCHAIN_PASSPHRASE"];
-  const keychain: KeychainStore =
-    passphrase !== undefined && passphrase !== ""
-      ? EncryptedFileKeychain.fromEnv(join(kcodeHome(), "keys.json"))
-      : {
+  let keychain: KeychainStore;
+  try {
+    // 口令 > Windows DPAPI（B5 免口令）；两者皆不可用时惰性降级——无 key 的 provider（Ollama）照常可用
+    keychain = openKeychain(join(kcodeHome(), "keys.json"));
+  } catch {
+    keychain = {
           async get() {
             throw new Error(
-              "此 provider 需要 key：请设置 KCODE_KEYCHAIN_PASSPHRASE 并用 kcode key add 录入（§5.7）",
+              "此 provider 需要 key：Windows 免口令直接 kcode key add 录入；其他平台设置 KCODE_KEYCHAIN_PASSPHRASE 后录入（§5.7）",
             );
           },
           async set() {
@@ -70,6 +71,7 @@ export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise
             return [];
           },
         };
+  }
   const router = createProviderRouter(models, keychain, options);
   return { models, keychain, router };
 }

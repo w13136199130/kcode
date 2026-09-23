@@ -71,6 +71,10 @@ export interface HookPreOutcome {
 export interface HookRunner {
   preToolUse(call: ToolCallRef): Promise<HookPreOutcome>;
   postToolUse(call: ToolCallRef, result: ToolOutput): Promise<void>;
+  /** 用户输入提交钩子（B5）：退出码 2 = 拦截该输入（原因回显） */
+  onUserPromptSubmit?(payload: { sessionId: string; prompt: string }): Promise<HookPreOutcome>;
+  /** 压缩前钩子（B5）：退出码 2 = 跳过本次压缩 */
+  onPreCompact?(payload: { sessionId: string; dropped: number }): Promise<HookPreOutcome>;
   /** 会话开始钩子（可选实现；失败不阻断会话） */
   onSessionStart?(payload: { sessionId: string }): Promise<void>;
   /** 会话结束钩子（可选实现；失败不阻断会话） */
@@ -104,6 +108,8 @@ export function normalizePermissionAnswer(answer: boolean | PermissionAnswer): P
 export const QuestionOption = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
+  /** 预览内容（B5）：高亮选项的补充展示——代码片段/方案要点，界面渲染在菜单下方 */
+  preview: z.string().optional(),
 });
 export type QuestionOption = z.infer<typeof QuestionOption>;
 

@@ -3,6 +3,7 @@ import {
   HookOutcome,
   type HookConfig,
   type HookEventName,
+  type HookPreOutcome,
   type HookRunner,
   type ToolCallRef,
   type ToolOutput,
@@ -22,6 +23,8 @@ interface HookExecution {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  /** fail-closed：超时/失败按拦截处理（B5，安全钩子模式） */
+  failClosed: boolean;
 }
 
 /**
@@ -40,11 +43,32 @@ export class ProcessHookRunner implements HookRunner {
     this.#options = options;
   }
 
-  async preToolUse(call: ToolCallRef): Promise<{ veto: boolean; args?: unknown; reason?: string }> {
-    let outcome: { veto: boolean; args?: unknown; reason?: string } = { veto: false };
-    for (const result of await this.#runEvent("pre_tool_use", call)) {
+  async preToolUse(call: ToolCallRef): Promise<HookPreOutcome> {
+    return this.#adjudicate("pre_tool_use", call);
+  }
+
+  async onUserPromptSubmit(payload: { sessionId: string; prompt: string }): Promise<HookPreOutcome> {
+    return this.#adjudicate("user_prompt_submit", undefined, { prompt: payload.prompt });
+  }
+
+  async onPreCompact(payload: { sessionId: string; dropped: number }): Promise<HookPreOutcome> {
+    return this.#adjudicate("pre_compact", undefined, { dropped: payload.dropped });
+  }
+
+  /** 通用裁决：退出码 2 / stdout block 拦截；mutate 改参（仅工具事件有意义）；异常按 fail-open/fail-closed */
+  async #adjudicate(
+    event: HookEventName,
+    call?: ToolCallRef,
+    extra?: Record<string, unknown>,
+  ): Promise<HookPreOutcome> {
+    let outcome: HookPreOutcome = { veto: false };
+    for (const result of await this.#runEvent(event, call, extra)) {
       if (result.timedOut || (result.code !== 0 && result.code !== 2)) {
-        this.#warn(`pre_tool_use 钩子异常（code=${result.code}），按放行处理：${result.stderr.trim()}`);
+        if (result.failClosed) {
+          this.#warn(`${event} 钩子失败（code=${result.code}${result.timedOut ? " 超时" : ""}），按 fail-closed 拦截`);
+          return { veto: true, reason: `${event} 钩子失败（fail-closed）` };
+        }
+        this.#warn(`${event} 钩子异常（code=${result.code}），按放行处理：${result.stderr.trim()}`);
         continue;
       }
       if (result.code === 2) {
@@ -93,9 +117,12 @@ export class ProcessHookRunner implements HookRunner {
         ...extra,
       };
       try {
-        results.push(await runCommand(config.command, payload, config.timeoutMs ?? DEFAULT_TIMEOUT_MS));
+        const exec = await runCommand(config.command, payload, config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+        results.push({ ...exec, failClosed: config.failClosed === true });
       } catch (err) {
-        this.#warn(`钩子启动失败：${err instanceof Error ? err.message : String(err)}`);
+        const message = err instanceof Error ? err.message : String(err);
+        this.#warn(`钩子启动失败：${message}`);
+        results.push({ code: -1, stdout: "", stderr: message, timedOut: false, failClosed: config.failClosed === true });
       }
     }
     return results;
@@ -144,7 +171,7 @@ function runCommand(command: string, payload: unknown, timeoutMs: number): Promi
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolvePromise({ code: code ?? -1, stdout, stderr, timedOut });
+      resolvePromise({ code: code ?? -1, stdout, stderr, timedOut, failClosed: false });
     });
     child.stdin.on("error", () => {
       // 目标进程提前退出导致管道断裂：忽略写入错误，等待 close 汇总

@@ -91,12 +91,16 @@ export const SkillUsedEvent = z.object({
   trigger: z.enum(["auto", "manual"]),
 });
 
+export const RunStatus = z.enum(["completed", "failed", "aborted", "limit_reached", "rejected"]);
+export type RunStatus = z.infer<typeof RunStatus>;
+
 export const SessionEndEvent = z.object({
   v: v1,
   type: z.literal("session_end"),
   ts,
   sessionId,
-  reason: z.enum(["completed", "aborted"]),
+  reason: RunStatus,
+  detail: z.string().optional(),
   /** 本轮 run 的用量增量（resume 续接 /cost：对全部 session_end 求和即会话累计） */
   usage: z
     .object({

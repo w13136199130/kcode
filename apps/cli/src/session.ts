@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   AskPreviewPayload,
   PermissionAnswer,
@@ -14,7 +15,7 @@ import type { DaemonClient } from "./daemon-client.js";
 export interface SessionHandle {
   /** 远程会话的运行入口：发送消息并等待本轮完成 */
   loop: {
-    run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number }>;
+    run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number; status: import("@kcode/contracts").RunStatus }>;
   };
   sessionId: string;
   /** 中断当前运行（Esc）：流式停止、未开始的工具调用取消 */
@@ -44,6 +45,8 @@ export interface SessionHandle {
   compact(): Promise<{ dropped: number; summaryChars: number } | string>;
   /** !命令 用户直执行（不经 LLM；结果仅显示） */
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number } | null>;
+  /** /mcp：MCP 服务器接入状态 */
+  mcpStatus(): Promise<{ name: string; transport: string; tools: number; ok: boolean }[] | null>;
   /** /context 上下文占用 */
   context(): Promise<{
     model: string;
@@ -166,14 +169,15 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
     });
   }
 
+  let activeRunId: string | undefined;
   const runDoneWaiters = new Set<{
-    resolve: (summary: { sessionId: string; turns: number; toolCalls: number }) => void;
+    resolve: (summary: { sessionId: string; turns: number; toolCalls: number; status: import("@kcode/contracts").RunStatus }) => void;
     reject: (err: Error) => void;
   }>();
-  opts.client.onRunDone((sid, turns, toolCalls) => {
-    if (sid === sessionId) {
+  opts.client.onRunDone((sid, turns, toolCalls, runId, status) => {
+    if (sid === sessionId && runId === activeRunId) {
       for (const waiter of runDoneWaiters) {
-        waiter.resolve({ sessionId: sid, turns, toolCalls });
+        waiter.resolve({ sessionId: sid, turns, toolCalls, status });
       }
       runDoneWaiters.clear();
     }
@@ -204,21 +208,26 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
     sessionId,
     loop: {
       run: async (input, runOpts) => {
-        await opts.client.request({
-          method: "session_send",
-          sessionId,
-          content: input,
-          ...(runOpts?.images !== undefined ? { images: runOpts.images } : {}),
-        });
-        return new Promise((resolvePromise, rejectPromise) => {
-          runDoneWaiters.add({ resolve: resolvePromise, reject: rejectPromise });
-        });
+        if (activeRunId !== undefined) throw new Error("会话正在运行");
+        const runId = randomUUID();
+        activeRunId = runId;
+        try {
+          return await new Promise((resolve, reject) => {
+            const waiter = { resolve, reject };
+            // 必须先订阅再发送：空回复或 gate 拒绝可能与 accepted 同批到达。
+            runDoneWaiters.add(waiter);
+            void opts.client.request({ method: "session_send", sessionId, runId, content: input,
+              ...(runOpts?.images !== undefined ? { images: runOpts.images } : {}),
+            }).then((response) => {
+              if (response.kind !== "accepted") throw new Error("运行请求未被接受");
+            }).catch((err) => { runDoneWaiters.delete(waiter); reject(err); });
+          });
+        } finally { if (activeRunId === runId) activeRunId = undefined; }
       },
     },
     abort: () => {
-      void opts.client.request({ method: "session_abort", sessionId }).catch(() => {
-        // daemon 已不可达时忽略（掉线路径由 onClose 兜底）
-      });
+      if (activeRunId === undefined) return;
+      void opts.client.request({ method: "session_abort", sessionId, runId: activeRunId }).catch(() => {});
     },
     setMode: (mode) => {
       void opts.client.request({ method: "session_mode", sessionId, mode }).catch(() => {
@@ -314,6 +323,15 @@ export async function createSession(opts: RemoteSessionOptions): Promise<Session
         return [];
       }
       return response.points;
+    },
+    mcpStatus: async () => {
+      const response = await opts.client
+        .request({ method: "session_mcp", sessionId })
+        .catch(() => null);
+      if (response === null || response.kind !== "mcp_info") {
+        return null;
+      }
+      return response.servers;
     },
     runBash: async (command, timeoutMs) => {
       const response = await opts.client

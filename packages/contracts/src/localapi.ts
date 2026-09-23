@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { PermissionMode } from "./permissions.js";
-import { SessionEvent } from "./session.js";
+import { RunStatus, SessionEvent } from "./session.js";
 import { StructuredQuestion } from "./tool.js";
 
 /** 本地 API 协议版本：客户端与守护进程不一致时拒绝连接 */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 10;
 
 const requestId = z.number().int().nonnegative();
 
@@ -33,6 +33,7 @@ export const ClientRequest = z.discriminatedUnion("method", [
   z.object({
     id: requestId,
     method: z.literal("session_send"),
+    runId: z.string().min(1).optional(),
     sessionId: z.string().min(1),
     content: z.string(),
     images: z.array(z.string()).optional(),
@@ -40,6 +41,7 @@ export const ClientRequest = z.discriminatedUnion("method", [
   z.object({
     id: requestId,
     method: z.literal("session_abort"),
+    runId: z.string().min(1).optional(),
     sessionId: z.string().min(1),
   }),
   z.object({
@@ -116,6 +118,7 @@ export const ClientRequest = z.discriminatedUnion("method", [
   }),
   z.object({ id: requestId, method: z.literal("session_compact"), sessionId: z.string().min(1) }),
   z.object({ id: requestId, method: z.literal("session_context"), sessionId: z.string().min(1) }),
+  z.object({ id: requestId, method: z.literal("session_mcp"), sessionId: z.string().min(1) }),
   z.object({
     id: requestId,
     method: z.literal("bash_run"),
@@ -142,6 +145,8 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     daemonVersion: z.string(),
     /** 守护进程侧协议版本：客户端据此识别过旧 daemon 并重拉 */
     protocolVersion: z.number().int().positive(),
+    /** 支持的方法清单（B5 方法级协商）：客户端据此优雅降级而非硬失败 */
+    methods: z.array(z.string()),
   }),
   z.object({ kind: z.literal("pong"), id: requestId }),
   z.object({ kind: z.literal("error"), id: requestId.optional(), message: z.string() }),
@@ -153,7 +158,7 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     resumedMessages: z.number().int().nonnegative(),
   }),
   /** 请求已受理（如消息已进入会话队列，完成以 run_done 为准） */
-  z.object({ kind: z.literal("accepted"), id: requestId }),
+  z.object({ kind: z.literal("accepted"), id: requestId, runId: z.string().optional() }),
   z.object({
     kind: z.literal("commands"),
     id: requestId,
@@ -224,6 +229,19 @@ export const ServerMessage = z.discriminatedUnion("kind", [
     dropped: z.number().int().nonnegative(),
     summaryChars: z.number().int().nonnegative(),
   }),
+  /** /mcp：MCP 服务器接入状态 */
+  z.object({
+    kind: z.literal("mcp_info"),
+    id: requestId,
+    servers: z.array(
+      z.object({
+        name: z.string(),
+        transport: z.string(),
+        tools: z.number().int().nonnegative(),
+        ok: z.boolean(),
+      }),
+    ),
+  }),
   /** !命令 直执行结果（仅显示，不进模型上下文） */
   z.object({
     kind: z.literal("bash_result"),
@@ -270,6 +288,8 @@ export const ServerMessage = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("run_done"),
+    runId: z.string(),
+    status: RunStatus,
     sessionId: z.string(),
     turns: z.number().int(),
     toolCalls: z.number().int(),

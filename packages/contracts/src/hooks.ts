@@ -4,6 +4,8 @@ export const HookEventName = z.enum([
   "session_start",
   "pre_tool_use",
   "post_tool_use",
+  "user_prompt_submit",
+  "pre_compact",
   "stop",
 ]);
 export type HookEventName = z.infer<typeof HookEventName>;
@@ -33,6 +35,8 @@ export const HookConfig = z.object({
   command: z.string().min(1),
   /** 执行超时（毫秒），默认 10 秒；超时按放行处理并告警 */
   timeoutMs: z.number().int().positive().optional(),
+  /** 安全钩子模式：超时/执行失败按拦截处理（fail-closed）。默认 false（fail-open，钩子故障不阻断会话） */
+  failClosed: z.boolean().optional(),
 });
 export type HookConfig = z.infer<typeof HookConfig>;
 

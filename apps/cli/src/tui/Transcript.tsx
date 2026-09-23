@@ -2,7 +2,7 @@ import { Box, Text, useStdout } from "ink";
 import type { TodoItem } from "@kcode/contracts";
 import { markdownToLines, type MdLine } from "./markdown.js";
 // 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
-import { visualWidth, wrapVisual } from "./width.js";
+import { visualWidth, wrapVisual, truncateVisual } from "./width.js";
 
 export { visualWidth, wrapVisual };
 
@@ -195,7 +195,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           {lines.map((line, j) => (
             <Text key={j} dimColor italic wrap="truncate-end">
               {"  "}
-              {line.slice(0, 120)}
+              {truncateVisual(line, 120)}
             </Text>
           ))}
         </Box>
@@ -245,7 +245,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             .map((line, j) => (
               <Text key={j} dimColor wrap="truncate-end">
                 {"  "}
-                {line.slice(0, 120)}
+                {truncateVisual(line, 120)}
               </Text>
             ))}
         </Box>

@@ -27,7 +27,7 @@ import {
   loadHookConfigs,
   trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
-import { JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
+import { SessionRunner, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
 import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
@@ -51,10 +51,11 @@ export const PLAN_MODE_SUFFIX = `
 
 export interface ComposedSession {
   loop: AgentLoop;
+  runner: SessionRunner;
   sessionId: string;
   jsonlPath: string;
   /** 中断当前运行（Esc abort）：流式立即停止、未开始的工具调用取消 */
-  abort(): void;
+  abort(runId?: string): boolean;
   /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
   setMode(mode: PermissionMode): void;
   /** 运行期换模型（/model）：重建 LLM 与摘要器，历史保留；解析失败抛错 */
@@ -77,6 +78,8 @@ export interface ComposedSession {
   compactNow(): Promise<{ dropped: number; summaryChars: number } | null>;
   /** !命令 用户直执行（不经 LLM、不问权限；结果仅返回显示） */
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }>;
+  /** /mcp：接入状态（含失败项） */
+  mcpInfo(): { servers: { name: string; transport: string; tools: number; ok: boolean }[] };
   /** /context 上下文占用 */
   contextStats(): {
     model: string;
@@ -246,7 +249,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     ],
     opts.onNotice,
   );
-  const mcpSessions = await connectMcpServers(await loadMcpConfigs(opts.kcodeHomeDir), {
+  const mcpConfigs = await loadMcpConfigs(opts.kcodeHomeDir);
+  const mcpSessions = await connectMcpServers(mcpConfigs, {
     onWarn: opts.onNotice,
   });
   const pluginMcpConfigs = plugins.flatMap((p) =>
@@ -335,15 +339,14 @@ ${plan}`);
       maxTurns: 24,
     },
   );
-  // 当前运行的 abort 控制器（会话内串行运行；run 结束自动清空）
-  let activeAbort: AbortController | null = null;
+  const runner = new SessionRunner();
   const rawLoopRun = loop.run.bind(loop);
-  loop.run = (input: string, runOpts: { images?: string[] } = {}) => {
-    const controller = new AbortController();
-    activeAbort = controller;
-    return rawLoopRun(input, { ...runOpts, signal: controller.signal }).finally(() => {
-      activeAbort = null;
-    });
+  loop.run = (input, runOpts = {}) => {
+    try {
+      return runner.start((signal) => rawLoopRun(input, {
+        ...runOpts, signal: runOpts.signal === undefined ? signal : AbortSignal.any([signal, runOpts.signal]),
+      }), runOpts.runId).result;
+    } catch (err) { return Promise.reject(err); }
   };
   // applyMode 真身（plan_submit 批准后经占位闭包调用到这里的最终绑定）
   applyMode = (mode: PermissionMode) => {
@@ -359,11 +362,10 @@ ${plan}`);
   };
   return {
     loop,
+    runner,
     sessionId,
     jsonlPath,
-    abort: () => {
-      activeAbort?.abort();
-    },
+    abort: (runId) => runner.abort(runId),
     setMode: applyMode,
     setModel: async (model) => {
       const llm = await opts.llmFactory(model);
@@ -401,7 +403,7 @@ ${plan}`);
       return points;
     },
     rewind: async (eventIndex: number) => {
-      if (activeAbort !== null) {
+      if (runner.busy) {
         throw new Error("运行中不能回退（等待本轮完成或 Esc 中断）");
       }
       const events = await loadSessionEvents(jsonlPath);
@@ -424,7 +426,7 @@ ${plan}`);
       return { restoredFiles, droppedEvents: events.length - eventIndex };
     },
     compactNow: async () => {
-      if (activeAbort !== null) {
+      if (runner.busy) {
         throw new Error("运行中不能压缩（等待本轮完成或 Esc 中断）");
       }
       const result = await loop.compactNow();
@@ -440,6 +442,21 @@ ${plan}`);
         dropped: result.dropped,
       });
       return { dropped: result.dropped, summaryChars: result.summary.length };
+    },
+    mcpInfo: () => {
+      const all = [...mcpConfigs, ...pluginMcpConfigs];
+      const connected = new Map([...mcpSessions, ...pluginMcpSessions].map((x) => [x.name, x]));
+      return {
+        servers: all.map((cfg) => {
+          const session = connected.get(cfg.name);
+          return {
+            name: cfg.name,
+            transport: cfg.transport,
+            tools: session?.tools.length ?? 0,
+            ok: session !== undefined,
+          };
+        }),
+      };
     },
     runBash: async (command, timeoutMs) => {
       const bash = createBashTool({
@@ -461,6 +478,7 @@ ${plan}`);
     },
     contextStats: () => loop.contextStats(),
     close: async () => {
+      runner.abort();
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
       await checkpoints.cleanup();
     },

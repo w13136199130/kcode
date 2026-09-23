@@ -129,7 +129,7 @@ describe("InputBox 逐键回显（真 Ink 渲染管线）", () => {
   it("拼音泄漏 → 中文替换后帧里无残留", async () => {
     const t = renderInput();
     await sleep(100);
-    t.stdin.write("n");
+    t.stdin.write("api");
     t.stdin.write("i");
     await sleep(80);
     t.stdin.write("你好");
@@ -155,7 +155,7 @@ describe("InputBox 逐键回显（真 Ink 渲染管线）", () => {
     t.cleanup();
   });
 
-  it("中文上屏后选词数字不泄漏（护栏内丢弃）", async () => {
+  it("中文后正常输入数字必须保留", async () => {
     const t = renderInput();
     await sleep(100);
     t.stdin.write("n");
@@ -163,10 +163,10 @@ describe("InputBox 逐键回显（真 Ink 渲染管线）", () => {
     t.stdin.write("你好");
     await waitForFrame(t, (s) => lastContentFrame(t.frames).includes("你好"));
     t.stdin.write("1");
-    await sleep(200); // 1.2s 护栏内：应被丢弃
+    await sleep(200); // 紧接中文的数字是合法输入
     const frame = t.frames.at(-1) ?? "";
     expect(frame).toContain("你好");
-    expect(frame).not.toContain("你好1");
+    expect(frame).toContain("api你好1");
     t.cleanup();
   });
     

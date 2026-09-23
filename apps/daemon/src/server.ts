@@ -12,6 +12,35 @@ import {
 import { buildAskPreview } from "@kcode/tools";
 import { composeSession, resolveResumeHistory, trustProject, type ComposedSession } from "./composition.js";
 
+/** 协议方法清单（B5 方法级协商）：客户端据此优雅降级 */
+const SUPPORTED_METHODS = [
+  "hello",
+  "ping",
+  "session_create",
+  "session_send",
+  "session_abort",
+  "session_mode",
+  "session_trust",
+  "commands_list",
+  "command_expand",
+  "ask_reply",
+  "question_reply",
+  "models_list",
+  "session_set_model",
+  "skills_list",
+  "skill_body",
+  "sessions_list",
+  "permissions_list",
+  "permissions_clear",
+  "session_usage",
+  "session_rewind_points",
+  "session_rewind",
+  "session_compact",
+  "session_context",
+  "session_mcp",
+  "bash_run",
+];
+
 /** ask/question 等待客户端应答的超时：超时按拒绝处理，避免会话悬挂 */
 const INTERACTION_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -40,6 +69,7 @@ interface Connection {
   authed: boolean;
   sessions: Map<string, ComposedSession>;
   /** 等待客户端应答的 ask：callId → resolve（应答含会话级放行标记） */
+  interactionOwners: Map<string, string>;
   pendingAsks: Map<string, (answer: PermissionAnswer) => void>;
   /** 等待客户端应答的 question：questionId → resolve */
   pendingQuestions: Map<string, (labels: string[]) => void>;
@@ -57,6 +87,7 @@ export function startDaemon(options: DaemonOptions): Promise<DaemonHandle> {
       socket,
       authed: false,
       sessions: new Map(),
+      interactionOwners: new Map(),
       pendingAsks: new Map(),
       pendingQuestions: new Map(),
     };
@@ -167,6 +198,7 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           id: message.id,
           daemonVersion: options.daemonVersion,
           protocolVersion: PROTOCOL_VERSION,
+          methods: SUPPORTED_METHODS,
         });
         return;
       }
@@ -196,9 +228,10 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
               confirm: (call) =>
                 new Promise<boolean | PermissionAnswer>((resolve) => {
                   const timer = setTimeout(() => {
-                    conn.pendingAsks.delete(call.callId);
+                    conn.pendingAsks.delete(call.callId); conn.interactionOwners.delete(call.callId);
                     resolve({ allowed: false });
                   }, INTERACTION_TIMEOUT_MS);
+                  conn.interactionOwners.set(call.callId, session.sessionId);
                   conn.pendingAsks.set(call.callId, (answer) => {
                     clearTimeout(timer);
                     resolve(answer);
@@ -223,9 +256,10 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
                 new Promise<string[]>((resolve) => {
                   const questionId = randomUUID();
                   const timer = setTimeout(() => {
-                    conn.pendingQuestions.delete(questionId);
+                    conn.pendingQuestions.delete(questionId); conn.interactionOwners.delete(questionId);
                     resolve([]);
                   }, INTERACTION_TIMEOUT_MS);
+                  conn.interactionOwners.set(questionId, session.sessionId);
                   conn.pendingQuestions.set(questionId, (labels) => {
                     clearTimeout(timer);
                     resolve(labels);
@@ -238,9 +272,10 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
                 new Promise((resolve) => {
                   const questionId = randomUUID();
                   const timer = setTimeout(() => {
-                    conn.pendingQuestions.delete(questionId);
+                    conn.pendingQuestions.delete(questionId); conn.interactionOwners.delete(questionId);
                     resolve("abandon");
                   }, INTERACTION_TIMEOUT_MS);
+                  conn.interactionOwners.set(questionId, session.sessionId);
                   conn.pendingQuestions.set(questionId, (labels) => {
                     clearTimeout(timer);
                     const picked = labels[0] ?? "";
@@ -284,13 +319,20 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           send(conn, { kind: "error", id: message.id, message: "会话不存在" });
           return;
         }
-        send(conn, { kind: "accepted", id: message.id });
-        void session.loop
-          .run(message.content, message.images !== undefined ? { images: message.images } : {})
+        if (session.runner.busy) {
+          send(conn, { kind: "error", id: message.id, message: "会话正在运行，请等待完成或先中断" });
+          return;
+        }
+        const result = session.loop.run(message.content, { images: message.images, runId: message.runId });
+        const runId = session.runner.runId!;
+        send(conn, { kind: "accepted", id: message.id, runId });
+        void result
           .then((summary) => {
             send(conn, {
               kind: "run_done",
               sessionId: summary.sessionId,
+              runId,
+              status: summary.status,
               turns: summary.turns,
               toolCalls: summary.toolCalls,
             });
@@ -303,6 +345,8 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
             send(conn, {
               kind: "run_done",
               sessionId: message.sessionId,
+              runId,
+              status: "failed",
               turns: 0,
               toolCalls: 0,
             });
@@ -315,16 +359,21 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           send(conn, { kind: "error", id: message.id, message: "会话不存在" });
           return;
         }
+        if (!session.abort(message.runId)) {
+          send(conn, { kind: "error", id: message.id, message: "运行已结束或 runId 不匹配" });
+          return;
+        }
         // 先结算未决交互（按拒绝）：管线正等 ask 应答，不结算会挂到交互超时
         for (const [callId, resolve] of conn.pendingAsks) {
+          if (conn.interactionOwners.get(callId) !== message.sessionId) continue;
           resolve({ allowed: false });
-          conn.pendingAsks.delete(callId);
+          conn.pendingAsks.delete(callId); conn.interactionOwners.delete(callId);
         }
         for (const [questionId, resolve] of conn.pendingQuestions) {
+          if (conn.interactionOwners.get(questionId) !== message.sessionId) continue;
           resolve([]);
-          conn.pendingQuestions.delete(questionId);
+          conn.pendingQuestions.delete(questionId); conn.interactionOwners.delete(questionId);
         }
-        session.abort();
         send(conn, { kind: "accepted", id: message.id });
         return;
       }
@@ -524,6 +573,15 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
         send(conn, { kind: "context_info", id: message.id, ...stats });
         return;
       }
+      case "session_mcp": {
+        const session = conn.sessions.get(message.sessionId);
+        if (session === undefined) {
+          send(conn, { kind: "error", id: message.id, message: "会话不存在" });
+          return;
+        }
+        send(conn, { kind: "mcp_info", id: message.id, servers: session.mcpInfo().servers });
+        return;
+      }
       case "bash_run": {
         const session = conn.sessions.get(message.sessionId);
         if (session === undefined) {
@@ -554,12 +612,12 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
           allowed: message.allowed,
           ...(message.scope !== undefined ? { scope: message.scope } : {}),
         });
-        conn.pendingAsks.delete(message.callId);
+        conn.pendingAsks.delete(message.callId); conn.interactionOwners.delete(message.callId);
         return;
       }
       case "question_reply": {
         conn.pendingQuestions.get(message.questionId)?.(message.labels);
-        conn.pendingQuestions.delete(message.questionId);
+        conn.pendingQuestions.delete(message.questionId); conn.interactionOwners.delete(message.questionId);
         return;
       }
       default: {

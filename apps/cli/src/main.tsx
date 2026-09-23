@@ -1,8 +1,9 @@
 import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { render } from "ink";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { EncryptedFileKeychain } from "@kcode/platform";
+import { DpapiKeychain, EncryptedFileKeychain, openKeychain } from "@kcode/platform";
 import {
   installPlugin,
   listInstalledPlugins,
@@ -16,13 +17,15 @@ import { KcodeApp } from "./tui/App.js";
 async function keyCommand(args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
   // 环境无口令时交互式询问（set 只对当前窗口生效，新开窗口常见此况）
-  if ((process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && process.stdin.isTTY === true) {
+  const legacyKeysFile = join(kcodeHome(), "keys.json");
+  const dpapiEligible = DpapiKeychain.available && !existsSync(legacyKeysFile);
+  if ((process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && !dpapiEligible && process.stdin.isTTY === true) {
     const pass = await promptHidden("未检测到 KCODE_KEYCHAIN_PASSPHRASE，请输入 keychain 口令（不回显，回车确认）：");
     if (pass !== "") {
       process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
     }
   }
-  const keychain = EncryptedFileKeychain.fromEnv(join(kcodeHome(), "keys.json"));
+  const keychain = openKeychain(join(kcodeHome(), "keys.json"));
   if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
     await keychain.set(ref, key, audiences);
     console.log(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
@@ -174,7 +177,7 @@ async function main(): Promise<void> {
   const needsKey = Object.values(models.providers ?? {}).some(
     (p) => p.type !== "gateway" && p.keyRef !== undefined,
   );
-  if (needsKey && (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "") {
+  if (needsKey && (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && !DpapiKeychain.available) {
     if (process.stdin.isTTY === true) {
       // 交互终端：直接询问口令（不回显）并立即用 keys.json 校验，错了当场重试
       let verified = false;

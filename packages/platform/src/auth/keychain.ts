@@ -7,6 +7,28 @@ import {
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { KeychainEntry } from "@kcode/contracts";
+import { DpapiKeychain } from "./dpapi-keychain.js";
+
+/**
+ * keychain 工厂（B5）：优先级 口令环境变量（向后兼容）> Windows DPAPI（免口令）> 报错。
+ * DPAPI 存独立文件 keys.dpapi.json——与旧 keys.json 互不干扰，老用户零影响。
+ */
+export function openKeychain(keysFilePath: string): KeychainStore {
+  const passphrase = process.env["KCODE_KEYCHAIN_PASSPHRASE"];
+  if (passphrase !== undefined && passphrase !== "") {
+    return new EncryptedFileKeychain(keysFilePath, passphrase);
+  }
+  if (DpapiKeychain.available) {
+    return new DpapiKeychain(
+      keysFilePath.endsWith("keys.json")
+        ? `${keysFilePath.slice(0, -"keys.json".length)}keys.dpapi.json`
+        : keysFilePath,
+    );
+  }
+  throw new Error(
+    "未设置 KCODE_KEYCHAIN_PASSPHRASE（Windows 默认走 DPAPI 免口令；其他平台需设置口令，§5.7）",
+  );
+}
 
 /** 凭证存取端口：daemon 组装时注入；实现仅 platform 与测试可替换 */
 export interface KeychainStore {
