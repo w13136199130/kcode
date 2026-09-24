@@ -33,6 +33,17 @@ function echoTool(received: string[]): Tool {
 }
 
 describe("AgentLoop（§5.1 状态机）", () => {
+  it("最后允许轮次得到正文仍是 completed，不误报上限", async () => {
+    const sink = new MemorySink();
+    const loop = new AgentLoop({ llm: new ScriptedLLM([{ text: "done" }]),
+      tools: new InMemoryToolRegistry([]), permissions: allowAll, hooks: noHooks,
+      sink, audit: new MemoryAudit().sink,
+    }, { sessionId: "last-turn", model: "m", systemPrompt: "t", maxTurns: 1 });
+    expect(await loop.run("go")).toMatchObject({ status: "completed", turns: 1 });
+    expect(sink.events.some((e) => e.type === "run_limit_reached")).toBe(false);
+    expect(sink.events.at(-1)).toMatchObject({ type: "session_end", reason: "completed" });
+  });
+
   it("消息→工具→回填→结束，事件序列符合 JSONL 契约", async () => {
     const llm = new ScriptedLLM([
       {
@@ -60,7 +71,7 @@ describe("AgentLoop（§5.1 状态机）", () => {
 
     const summary = await loop.run("echo hi and yo");
 
-    expect(summary).toEqual({ sessionId: "sess_t1", turns: 2, toolCalls: 2 });
+    expect(summary).toEqual({ sessionId: "sess_t1", turns: 2, toolCalls: 2, status: "completed" });
     expect(sink.events.map((e) => e.type)).toEqual([
       "session_start",
       "user_message",
@@ -349,6 +360,8 @@ describe("AgentLoop（§5.1 状态机）", () => {
     // 轮次正常收尾（run_done 可达），但无 assistant 内容
     expect(sink.events.some((e) => e.type === "assistant_message")).toBe(false);
     expect(summary.turns).toBe(1);
+    expect(summary.status).toBe("failed");
+    expect(sink.events.at(-1)).toMatchObject({ type: "session_end", reason: "failed" });
   });
 
   it("Esc 中断：预置 abort 信号 → 不发起 LLM 调用，session_end(aborted)", async () => {
@@ -374,7 +387,7 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(sink.events.some((e) => e.type === "run_limit_reached")).toBe(false);
   });
 
-  it("轮次上限：到顶发 run_limit_reached，session_end(aborted)，历史保留", async () => {
+  it("轮次上限：到顶发 run_limit_reached，session_end(limit_reached)，历史保留", async () => {
     const echo = echoTool([]);
     const llm = new ScriptedLLM([
       { toolCalls: [{ callId: "c1", tool: "echo", args: { msg: "hi" } }] },
@@ -396,7 +409,7 @@ describe("AgentLoop（§5.1 状态机）", () => {
     const limit = sink.events.find((e) => e.type === "run_limit_reached");
     expect(limit).toMatchObject({ type: "run_limit_reached", maxTurns: 1 });
     const end = sink.events.find((e) => e.type === "session_end");
-    expect(end).toMatchObject({ type: "session_end", reason: "aborted" });
+    expect(end).toMatchObject({ type: "session_end", reason: "limit_reached" });
   });
 
   it("usage 回传：end chunk 用量累计、session_end 带本轮增量、getUsage 跨 run 累计并叠加 resume 种子", async () => {

@@ -174,7 +174,13 @@ async function resolveShell(): Promise<ShellChoice> {
   }
   const bash = await detectWindowsBash();
   if (bash !== undefined) {
-    return { name: "bash", file: bash, args: (c) => ["-c", c] };
+    // 非 login shell 不加载 Git 的 profile；显式加入所选安装的工具目录，
+    // 否则 PATH 只有 Git/cmd 时 sleep/cygpath 不可用，/tmp 也无法转换为原生路径。
+    const msys = (path: string): string => path.replace(/\\/g, "/").replace(/^([a-z]):/i, (_, drive: string) => `/${drive.toLowerCase()}`);
+    const bin = msys(dirname(bash));
+    const usrBin = msys(join(dirname(bash), "..", "usr", "bin"));
+    const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`;
+    return { name: "bash", file: bash, args: (c) => ["-c", `export PATH=${quote(bin)}:${quote(usrBin)}:"$PATH"\n${c}`] };
   }
   return {
     name: "powershell",

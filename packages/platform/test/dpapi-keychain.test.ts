@@ -21,10 +21,11 @@ describe("DpapiKeychain（仅 Windows 实跑；其他平台跳过）", () => {
     }
     const file = join(dir, "keys.dpapi.json");
     const kc = new DpapiKeychain(file);
-    await kc.set("keychain://deepseek", "sk-test-123", ["https://api.deepseek.com"]);
+    await kc.set("keychain://deepseek", "sk-test-123-中文🔑", ["https://api.deepseek.com"]);
     expect(await kc.list()).toEqual(["keychain://deepseek"]);
-    const entry = await kc.get("keychain://deepseek");
-    expect(entry?.key).toBe("sk-test-123");
+    // 新实例强制从磁盘解密，不能用 set() 留在内存中的明文缓存代替往返。
+    const entry = await new DpapiKeychain(file).get("keychain://deepseek");
+    expect(entry?.key).toBe("sk-test-123-中文🔑");
     expect(entry?.audiences).toEqual(["https://api.deepseek.com"]);
     // 落盘内容不含明文 key
     const raw = await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8"));

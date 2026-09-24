@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PermissionDecision, PermissionEngine, Tool, ToolDefinition } from "@kcode/contracts";
 import { AgentLoop } from "../src/core/loop.js";
+import { ToolPipeline } from "../src/core/pipeline.js";
 import {
   InMemoryToolRegistry,
   MemoryAudit,
@@ -31,6 +32,28 @@ function askEngine(): PermissionEngine {
 }
 
 describe("权限 ask 交互流（P1-4）", () => {
+  it.each(["approval", "hook"])("在 %s 等待期间取消，即使批准也不得执行工具", async (stage) => {
+    const controller = new AbortController();
+    const received: string[] = [];
+    const audit = new MemoryAudit();
+    const pipeline = new ToolPipeline(askEngine(), {
+      ...noHooks,
+      preToolUse: async () => {
+        if (stage === "hook") controller.abort();
+        return { veto: false };
+      },
+    }, audit.sink, "sess_cancel", undefined, {
+      confirm: async () => {
+        if (stage === "approval") controller.abort();
+        return true;
+      },
+    });
+    expect(await pipeline.run(stampTool(received), {}, "c1", controller.signal))
+      .toMatchObject({ ok: false, error: "aborted before execution" });
+    expect(received).toEqual([]);
+    expect(audit.records.some((r) => r.decision === "executed")).toBe(false);
+  });
+
   it("ask + 用户放行 → 工具执行", async () => {
     const received: string[] = [];
     const sink = new MemorySink();

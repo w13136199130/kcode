@@ -120,11 +120,11 @@ describe("多行输入（Ctrl+J / 反斜杠续行 / 多行粘贴 / 多行渲染�
     t.unmount();
   }, 10_000);
 
-  it("多行粘贴（单 chunk 含 \\n）：不提前提交，换行保留", async () => {
+  it.each(["\n", "\r\n"])("多行粘贴（换行 %j）：不提前提交，换行保留", async (newline) => {
     const submitted: string[] = [];
     const t = makeHarness((v) => submitted.push(v));
     await sleep(100);
-    t.stdin.write("line1\nline2");
+    t.stdin.write(`line1${newline}line2`);
     await sleep(400);
     if (submitted.length !== 0) {
       throw new Error("多行粘贴在首个换行处被误提交");

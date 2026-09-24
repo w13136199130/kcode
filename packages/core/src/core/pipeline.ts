@@ -37,8 +37,15 @@ export class ToolPipeline {
 
   async run(tool: Tool, args: unknown, callId: string, signal?: AbortSignal): Promise<ToolOutput> {
     const name = tool.definition.name;
+    const cancelled = (): ToolOutput => {
+      this.audit({ ts: this.now(), sessionId: this.sessionId, callId, tool: name,
+        decision: "error", detail: "aborted before execution" });
+      return { ok: false, output: "", error: "aborted before execution" };
+    };
+    if (signal?.aborted) return cancelled();
 
     const decision = await this.permissions.decide(tool.definition, args);
+    if (signal?.aborted) return cancelled();
     if (decision === "deny") {
       this.audit({
         ts: this.now(),
@@ -74,7 +81,9 @@ export class ToolPipeline {
       }
     }
 
+    if (signal?.aborted) return cancelled();
     const pre = await this.hooks.preToolUse({ callId, tool: name, args });
+    if (signal?.aborted) return cancelled();
     if (pre.veto) {
       this.audit({
         ts: this.now(),

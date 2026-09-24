@@ -1,6 +1,6 @@
 import { previousBoundary, nextBoundary, truncateVisual } from "./width.js";
-import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import type {
   AskPreviewPayload,
@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
-import { BlockView, TodoPanel, formatToolPreview, visualWidth, type Block } from "./Transcript.js";
+import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 import { markdownToLines } from "./markdown.js";
 import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
 import { appendHistory, loadInputHistory, saveInputHistory } from "../history-store.js";
@@ -37,6 +37,8 @@ export interface KcodeAppProps {
   images?: string[];
   /** 续接来源（会话 id / 前缀 / latest，由守护进程解析重建） */
   resumeFrom?: string;
+  /** 独立验收入口可指定输入历史，避免混入日常会话。 */
+  historyFile?: string;
 }
 
 /** 四档权限模式的界面元数据（与 extensions/RULES_BY_MODE 一一对应）；符号用等宽字形不用 emoji */
@@ -46,9 +48,6 @@ const MODE_META: Record<PermissionMode, { label: string; hint: string; color: st
   acceptEdits: { label: "自动编辑", hint: "编辑自动放行，命令仍确认", color: "green" },
   fullAccess: { label: "完全访问", hint: "全自动，谨慎使用", color: "red" },
 };
-
-/** spinner 动词池（每轮随机取一，对标 Claude Code 的 Crunching/Pondering） */
-const SPIN_VERBS = ["思考中", "推敲中", "检索中", "整理中", "研磨中", "推演中"];
 
 /** /mode 循环切换顺序：fullAccess 不进循环，只能显式指定并确认 */
 const MODE_CYCLE: PermissionMode[] = ["plan", "default", "acceptEdits"];
@@ -321,6 +320,25 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
  * - 输入 / 开头时弹出命令补全菜单（↑↓ 选择、Tab/回车补全、继续输入过滤）；
  * - 无菜单时 ↑↓ 翻阅输入历史（最近 50 条）：首翻暂存草稿，下翻到底恢复。
  */
+/** Ink 在 effect 中订阅输入；稳定订阅读取最新处理器，避免提交帧后仍使用旧草稿。 */
+function useLiveInput(handler: Parameters<typeof useInput>[0], options: Parameters<typeof useInput>[1]): void {
+  const { stdin } = useStdin();
+  useEffect(() => {
+    // Ink 5 将 DEL 退格与 Delete 合并；在解析前只归一化独立 DEL，
+    // 保留 Delete 的 ESC[3~ 及粘贴文本，避免光标在行中时删除错误方向。
+    const original = stdin.read;
+    const read: typeof stdin.read = function (size) {
+      const chunk: unknown = original.call(stdin, size);
+      return chunk === "\x7f" ? "\b" : chunk;
+    };
+    stdin.read = read;
+    return () => { if (stdin.read === read) stdin.read = original; };
+  }, [stdin]);
+  const latest = useRef(handler);
+  latest.current = handler;
+  useInput(useCallback((text, key) => latest.current(text, key), []), options);
+}
+
 export function InputBox(props: {
   value: string;
   onChange: (value: string) => void;
@@ -345,6 +363,8 @@ export function InputBox(props: {
     cursor !== null && cursor.for === props.value
       ? Math.min(cursor.at, props.value.length)
       : props.value.length;
+  const latestValue = useRef(props.value);
+  latestValue.current = props.value;
   useEffect(() => {
     // 提交后 InputBox 重挂载：首帧可能被终端/上一轮输出覆盖，挂载即请求一次重绘
     props.onCjkCommit?.();
@@ -352,8 +372,7 @@ export function InputBox(props: {
     patchStdinReadForKeys();
     const off = onHomeEnd((k) => {
       if (k === "home") {
-        trimTailTo(0);
-        setCursor({ for: props.value, at: 0 });
+        setCursor({ for: latestValue.current, at: 0 });
       } else {
         setCursor(null);
       }
@@ -369,8 +388,6 @@ export function InputBox(props: {
   };
 
   // 终端没有可靠的 DOM composition 事件：保留收到的文字，不猜拼音，不丢数字。
-  const clearTail = (): void => {};
-  const trimTailTo = (_at: number): void => {};
   const insertText = (str: string): void => {
     const text = str.replace(/\r\n?/g, "\n");
     setValue(props.value.slice(0, pos) + text + props.value.slice(pos), pos + text.length);
@@ -419,7 +436,7 @@ export function InputBox(props: {
   // 过滤词变化即重置高亮（渲染期调整 state 的标准模式）
   // 单一 Ink 输入通道：字符/IME 整串/方向/回车/退格全在此处理。
   // Home/End 在 Ink 的 key 对象里未暴露，以序列形式到达（[H 被剥掉 ESC 后成 "[H"）。
-  useInput(
+  useLiveInput(
     (ch, key) => {
       if (process.env["KCODE_INPUT_DEBUG"] === "1") {
         try {
@@ -463,24 +480,15 @@ export function InputBox(props: {
           setValue("");
         } else if (key.backspace) {
           if (pos > 0) {
-            trimTailTo(previousBoundary(props.value, pos));
             setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
           }
         } else if (key.delete) {
-          // 中文 Windows 控制台的退格键发来 delete(0x7f)而非 backspace；
-          // 行尾时向前无字符，退化为向后删（与其他 CLI 的键码归一化一致）
           if (pos < props.value.length) {
-            trimTailTo(pos);
             setValue(`${props.value.slice(0, pos)}${props.value.slice(nextBoundary(props.value, pos))}`, pos);
-          } else if (pos > 0) {
-            trimTailTo(previousBoundary(props.value, pos));
-            setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
           }
         } else if (key.leftArrow) {
-          trimTailTo(previousBoundary(props.value, pos));
           setCursor({ for: props.value, at: Math.max(0, previousBoundary(props.value, pos)) });
         } else if (key.rightArrow) {
-          trimTailTo(nextBoundary(props.value, pos));
           setCursor({ for: props.value, at: Math.min(props.value.length, nextBoundary(props.value, pos)) });
         } else if (ch !== "" && !key.escape && !key.return && !key.tab) {
           insertText(ch);
@@ -489,7 +497,6 @@ export function InputBox(props: {
       }
       if (key.upArrow) {
         if (props.history.length === 0) return;
-        clearTail();
         if (index.current === -1) {
           draft.current = props.value;
           index.current = props.history.length - 1;
@@ -499,7 +506,6 @@ export function InputBox(props: {
         props.onChange(props.history[index.current] ?? "");
       } else if (key.downArrow) {
         if (index.current === -1) return;
-        clearTail();
         if (index.current < props.history.length - 1) {
           index.current += 1;
           props.onChange(props.history[index.current] ?? "");
@@ -508,40 +514,30 @@ export function InputBox(props: {
           props.onChange(draft.current);
         }
       } else if (key.leftArrow) {
-        trimTailTo(previousBoundary(props.value, pos));
         setCursor({ for: props.value, at: Math.max(0, previousBoundary(props.value, pos)) });
       } else if (key.rightArrow) {
-        trimTailTo(nextBoundary(props.value, pos));
         setCursor({ for: props.value, at: Math.min(props.value.length, nextBoundary(props.value, pos)) });
       } else if (key.backspace) {
         if (pos > 0) {
-          trimTailTo(previousBoundary(props.value, pos));
           setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
         }
       } else if (key.delete) {
-        // 同上：delete 行尾退化为向后删（退格键在中文控制台走此分支）
         if (pos < props.value.length) {
-          trimTailTo(pos);
           setValue(`${props.value.slice(0, pos)}${props.value.slice(nextBoundary(props.value, pos))}`, pos);
-        } else if (pos > 0) {
-          trimTailTo(previousBoundary(props.value, pos));
-          setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
         }
       } else if (key.return) {
         if (ch === "\n") {
           // Ctrl+J（LF）：显式换行——多行输入主入口。Enter 发 \r、Ctrl+J 发 \n，
           // raw 模式下终端恒可区分；粘贴多行文本的换行符也走此路径（不会提前提交）
-          clearTail();
           setValue(`${props.value.slice(0, pos)}\n${props.value.slice(pos)}`, pos + 1);
         } else if (pos === props.value.length && props.value.endsWith("\\") && props.value.length > 1) {
           // 行尾反斜杠 + 回车 = 续行（shell 习惯）：\ 换成换行符，不提交
-          clearTail();
           setValue(`${props.value.slice(0, -1)}\n`, pos);
         } else {
           props.onSubmit(props.value);
         }
       } else if (ch !== "" && !key.escape && !key.tab) {
-        // 可打印字符 / IME 提交的整串（含中文替换拼音）
+        // 可打印字符 / IME 提交的整串
         insertText(ch);
       }
     },
@@ -650,7 +646,9 @@ export function KcodeApp(props: KcodeAppProps) {
     reply: (labels: string[]) => void;
   } | null>(null);
   const [input, setInput] = useState("");
-  const [spinVerb, setSpinVerb] = useState("思考中");
+  const [runPhase, setRunPhase] = useState("处理请求");
+  const [pendingTools, setPendingTools] = useState<Record<string, string>>({});
+  const [cancelling, setCancelling] = useState(false);
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
   const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
   const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
@@ -678,7 +676,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const inputHistory = useRef<string[]>([]);
   const reasoningRef = useRef("");
   const reasoningStartedAt = useRef<number | null>(null);
-  const interactive = process.stdin.isTTY === true;
+  const { stdin } = useStdin();
+  const interactive = stdin.isTTY === true;
   const [reasoningText, setReasoningText] = useState("");
 
   // 时钟只在有动态内容时运行（busy/运行中工具/流式文本）——
@@ -712,6 +711,19 @@ export function KcodeApp(props: KcodeAppProps) {
 
   /** 本轮已发送过中断（重复按 Esc/Ctrl+C 不再刷提示，等当前命令退出） */
   const abortSent = useRef(false);
+  const beginWork = (): void => {
+    abortSent.current = false;
+    setCancelling(false);
+    setPendingTools({});
+    setRunPhase("处理请求");
+    setBusy(true);
+  };
+  useEffect(() => {
+    if (!busy) {
+      setCancelling(false);
+      setNotice((current) => current === "正在取消，等待当前操作退出…" ? null : current);
+    }
+  }, [busy]);
 
   /** 中断当前运行：发送 abort，并立即收掉挂起的交互（daemon 侧也会结算未决 ask） */
   const interruptRun = (): void => {
@@ -722,7 +734,10 @@ export function KcodeApp(props: KcodeAppProps) {
       return; // 已请求过：正在等待当前命令被终止
     }
     abortSent.current = true;
+    setCancelling(true);
     setNotice("正在取消，等待当前操作退出…");
+    // 先发取消，再结算本地交互，避免拒绝回复先到达后触发下一次模型调用。
+    sessionRef.current?.abort();
     if (ask !== null) {
       ask.resolve({ allowed: false });
       setAsk(null);
@@ -733,7 +748,10 @@ export function KcodeApp(props: KcodeAppProps) {
       setQuestion(null);
       pushBlock({ kind: "info", text: "→ 已选：（随中断取消）" });
     }
-    sessionRef.current?.abort();
+    if (planApproval !== null) {
+      planApproval.reply([]);
+      setPlanApproval(null);
+    }
     pushBlock({ kind: "info", tone: "warn", text: "⎋ 已请求中断当前运行…" });
   };
 
@@ -789,7 +807,7 @@ export function KcodeApp(props: KcodeAppProps) {
   useInput(
     (ch, key) => {
       if (key.ctrl && ch === "c") {
-        if (busy && !menuOccupied) {
+        if (busy) {
           interruptRun();
           return;
         }
@@ -845,11 +863,13 @@ export function KcodeApp(props: KcodeAppProps) {
   };
 
   const appendDelta = (delta: string): void => {
+    setRunPhase("接收模型回复");
     streamRef.current += delta;
     setStreamText(streamRef.current);
   };
 
   const appendReasoning = (delta: string): void => {
+    setRunPhase("接收模型思考摘要");
     if (reasoningStartedAt.current === null) {
       reasoningStartedAt.current = Date.now();
     }
@@ -881,6 +901,7 @@ export function KcodeApp(props: KcodeAppProps) {
   const handleEvent = (event: SessionEvent): void => {
     switch (event.type) {
       case "user_message":
+        setRunPhase("等待模型响应");
         if (suppressNextUserBlock.current) {
           suppressNextUserBlock.current = false;
           break;
@@ -888,6 +909,8 @@ export function KcodeApp(props: KcodeAppProps) {
         pushBlock({ kind: "user", text: event.content });
         break;
       case "tool_call":
+        setPendingTools((current) => ({ ...current, [event.callId]: event.tool }));
+        setRunPhase("等待模型响应");
         flushStream();
         pushBlock({
           kind: "tool",
@@ -899,6 +922,12 @@ export function KcodeApp(props: KcodeAppProps) {
         });
         break;
       case "tool_result":
+        setPendingTools((current) => {
+          const next = { ...current };
+          delete next[event.callId];
+          return next;
+        });
+        setRunPhase("等待模型响应");
         setBlocks((prev) =>
           prev.map((b) => {
             if (b.kind !== "tool" || b.callId !== event.callId) return b;
@@ -936,6 +965,8 @@ export function KcodeApp(props: KcodeAppProps) {
         pushBlock({ kind: "info", tone: "warn", text: `✗ 模型调用失败：${event.error}` });
         break;
       case "session_end":
+        setPendingTools({});
+        setRunPhase("正在结束本轮");
         if (event.reason !== "completed") {
           flushStream();
           const labels = { failed: "本轮执行失败", aborted: "已取消本轮执行", limit_reached: "已达到运行上限，任务可能未完成", rejected: "输入被 user_prompt_submit 钩子拒绝" };
@@ -969,12 +1000,14 @@ export function KcodeApp(props: KcodeAppProps) {
     question: { question: string; options: { label: string; description?: string }[] };
     reply: (labels: string[]) => void;
   }): void => {
+    if (abortSent.current) { payload.reply([]); return; }
     setPlanApproval(payload);
   };
 
   const asker: PermissionAsker = {
     confirm: (call) =>
       new Promise<boolean | PermissionAnswer>((resolve) => {
+        if (abortSent.current) { resolve(false); return; }
         if (!interactive) {
           // 非交互环境（管道/CI）自动拒绝——automation 同款语义（§5.5）
           setNotice(`非交互环境，已自动拒绝 ${call.tool}`);
@@ -988,6 +1021,7 @@ export function KcodeApp(props: KcodeAppProps) {
   const askUser: UserPromptPort = {
     ask: (q) =>
       new Promise<string[]>((resolve) => {
+        if (abortSent.current) { resolve([]); return; }
         if (!interactive) {
           resolve([]);
           return;
@@ -1002,7 +1036,7 @@ export function KcodeApp(props: KcodeAppProps) {
       pushBlock({ kind: "info", tone: "warn", text: "运行中不能续接会话（等本轮完成或 Esc 中断）" });
       return;
     }
-    setBusy(true);
+    beginWork();
     setBusySince(Date.now());
     void (async () => {
       try {
@@ -1067,7 +1101,7 @@ export function KcodeApp(props: KcodeAppProps) {
         });
         sessionRef.current = handle;
         setReady(true);
-        inputHistory.current = (await loadInputHistory()).slice(-50);
+        inputHistory.current = (await loadInputHistory(props.historyFile)).slice(-50);
         pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
         // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）
         const mergeCommands = (): void => {
@@ -1082,7 +1116,7 @@ export function KcodeApp(props: KcodeAppProps) {
         mergeCommands();
         setTimeout(mergeCommands, 600);
         if (props.oneShot !== undefined) {
-          setBusy(true);
+          beginWork();
           setBusySince(Date.now());
           try {
             await handle.loop.run(
@@ -1128,8 +1162,8 @@ export function KcodeApp(props: KcodeAppProps) {
       const command = text.slice(1).trim();
       pushBlock({ kind: "user", text });
       inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
-      void saveInputHistory(inputHistory.current);
-      setBusy(true);
+      void saveInputHistory(inputHistory.current, props.historyFile);
+      beginWork();
       setBusySince(Date.now());
       try {
         const result = await session.runBash(command);
@@ -1244,7 +1278,7 @@ ${result.error}` : ""}`,
         }
         pushBlock({ kind: "info", text: `📖 手动注入技能 ${args}` });
         suppressNextUserBlock.current = true;
-        setBusy(true);
+        beginWork();
         setBusySince(Date.now());
         try {
           await session.loop.run(`<skill name="${args}">
@@ -1332,7 +1366,7 @@ ${body}
           pushBlock({ kind: "info", tone: "warn", text: "运行中不能清屏开新会话（等本轮完成或 Esc 中断）" });
           return;
         }
-        setBusy(true);
+        beginWork();
         setBusySince(Date.now());
         try {
           const handle = await createSession({
@@ -1500,8 +1534,8 @@ ${servers
         return;
       }
       inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
-      void saveInputHistory(inputHistory.current);
-      setBusy(true);
+      void saveInputHistory(inputHistory.current, props.historyFile);
+      beginWork();
       setBusySince(Date.now());
       try {
         await session.loop.run(expanded);
@@ -1516,10 +1550,9 @@ ${servers
 
     setInput("");
     inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
-    void saveInputHistory(inputHistory.current);
+    void saveInputHistory(inputHistory.current, props.historyFile);
     abortSent.current = false;
-    setSpinVerb(SPIN_VERBS[Math.floor(Math.random() * SPIN_VERBS.length)] ?? "思考中");
-    setBusy(true);
+    beginWork();
     setBusySince(Date.now());
     try {
       await session.loop.run(text);
@@ -1540,6 +1573,14 @@ ${servers
   const meta = MODE_META[mode];
   const busyElapsed =
     busy && busySince !== null && tick > busySince ? ` (${((tick - busySince) / 1000).toFixed(1)}s)` : "";
+  const toolNames = Object.values(pendingTools);
+  // tool_call 表示模型提出调用，尚不保证已获准执行，因此使用“处理工具”。
+  const activityLabel = cancelling ? "正在取消，等待当前操作退出"
+    : ask !== null ? `等待工具确认：${ask.call.tool}`
+    : planApproval !== null ? "等待计划批准"
+    : question !== null ? "等待你的回答"
+    : toolNames.length > 0 ? `处理工具：${[...new Set(toolNames)].join("、")}`
+    : runPhase;
 
   // Static 架构：已完成块一次性推进 scrollback（不再重绘，长会话不整帧重印）；
   // 活跃帧只保留尾部——运行中的工具块 + 流式文本 + 交互区。
@@ -1572,6 +1613,11 @@ ${servers
       {notice !== null && (
         <Text color="yellow" wrap="truncate-end">
           {notice}
+        </Text>
+      )}
+      {busy && (
+        <Text dimColor>
+          ✻ {activityLabel}{busyElapsed}…（Ctrl+C 取消整轮{menuOccupied ? "" : " · Esc 中断"} · Ctrl+O {verbose ? "折叠" : "展开"}）
         </Text>
       )}
       {ask !== null ? (
@@ -1984,12 +2030,7 @@ ${servers
           />
         </Box>
       ) : ready ? (
-        busy ? (
-          <Text dimColor>
-            ✻ {reasoningText !== "" ? "思考中" : spinVerb}
-            {busyElapsed}…（Esc 中断 · Ctrl+O {verbose ? "折叠" : "展开"}）
-          </Text>
-        ) : interactive ? (
+        busy ? null : interactive ? (
           <InputBox
             value={input}
             onChange={setInput}

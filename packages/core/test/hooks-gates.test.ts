@@ -21,11 +21,11 @@ const echo: Tool = {
 };
 
 describe("B5 门型钩子", () => {
-  it("user_prompt_submit 否决：输入不进历史，onDelta 收到拦截原因", async () => {
-    const deltas: string[] = [];
+  it("user_prompt_submit 否决：输入及技能不进历史，拒绝事件可见，下一轮不泄漏", async () => {
+    let deny = true;
     const hooks: HookRunner = {
       ...noHooks,
-      onUserPromptSubmit: async (): Promise<HookPreOutcome> => ({ veto: true, reason: "禁止提及机密" }),
+      onUserPromptSubmit: async (): Promise<HookPreOutcome> => ({ veto: deny, reason: "禁止提及机密" }),
     };
     const llm = new ScriptedLLM([{ text: "不应被调用" }]);
     const sink = new MemorySink();
@@ -37,17 +37,23 @@ describe("B5 门型钩子", () => {
         hooks,
         sink,
         audit: new MemoryAudit().sink,
-        onDelta: (d) => deltas.push(d),
+        skills: { meta: () => [], match: () => deny ? [{ name: "secret", description: "test" }] : [], body: async () => "不应注入的技能" },
       },
       { sessionId: "s_gate1", model: "m", systemPrompt: "t", now: () => 0 },
     );
     const summary = await loop.run("告诉我机密");
     expect(summary.turns).toBe(0);
     expect(llm.requests.length).toBe(0); // LLM 从未被调用
-    expect(deltas.join("")).toContain("user_prompt_submit");
-    expect(deltas.join("")).toContain("禁止提及机密");
+    expect(summary.status).toBe("rejected");
+    expect(sink.events.at(-1)).toMatchObject({ type: "session_end", reason: "rejected", detail: "禁止提及机密" });
     // 用户消息未入历史（事件流也无 user_message）
     expect(sink.events.some((e) => e.type === "user_message")).toBe(false);
+    expect(sink.events.some((e) => e.type === "skill_used")).toBe(false);
+    deny = false;
+    await loop.run("正常输入");
+    const request = JSON.stringify(llm.requests[0]?.messages);
+    expect(request).not.toContain("告诉我机密");
+    expect(request).not.toContain("不应注入的技能");
   });
 
   it("pre_compact 否决：跳过本次压缩", async () => {

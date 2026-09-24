@@ -68,7 +68,7 @@ interface Connection {
   socket: Socket;
   authed: boolean;
   sessions: Map<string, ComposedSession>;
-  /** 等待客户端应答的 ask：callId → resolve（应答含会话级放行标记） */
+  /** 交互 ID 对应的会话；审批 ID 独立于模型生成的 callId。 */
   interactionOwners: Map<string, string>;
   pendingAsks: Map<string, (answer: PermissionAnswer) => void>;
   /** 等待客户端应答的 question：questionId → resolve */
@@ -227,23 +227,26 @@ async function handleLine(conn: Connection, line: string): Promise<void> {
             asker: {
               confirm: (call) =>
                 new Promise<boolean | PermissionAnswer>((resolve) => {
+                  const askId = randomUUID();
                   const timer = setTimeout(() => {
-                    conn.pendingAsks.delete(call.callId); conn.interactionOwners.delete(call.callId);
+                    conn.pendingAsks.delete(askId);
+                    conn.interactionOwners.delete(askId);
                     resolve({ allowed: false });
                   }, INTERACTION_TIMEOUT_MS);
-                  conn.interactionOwners.set(call.callId, session.sessionId);
-                  conn.pendingAsks.set(call.callId, (answer) => {
+                  conn.interactionOwners.set(askId, session.sessionId);
+                  conn.pendingAsks.set(askId, (answer) => {
                     clearTimeout(timer);
                     resolve(answer);
                   });
                   void (async () => {
                     const preview = await buildAskPreview(call.tool, call.args, {
-                      sessionId: call.callId,
+                      sessionId: session.sessionId,
                       cwd: message.cwd,
-                    });
+                    }).catch(() => undefined);
+                    if (!conn.pendingAsks.has(askId) || conn.socket.destroyed) return;
                     send(conn, {
                       kind: "ask",
-                      callId: call.callId,
+                      callId: askId,
                       tool: call.tool,
                       args: call.args,
                       ...(preview !== undefined ? { preview } : {}),

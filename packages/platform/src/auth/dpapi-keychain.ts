@@ -91,7 +91,8 @@ function runPowerShell(script: string, stdinText: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", script],
+      ["-NoProfile", "-NonInteractive", "-Command",
+        "$ErrorActionPreference='Stop'; [Console]::InputEncoding=[Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); " + script],
       { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
     );
     let out = "";

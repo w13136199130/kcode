@@ -68,7 +68,7 @@ export class ProcessHookRunner implements HookRunner {
           this.#warn(`${event} 钩子失败（code=${result.code}${result.timedOut ? " 超时" : ""}），按 fail-closed 拦截`);
           return { veto: true, reason: `${event} 钩子失败（fail-closed）` };
         }
-        this.#warn(`${event} 钩子异常（code=${result.code}），按放行处理：${result.stderr.trim()}`);
+        this.#warn(`${event} 钩子异常（code=${result.code}${result.timedOut ? " 超时" : ""}），按放行处理：${result.stderr.trim()}`);
         continue;
       }
       if (result.code === 2) {
@@ -151,13 +151,20 @@ function tryParseOutcome(stdout: string): { action: "allow" | "block" | "mutate"
 function runCommand(command: string, payload: unknown, timeoutMs: number): Promise<HookExecution> {
   return new Promise((resolvePromise, reject) => {
     const shell = shellCommand(command);
-    const child = spawn(shell.file, shell.args, { windowsHide: true });
+    const child = spawn(shell.file, shell.args, { windowsHide: true, detached: process.platform !== "win32" });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      if (child.pid !== undefined && process.platform === "win32") {
+        const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
+        killer.on("error", () => child.kill());
+      } else if (child.pid !== undefined) {
+        try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+      } else {
+        child.kill();
+      }
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");

@@ -3,6 +3,7 @@ node_modules/
 dist/
 .turbo/
 coverage/
+.artifacts/
 evals/reports/
 *.tsbuildinfo
 

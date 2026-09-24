@@ -11,7 +11,7 @@ function Harness(): ReactElement {
     <InputBox
       value={value}
       onChange={setValue}
-      onSubmit={() => {}}
+      onSubmit={() => setValue("")}
       history={["第一句"]}
       commands={COMMANDS}
     cwd="/tmp" />
@@ -114,28 +114,42 @@ async function waitForFrame(
 }
 
 describe("InputBox 逐键回显（真 Ink 渲染管线）", () => {
-  // skip 原因：vitest 桩的「文件首实例」输入事件丢失边缘（后续测试同桩正常）；
-  // 真终端行为由用户机器 kcode-input.log 验证过：handler 正常触发与回显。
-  it.skip("英文字符逐键回显", async () => {
+  it("光标左移与退格按字符簇处理组合字符和家庭 emoji", async () => {
+    const t = renderInput();
+    try {
+      await sleep(100);
+      t.stdin.write("中e\u0301👨‍👩‍👧‍👦Z");
+      await waitForFrame(t, () => lastContentFrame(t.frames).includes("Z█"));
+      t.stdin.write("\x1b[D");
+      await waitForFrame(t, () => lastContentFrame(t.frames).includes("█Z"));
+      t.stdin.write("\x7f");
+      await waitForFrame(t, () => lastContentFrame(t.frames).includes("e\u0301█Z"));
+      expect(lastContentFrame(t.frames)).toContain("中e\u0301█Z");
+      t.stdin.write("\x7f");
+      await waitForFrame(t, () => lastContentFrame(t.frames).includes("中█Z"));
+      expect(lastContentFrame(t.frames)).toContain("中█Z");
+    } finally { t.cleanup(); }
+  });
+
+  it("英文字符逐键回显", async () => {
     const t = renderInput();
     await sleep(100);
     t.stdin.write("hi");
-    await waitForFrame(t, (s) => lastContentFrame(t.frames).includes("hi"));
+    await waitForFrame(t, () => lastContentFrame(t.frames).includes("hi"));
     const frame = lastContentFrame(t.frames);
     expect(frame).toContain("hi");
     t.cleanup();
   });
 
-  it("拼音泄漏 → 中文替换后帧里无残留", async () => {
+  it("英文后中文不得误删英文", async () => {
     const t = renderInput();
     await sleep(100);
     t.stdin.write("api");
-    t.stdin.write("i");
-    await sleep(80);
+    await sleep(200);
     t.stdin.write("你好");
-    const frame = await waitForFrame(t, (s) => lastContentFrame(t.frames).includes("你好"));
+    const frame = await waitForFrame(t, () => lastContentFrame(t.frames).includes("你好"));
     expect(frame).toContain("你好");
-    expect(frame).not.toContain("ni");
+    expect(frame).toContain("api你好");
     t.cleanup();
   });
 
@@ -158,10 +172,10 @@ describe("InputBox 逐键回显（真 Ink 渲染管线）", () => {
   it("中文后正常输入数字必须保留", async () => {
     const t = renderInput();
     await sleep(100);
-    t.stdin.write("n");
-    await sleep(60);
+    t.stdin.write("api");
+    await sleep(200);
     t.stdin.write("你好");
-    await waitForFrame(t, (s) => lastContentFrame(t.frames).includes("你好"));
+    await waitForFrame(t, () => lastContentFrame(t.frames).includes("你好"));
     t.stdin.write("1");
     await sleep(200); // 紧接中文的数字是合法输入
     const frame = t.frames.at(-1) ?? "";

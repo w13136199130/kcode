@@ -185,6 +185,44 @@ describe("daemon 本地 API（named pipe / Unix socket）", () => {
     client.close();
   });
 
+  it("同会话拒绝重入；重复模型 callId 的跨会话审批与取消互不影响", async () => {
+    llmScript = [
+      { toolCalls: [{ callId: "same-model-id", tool: "write", args: { path: "m0-isolated.txt", content: "ok" } }] },
+      { text: "done" },
+    ];
+    const client = new ProtocolClient();
+    await client.open(handle.pipePath);
+    try {
+      await client.request({ method: "hello", token, protocolVersion: PROTOCOL_VERSION });
+      const create = async (): Promise<string> => {
+        const response = await client.request({ method: "session_create", cwd: workspace, model });
+        if (response.kind !== "session_ok") throw new Error("create failed");
+        return response.sessionId;
+      };
+      const first = await create();
+      const second = await create();
+      await client.request({ method: "session_send", sessionId: first, runId: "run-first", content: "write" });
+      const ask1 = await client.waitForNotification((m) => m.kind === "ask");
+      if (ask1.kind !== "ask") throw new Error("ask missing");
+      await expect(client.request({ method: "session_send", sessionId: first, content: "overlap" })).rejects.toThrow();
+      await expect(client.request({ method: "session_abort", sessionId: first, runId: "stale" })).rejects.toThrow();
+      await client.request({ method: "session_send", sessionId: second, runId: "run-second", content: "write" });
+      const ask2 = await client.waitForNotification((m) => m.kind === "ask" && m.callId !== ask1.callId);
+      if (ask2.kind !== "ask") throw new Error("second ask missing");
+      await client.request({ method: "session_abort", sessionId: first, runId: "run-first" });
+      expect(await client.waitForNotification((m) => m.kind === "run_done" && m.runId === "run-first"))
+        .toMatchObject({ status: "aborted", sessionId: first });
+      client.sendRaw({ id: 9999, method: "ask_reply", callId: ask2.callId, allowed: true });
+      expect(await client.waitForNotification((m) => m.kind === "run_done" && m.runId === "run-second"))
+        .toMatchObject({ status: "completed", sessionId: second });
+      const { readFile } = await import("node:fs/promises");
+      expect(await readFile(join(workspace, "m0-isolated.txt"), "utf8")).toBe("ok");
+    } finally {
+      client.close();
+      llmScript = [{ text: "你好，会话已建立。" }];
+    }
+  });
+
   it("斜杠命令：列表与展开", async () => {
     await mkdir(join(workspace, ".kcode", "commands"), { recursive: true });
     await writeFile(join(workspace, ".kcode", "commands", "demo.md"), "演示命令：$ARGUMENTS", "utf8");

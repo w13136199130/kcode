@@ -13,7 +13,7 @@ const mode = process.argv[2] ?? "allow";
 const input = readFileSync(0, "utf8");
 if (mode === "block") { console.log(\`被钩子拦截（收到 \${input.length} 字节载荷）\`); process.exit(2); }
 if (mode === "mutate") { console.log(JSON.stringify({ action: "mutate", args: { msg: "改写后的参数" } })); process.exit(0); }
-if (mode === "timeout") { await new Promise(() => {}); }
+if (mode === "timeout") { setInterval(() => {}, 1000); await new Promise(() => {}); }
 if (mode === "fail") { console.error("钩子内部错误"); process.exit(1); }
 process.exit(0);
 `;
@@ -61,27 +61,29 @@ describe("ProcessHookRunner（钩子裁决协议）", () => {
     const warnsTimeout: string[] = [];
     const outcomeTimeout = await makeRunner("timeout", warnsTimeout).preToolUse(call);
     expect(outcomeTimeout.veto).toBe(false);
-    expect(warnsTimeout.some((w) => w.includes("超时") || w.includes("异常"))).toBe(true);
+    expect(warnsTimeout.some((w) => w.includes("超时"))).toBe(true);
 
     const warnsFail: string[] = [];
     const outcomeFail = await makeRunner("fail", warnsFail).preToolUse(call);
     expect(outcomeFail.veto).toBe(false);
     expect(warnsFail.length).toBeGreaterThan(0);
-  });
+  }, 15_000); // 包含 Windows 进程树终止和第二次 PowerShell 启动；钩子自身仍限时 800ms。
 
   it("postToolUse 与生命周期钩子正常执行不抛错", async () => {
+    const warns: string[] = [];
     const runner = new ProcessHookRunner(
       [
         { event: "post_tool_use", command: cmd("allow") },
         { event: "session_start", command: cmd("allow") },
         { event: "stop", command: cmd("allow") },
       ],
-      { sessionId: "s" },
+      { sessionId: "s", onWarn: (message) => warns.push(message) },
     );
     await expect(runner.postToolUse(call, { ok: true, output: "done" })).resolves.toBeUndefined();
     await expect(runner.onSessionStart?.({ sessionId: "s" })).resolves.toBeUndefined();
     await expect(runner.onStop?.({ sessionId: "s" })).resolves.toBeUndefined();
-  });
+    expect(warns).toEqual([]);
+  }, 15_000); // 三个真实子进程顺序启动，Windows 满载时可能超过 Vitest 默认 5 秒。
 });
 
 describe("loadHookConfigs（配置加载与信任门控）", () => {
