@@ -4,4 +4,4 @@
  * / registry（Sigstore 验证 + 副签 + 扫描门 + CRL）/ usage（BullMQ 计量）。
  * 部署：deploy/docker-compose.yml（server + zitadel + postgres + redis）。
  */
-console.log("kcode server — P4 落地（见 ARCHITECTURE.md §9）");
+console.log("kcode server — N4 落地（见 DESIGN.md §8.5）");

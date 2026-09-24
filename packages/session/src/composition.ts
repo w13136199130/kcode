@@ -27,7 +27,7 @@ import {
   loadHookConfigs,
   trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
-import { SessionRunner, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
+import { SessionRunner, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId } from "@kcode/shared";
 import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
@@ -380,7 +380,8 @@ ${plan}`);
     clearPersistentGrants: () => grantStore.clear(),
     usageSummary: () => loop.getUsage(),
     listRewindPoints: async () => {
-      const events = await loadSessionEvents(jsonlPath);
+      // 只列**有效前缀**内的提问：已回退掉的轮次不应再出现在回退点清单里
+      const events = effectiveEvents(await loadSessionEvents(jsonlPath));
       const points: { eventIndex: number; preview: string; ts: number; fileChanges: number }[] = [];
       for (let i = 0; i < events.length; i++) {
         const event = events[i]!;
@@ -406,10 +407,15 @@ ${plan}`);
       if (runner.busy) {
         throw new Error("运行中不能回退（等待本轮完成或 Esc 中断）");
       }
-      const events = await loadSessionEvents(jsonlPath);
+      const all = await loadSessionEvents(jsonlPath);
+      // 回退点下标基于**有效前缀**（连续回退两次时，第二次的下标不再对应整个文件）
+      const events = effectiveEvents(all);
       const target = events[eventIndex];
       if (target === undefined || target.type !== "user_message") {
         throw new Error("回退点无效");
+      }
+      if (eventIndex === events.length) {
+        throw new Error("该提问已是最后一个回退点");
       }
       // 恢复该提问起的全部写/编辑前像（store 内部按逆序回滚）
       const callIds = events
@@ -421,9 +427,20 @@ ${plan}`);
         .map((e) => e.callId)
         .filter((id) => checkpoints.get(id) !== undefined);
       const restoredFiles = await checkpoints.restore(callIds);
+      // M1-02：回退必须落盘，否则重启后被回退内容复活。
+      // 写成 append-only 的截断标记（含有效前缀长度），经 sink 同时通知 UI 与落盘。
+      await sink.append({
+        v: 1,
+        type: "session_rewind",
+        ts: Date.now(),
+        sessionId,
+        keepEvents: eventIndex,
+        restoredFiles,
+      });
       loop.replaceHistory(rebuildHistory(events.slice(0, eventIndex)));
-      opts.onNotice?.(`已回退：恢复 ${restoredFiles} 个文件 · 对话截断 ${events.length - eventIndex} 个事件`);
-      return { restoredFiles, droppedEvents: events.length - eventIndex };
+      const droppedEvents = events.length - eventIndex;
+      opts.onNotice?.(`已回退：恢复 ${restoredFiles} 个文件 · 对话截断 ${droppedEvents} 个事件`);
+      return { restoredFiles, droppedEvents };
     },
     compactNow: async () => {
       if (runner.busy) {
@@ -502,7 +519,9 @@ export async function resolveResumeHistory(
   if (target === undefined) {
     return null;
   }
-  const events = await loadSessionEvents(target.filePath);
+  const all = await loadSessionEvents(target.filePath);
+  // 用量只累计**有效前缀**：已回退轮次的用量不应继续计入 /cost（否则回退后费用偏高）
+  const events = effectiveEvents(all);
   const usage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
   for (const event of events) {
     if (event.type === "session_end" && event.usage !== undefined) {
@@ -513,7 +532,6 @@ export async function resolveResumeHistory(
   }
   return { messages: rebuildHistory(events), usage };
 }
-
 /** 把项目写入受信任清单（幂等） */
 export function trustProject(cwd: string, kcodeHomeDir: string): Promise<void> {
   return trustProjectOnFile(cwd, join(kcodeHomeDir, "trusted-projects.json"));

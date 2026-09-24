@@ -146,6 +146,27 @@ export const LlmErrorEvent = z.object({
   error: z.string().min(1),
 });
 
+/**
+ * 回退事件（/rewind，M1-02）：**append-only 的截断标记**，不物理改写 JSONL。
+ *
+ * 语义：调用时刻起，有效历史 = 本事件之前的**前 keepEvents 个事件**。
+ * 之所以能只存一个下标：JSONL 是 append-only，早于本事件的事件永不改变，
+ * 因此 `events.slice(0, keepEvents)` 恒等于回退当时的有效历史。
+ *
+ * 回放侧（rebuildHistory / listRewindPoints）必须取**最后一条** session_rewind 的
+ * keepEvents 作为有效前缀；这样「回退 → 重启 → 续接」与「连续回退两次」都能正确收敛。
+ */
+export const SessionRewindEvent = z.object({
+  v: v1,
+  type: z.literal("session_rewind"),
+  ts,
+  sessionId,
+  /** 有效前缀长度：保留 events[0 .. keepEvents-1]，其余视为已弃用 */
+  keepEvents: z.number().int().nonnegative(),
+  /** 本地恢复的文件快照数（仅展示/审计用） */
+  restoredFiles: z.number().int().nonnegative().optional(),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -159,6 +180,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   PermissionDecisionEvent,
   LlmErrorEvent,
   RunLimitReachedEvent,
+  SessionRewindEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

@@ -1,25 +1,65 @@
-# kcode 威胁模型（P0 · 一页）
+# kcode 威胁模型（v2 · 单进程版）
 
-> §9 P0 交付物；§7 安全模型与"已知边界"声明的锚点。
-> 资产：用户源码与会话内容（密文上云）、keychain 中的 API key 与设备私钥、更新通道、插件市场信任、relay 元数据。
+> §7 安全模型与「已知边界」声明的锚点。
+> **v2 变更（2026-09-24）**：随单进程化重画信任边界（见 [DESIGN.md](../DESIGN.md) §5 ADR-2）。
+> 旧版基于「CLI 薄壳 + 常驻 daemon」，其 B2（本地 API 通道）随 `apps/daemon` 与
+> `contracts/localapi.ts` 一并删除而**不再存在**。旧版留档见 git 历史。
+>
+> **本版口径规则**：只写代码里**已经成立**的缓解；未实现的写成「目标」，不写成能力。
+> 每处边界标注状态：**已实现** / **部分** / **目标（未实现）**。
 
-## 信任边界（六处）与 STRIDE 主要项
+## 资产
 
-| # | 边界 | 主要威胁（STRIDE） | 缓解（详见 ARCHITECTURE.md） |
+用户源码与会话内容 · keychain 中的 API key（**明文仅存于进程内存**）· 未来：设备私钥、更新通道、插件市场信任、relay 元数据。
+
+## 单进程化的安全后果（先说结论）
+
+移除 daemon 在安全上是**净变化，不是净收益**，两笔账要分开记：
+
+**减少的攻击面**（真实收益）：进程间通道整体消失——不再有 UDS/named pipe 的权限位、每用户 ACL、TCP 兜底的 127.0.0.1/Host/Origin/token 校验、协议版本协商，也不再有 DNS rebinding 与「任意本机进程连接」这类威胁。同时口令类环境继承错位（daemon 继承首个终端的环境）结构性消失。
+
+**增加/转移的风险**（必须承认）：原先 keychain 只在 daemon 进程内读取（旧版 B2 的缓解），CLI 进程不接触 key 材料。单进程后 **key 材料与工具执行、prompt 注入内容、hooks、MCP 客户端处于同一进程**（`bootstrap.ts:58`、`main.tsx:28,36`、`providers/route.ts:41`）。因此提示注入的价值从「控制工具」上升到「可能触及凭据」。受众绑定是这条路径上的**硬闸门**，见 B1/B2。
+
+## 信任边界（五处）与 STRIDE 主要项
+
+| # | 边界 | 主要威胁 | 缓解（状态） |
 |---|---|---|---|
-| B1 | 项目配置 → providers/keyRef | I：伪装端点窃取 API key | 双作用域 schema（项目级无 `providers` 字段）+ key 受众绑定；§5.7 |
-| B2 | 本地进程 → daemon 本地 API | S/T/E：任意进程连接、DNS rebinding、越权调用 | UDS/named pipe + 每用户 ACL；TCP 兜底 127.0.0.1 + Host/Origin/token；keychain 只在 daemon 进程内读取；§5.6.2 |
-| B3 | 市场页面（UGC）→ 控制台（私钥） | I/T：XSS 偷设备私钥、UGC 注入 | 分源部署；sandboxed iframe + CSP；non-extractable 私钥 + passphrase 包裹；浏览器设备密钥只读级；§5.6 |
-| B4 | 设备 ↔ relay（E2E） | S/R/I：设备冒充、撤销后仍读、密文泄露 | epoch 换钥 + relay 设备授权表；新设备需已授权设备批准；HKDF 逐消息 ratchet；§5.6.1 |
-| B5 | 更新通道 → 客户端 | T/R/S：恶意更新、回滚攻击、伪造升级钓鱼 | TUF 角色分离（离线 root / 在线 release / timestamp）；带签名最低版本声明；原子替换 + 健康检查回滚；§5.6.3 |
-| B6 | 插件市场 → 本机 | T/E/R：恶意插件、安装期 RCE、seed 篡改 | Sigstore keyless + registry 副签 + 扫描门 + 同意页 diff + `--ignore-scripts` + seed 锁定 + CRL；§5.8 |
+| **B1** | 配置/项目上下文 → 端点解析 | **I**：伪装端点窃取 API key | 双作用域 schema（项目级无 `providers` 字段，`contracts/provider.ts`）**已实现**；受众绑定（key 只发往 keychain 登记的 audiences，`credentials.ts:15-20`，不匹配即硬失败）**已实现**；§5.7 |
+| **B2** | keychain 文件 → 进程内存 → 出境 | **I**：明文 key 被读走/外发 | AES-256-GCM（口令，PBKDF2 100k）与 Windows DPAPI（CurrentUser）**已实现**；但 **key 解密后以明文存于进程内存**，与工具执行同进程 —— 这是单进程化引入的**残余风险**，当前无隔离；§5.7 |
+| **B3** | 不可信内容 → 模型 → 工具调用 | **T/E/I**：提示注入驱动越权工具、外泄 | 规则引擎**安全缺省为 deny**（`permissions/engine.ts:20`「无规则命中时 deny」）**已实现**；权限三态 + 逐次确认、`/plan` 只读档、`automation` ask→deny **已实现**；持久放行**打不穿** plan 只读档（`permissions/store.ts:16-18`），且与 `trusted-projects.json` 同一信任边界——**项目目录内文件不能给项目自授放行** **已实现**；**无 OS 级沙箱**，`paths.ts` 仅做路径解析、**不做工作区写边界** —— 「工具执行前确认」是交互门槛，**不等于沙箱**（§7 已声明）；§5.5 |
+| **B4** | 进程 → 命令执行（hooks / bash） | **E**：任意命令执行 | `bash` 走权限确认 + 超时 + 进程树清理 **已实现**；项目级 hooks 需 `/trust` 才加载，未信任仅告警 **已实现**（`hooks/loader.ts:23-31`）；hooks fail-open（超时/失败放行并告警）**已实现**（可配 fail-closed 为目标）；§5.2 |
+| **B5** | 插件/技能 → 本机（供应链） | **T/E/R**：恶意插件、安装期 RCE、加载期篡改 | 安装为**纯文件复制**（`plugins/install.ts:100-136`，不执行 npm 生命周期/安装脚本）**已实现**；安装期记录 seed（sha256 + 版本）**已实现**；**加载期不重校验 hash**（`hashDirectory` 仅在 `installPlugin:119` 调用）→ **目标**；签名（Sigstore keyless + 副签 + 扫描门 + CRL）**目标，未实现**（`sig: "local-install"` 无验签；全仓无 `--ignore-scripts` 实现，因当前安装路径本就不跑脚本）；§5.8 |
+
+### 与旧版逐条对照
+
+| 旧边界 | 现状 |
+|---|---|
+| B1 项目配置 → providers/keyRef | **保留**（B1） |
+| B2 本地进程 → daemon 本地 API | **失效并删除**。无 IPC 后此边界不存在。原缓解中的「keychain 只在 daemon 进程内读取」在单进程下**不再成立**，已改写为 B2 的残余风险条目 |
+| B3 市场页面（UGC）→ 控制台（私钥） | **保留但未实现**（P4；`apps/market` 零源码） |
+| B4 设备 ↔ relay（E2E） | **保留但未实现**。E2E 加密层（epoch/ratchet/envelope）已在 `platform/src/transport/e2e/` 落地并有测试，但**无 relay 消费者**（P4） |
+| B5 更新通道 → 客户端 | **保留但未实现**。仅 `contracts/update.ts` 契约，无实现 |
+| B6 插件市场 → 本机 | **部分**（见 B5；安装期有、加载期与签名无） |
+| — | **新增 B3/B4 的显式化**：单进程把「不可信内容」与「凭据」放进同一进程，故 B2/B3 的耦合关系需显式记录 |
 
 ## 横切
 
-- 提示注入：全行业未解（已知边界 §7）——权限分级、第三方技能默认手动触发、审计留痕；
-- 无人值守（cron/headless）：`automation` 权限模式，ask 降级为 deny + 通知；§5.5；
-- 回放/eval 夹具：`replay: true`——hooks 不执行、工具以录制结果替代；§8.2。
+- **提示注入**：全行业未解，**如实声明不解决**。缓解：规则引擎安全缺省 deny、权限分级（读放行、写/命令逐次确认）、持久放行不得打穿 `/plan` 只读档、审计留痕。
+  **当前偏差需修正**：`SkillManifest` 只有 `triggers` 字段（`contracts/skill.ts:4-9`，其注释声明「第三方技能默认手动，§5.4」），但 `match()`（`skills/library.ts:47-55`）**只按触发词过滤、不区分来源**——只要插件/项目技能写了 `triggers` 就会自动注入正文。即**注释所声明的策略尚未落地**，仅有「无 triggers ⇒ 不自动触发」这一半。归为**目标**，或在实现前收窄对外口径。
+- **无人值守**（cron/headless）：`automation` 权限模式，ask 降级为 deny + 记录 + 通知；§5.5。**已实现**（`permissions/presets.ts:80` `AutomationPermissionEngine`，core 侧无 asker 时同样按 deny 降级：`pipeline.ts:60`），有测试覆盖。注意：该模式是**权限语义**已就绪，**调度器本身**仍为 P5 目标（`runtime/src/scheduler/index.ts` 仅接口）。
+- **回放/eval 夹具**：`replay: true` —— hooks 不执行、工具以录制结果替代，CI 中真实命令/hooks 永不运行；§8.2。**已实现**。
+
+## 已知边界（诚实声明，不宣称解决）
+
+沿用并收紧 ARCHITECTURE §7 的口径：
+
+1. **提示注入**：未解；权限分级与审计为缓解，不是消除。
+2. **无 OS 级沙箱**：Windows 侧为分层缓解，非硬隔离；`SandboxExecutor` 明确**尚未实现**（对应优化路线图 M2-04）。**不得把「工具执行前确认」称为沙箱。**
+3. **凭据与代码执行同进程**：单进程化后明文 key 与工具执行共享地址空间，无隔离措施。
+4. **插件加载期完整性未校验**：seed 已记录但未在加载时重算比对，已安装插件被篡改不会被发现。
+5. **技能自动注入不区分来源**：插件/项目技能与内置技能同等自动触发。
+6. 远端模型调用意味着**源码会离开本机**（BYOK 直连厂商端点的固有结果）——不得宣称「源码绝不离开本机」。
 
 ## 明确不在范围
 
-本地恶意软件、内核级攻击、0day。残留风险与对外口径见 §7"已知边界"。
+本地恶意软件、内核级攻击、0day、已获本机账户的攻击者。残留风险与对外口径见 §7「已知边界」。

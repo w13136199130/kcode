@@ -29,13 +29,13 @@ A TypeScript implementation targeting Claude Code/ZCode-class capability: a sing
 | P2 上下文工程 | SKILL.md 渐进加载 ✅ · AGENTS.md 记忆 ✅ · resume ✅ · 摘要压缩 ✅（分窗压缩/真 tokenizer 见 B3） | ✅ 主体完成 |
 | P3 扩展 | MCP（stdio）✅ / hooks ✅ / 斜杠命令 ✅ / 插件装卸+沙箱 v1 ✅ / epoch E2E 加密层（P4-1 提前）✅ | ✅ |
 | A 级体验轮 | bash cd 持久 · 项目级放行+`/permissions` · `/cost` 用量 · LLM 重试退避 · `/resume`+多行输入 · Markdown 渲染+代码高亮 | ✅ 2026-09 |
-| B 级 Agent 能力核 | 子代理（`.kcode/agents` + task 工具）· 计划双闸门+`/rewind` 检查点 · 上下文三层压缩 · 交互补齐（Shift+Tab/@引用/!bash）· 稳固性（MCP 超时/原生 keychain） | 🚧 设计定稿，[docs/roadmap-b.md](./docs/roadmap-b.md) |
-| C 级单进程化 | 引擎抽入 `@kcode/session` · CLI 内嵌组装 · 会话 JSONL+`--resume` 不变 · **daemon 已剔除** | ✅ 2026-09，[docs/roadmap-c.md](./docs/roadmap-c.md) |
+| B 级 Agent 能力核 | 子代理（`.kcode/agents` + task 工具）· 计划双闸门+`/rewind` 检查点 · 上下文三层压缩 · 交互补齐（Shift+Tab/@引用/!bash）· 稳固性（MCP 超时/原生 keychain） | 🚧 设计定稿，[DESIGN.md](./DESIGN.md) |
+| C 级单进程化 | 引擎抽入 `@kcode/session` · CLI 内嵌组装 · 会话 JSONL+`--resume` 不变 · **daemon 已剔除** | ✅ 2026-09，[DESIGN.md](./DESIGN.md) |
 | P4 账户 / 云 / 市场 | IdP / relay E2E / registry + Sigstore | ⏳ |
 | P5–P6 | 自动化调度 / 电脑控制 | ⏳ |
 
-完整设计（13 条 ADR、目录树、安全模型、企业就绪清单）见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
-Full design (13 ADRs, directory tree, security model, enterprise-readiness checklist) in [ARCHITECTURE.md](./ARCHITECTURE.md).
+完整设计（13 条 ADR、目录树、安全模型、企业就绪清单）见 [DESIGN.md](./DESIGN.md)。
+Full design (13 ADRs, directory tree, security model, enterprise-readiness checklist) in [DESIGN.md](./DESIGN.md).
 
 ---
 
@@ -166,8 +166,8 @@ pnpm lint:deps        # dependency-cruiser 架构规则 / architecture rules (§
 pnpm build            # tsup 构建库包 / build lib packages
 ```
 
-包结构见 ARCHITECTURE.md §4.4 —— 包内一级目录 = 逻辑模块 = 后续拆包单元。
-See ARCHITECTURE.md §4.4 for the package layout — first-level directories are logical modules and future split candidates.
+包结构见 DESIGN.md §3.2 —— 包内一级目录 = 逻辑模块 = 后续拆包单元。
+See DESIGN.md §3.2 for the package layout — first-level directories are logical modules and future split candidates.
 
 ## 安全设计速览 | Security at a Glance
 
