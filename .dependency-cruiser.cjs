@@ -51,7 +51,7 @@ module.exports = {
     {
       name: "apps-import-packages",
       comment:
-        "规则4：cli/web/market 只经 daemon 本地 API / relay 通信。P1/P2 过渡期 CLI 直接组装（daemon P3 才引入），降为 warn；P3 起 daemon 成为唯一组装点后恢复 error",
+        "规则4：cli 单进程直接组装 packages（C 级单进程化，daemon 已剔除）——保持 warn 以监控依赖面，不阻断；web/market 只经 relay 通信（P4）",
       severity: "warn",
       from: { path: "^apps/(cli|web|market)" },
       to: { path: "^packages/" },

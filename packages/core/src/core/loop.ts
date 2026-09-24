@@ -31,7 +31,7 @@ export interface AgentLoopPorts {
   hooks: HookRunner;
   sink: SessionSink;
   audit: AuditSink;
-  /** ask 交互确认（§5.1）：CLI/daemon 注入；缺省时 ask 按 deny 降级 */
+  /** ask 交互确认（§5.1）：CLI 注入；缺省时 ask 按 deny 降级 */
   asker?: PermissionAsker;
   /** 流式文本增量（瞬态）：TUI 实时渲染用；JSONL 只在完成时落 assistant_message */
   onDelta?: (delta: string) => void;
@@ -124,7 +124,7 @@ export class AgentLoop {
     );
   }
 
-  /** 会话累计用量（含 resume 种子）；/cost 经 daemon 读取 */
+  /** 会话累计用量（含 resume 种子）；/cost 经本地会话读取 */
   getUsage(): SessionUsage {
     return { ...this.usage };
   }

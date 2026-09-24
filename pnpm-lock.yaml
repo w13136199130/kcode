@@ -38,6 +38,15 @@ importers:
       '@kcode/platform':
         specifier: workspace:*
         version: link:../../packages/platform
+      '@kcode/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@kcode/session':
+        specifier: workspace:*
+        version: link:../../packages/session
+      '@kcode/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
       highlight.js:
         specifier: ^11.12.0
         version: 11.12.0
@@ -66,40 +75,6 @@ importers:
       react-test-renderer:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
-      tsx:
-        specifier: ^4.19.0
-        version: 4.23.13
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
-  apps/daemon:
-    dependencies:
-      '@kcode/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
-      '@kcode/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@kcode/extensions':
-        specifier: workspace:*
-        version: link:../../packages/extensions
-      '@kcode/platform':
-        specifier: workspace:*
-        version: link:../../packages/platform
-      '@kcode/runtime':
-        specifier: workspace:*
-        version: link:../../packages/runtime
-      '@kcode/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@kcode/tools':
-        specifier: workspace:*
-        version: link:../../packages/tools
-      zod:
-        specifier: ^3.24.0
-        version: 3.25.76
-    devDependencies:
       tsx:
         specifier: ^4.19.0
         version: 4.23.13
@@ -221,6 +196,37 @@ importers:
       tsup:
         specifier: ^8.3.0
         version: 8.5.1(postcss@8.5.28)(supports-color@7.2.0)(tsx@4.23.13)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/session:
+    dependencies:
+      '@kcode/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@kcode/core':
+        specifier: workspace:*
+        version: link:../core
+      '@kcode/extensions':
+        specifier: workspace:*
+        version: link:../extensions
+      '@kcode/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@kcode/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@kcode/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@kcode/tools':
+        specifier: workspace:*
+        version: link:../tools
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

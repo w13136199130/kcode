@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "ink-testing-library";
-import type { DaemonClient } from "../src/daemon-client.js";
+import type { Runtime } from "../src/bootstrap.js";
 
-// 会话层全 mock：App 渲染行为不依赖守护进程
+// 会话层全 mock：App 渲染行为不依赖会话实现
 vi.mock("../src/session.js", () => ({
   createSession: vi.fn(async () => ({
     sessionId: "sess_render",
@@ -21,16 +21,19 @@ vi.mock("../src/session.js", () => ({
 
 import { KcodeApp } from "../src/tui/App.js";
 
-const fakeClient = {
-  onClose: () => () => {},
-} as unknown as DaemonClient;
+const fakeRuntime = {
+  models: { default: "mock/1", providers: {} },
+  keychain: { async get() { return null; }, async set() {}, async delete() {}, async list() { return []; } },
+  router: {},
+  kcodeHomeDir: "E:/tmp/.kcode-test",
+} as unknown as Runtime;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe("KcodeApp 渲染（空闲不重绘）", () => {
   it("空闲状态下帧数稳定——250ms 时钟只在 busy/流式/运行中工具时激活", async () => {
     const instance = render(
-      <KcodeApp client={fakeClient} model="mock/1" cwd="E:/tmp" />,
+      <KcodeApp runtime={fakeRuntime} model="mock/1" cwd="E:/tmp" />,
     );
     // 等待 mount + ready + 命令菜单 600ms 补读定时器全部落定
     await sleep(900);

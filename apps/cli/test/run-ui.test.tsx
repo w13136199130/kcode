@@ -3,8 +3,8 @@ import { EventEmitter } from "node:events";
 import { render } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEvent } from "@kcode/contracts";
-import type { RemoteSessionOptions, SessionHandle } from "../src/session.js";
-import type { DaemonClient } from "../src/daemon-client.js";
+import type { LocalSessionOptions, SessionHandle } from "../src/session.js";
+import type { Runtime } from "../src/bootstrap.js";
 import { KcodeApp } from "../src/tui/App.js";
 
 const bridge = vi.hoisted(() => ({ create: vi.fn() }));
@@ -18,7 +18,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
 async function setup() {
-  let options!: RemoteSessionOptions;
+  let options!: LocalSessionOptions;
   let finish!: (summary: Awaited<ReturnType<SessionHandle["loop"]["run"]>>) => void;
   const actions: string[] = [];
   const abort = vi.fn(() => { actions.push("abort"); });
@@ -26,7 +26,7 @@ async function setup() {
     options.onEvent?.({ v: 1, type: "user_message", sessionId: "s1", ts: 0, content });
     return new Promise<Awaited<ReturnType<SessionHandle["loop"]["run"]>>>((resolve) => { finish = resolve; });
   });
-  bridge.create.mockImplementation(async (opts: RemoteSessionOptions) => {
+  bridge.create.mockImplementation(async (opts: LocalSessionOptions) => {
     options = opts;
     return { sessionId: "s1", loop: { run }, abort, listCommands: () => [] };
   });
@@ -35,10 +35,13 @@ async function setup() {
   const stdout = Object.assign(new EventEmitter(), {
     columns: 120, rows: 40, isTTY: true, write: (text: string) => { frames.push(text); return true; },
   });
-  // client 必须实现 onClose：App.tsx 挂载时会用它订阅 daemon 掉线。
-  // 缺失会在 effect 中抛错，React 吞掉后由错误兜底页取代整个 UI，表现为输入框永不出现。
-  const client = { onClose: () => () => {} } as unknown as DaemonClient;
-  const ui = render(<KcodeApp client={client} model="test" cwd="." />, {
+  const fakeRuntime = {
+    models: { default: "test", providers: {} },
+    keychain: { async get() { return null; }, async set() {}, async delete() {}, async list() { return []; } },
+    router: {},
+    kcodeHomeDir: "E:/tmp/.kcode-test",
+  } as unknown as Runtime;
+  const ui = render(<KcodeApp runtime={fakeRuntime} model="test" cwd="." />, {
     stdin: stdin as unknown as typeof process.stdin,
     stdout: stdout as unknown as typeof process.stdout,
     exitOnCtrlC: false, patchConsole: false,

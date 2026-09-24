@@ -17,6 +17,8 @@ export interface Runtime {
   models: UserModelsConfig;
   keychain: KeychainStore;
   router: ProviderRouter;
+  /** kcode 主目录（~/.kcode；本地会话组装与 JSONL 落盘的基准） */
+  kcodeHomeDir: string;
 }
 
 /** 读用户级配置（providers 只允许在这一层，§5.7 第一层防御） */
@@ -73,7 +75,7 @@ export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise
         };
   }
   const router = createProviderRouter(models, keychain, options);
-  return { models, keychain, router };
+  return { models, keychain, router, kcodeHomeDir: kcodeHome() };
 }
 
 /** 必须显式设置 default（模型 id 因厂商而异，不猜测） */

@@ -17,7 +17,7 @@ export interface LlmRetryOptions {
   maxDelayMs?: number;
   /** 测试注入；生产为真实 setTimeout */
   sleep?: (ms: number) => Promise<void>;
-  /** 每次重试的回调（daemon 侧写日志） */
+  /** 每次重试的回调（调用方写日志） */
   onRetry?: (info: { attempt: number; delayMs: number; reason: string }) => void;
 }
 

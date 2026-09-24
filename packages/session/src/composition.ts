@@ -110,7 +110,7 @@ export interface ComposeSessionOptions {
   onNotice?: (message: string) => void;
   asker?: PermissionAsker;
   askUser?: UserPromptPort;
-  /** 计划批准交互（plan_submit 工具，B2）：daemon 注入，推 plan_question 给客户端 */
+  /** 计划批准交互（plan_submit 工具，B2）：调用方注入，批准/修订/放弃三态 */
   planAsker?: { ask(plan: string): Promise<PlanVerdict> };
 }
 
@@ -145,7 +145,7 @@ async function loadAgentsMd(cwd: string, kcodeHomeDir: string): Promise<string |
 }
 
 /**
- * 会话组装（守护进程是唯一组装点）：工具、权限、钩子、技能、命令、
+ * 会话组装（单进程唯一组装点）：工具、权限、钩子、技能、命令、
  * MCP、记忆与摘要器在此聚合，外部只传入模型与回调。
  */
 export async function composeSession(opts: ComposeSessionOptions): Promise<ComposedSession> {

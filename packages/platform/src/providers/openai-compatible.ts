@@ -18,7 +18,7 @@ export interface OpenAICompatibleOptions {
   baseURL: string;
   apiKey?: string;
   model: string;
-  /** 测试注入；生产由 daemon 传入全局 fetch */
+  /** 测试注入；生产由组合层传入全局 fetch */
   fetch?: FetchLike;
   /** 瞬态失败重试（429/网络抖动；清洁重试——仅未吐内容时重放）；maxRetries=0 关闭 */
   retry?: LlmRetryOptions;

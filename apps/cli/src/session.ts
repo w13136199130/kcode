@@ -1,21 +1,31 @@
-import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type {
   AskPreviewPayload,
   PermissionAnswer,
   PermissionMode,
+  RunStatus,
   SessionEvent,
   StructuredQuestion,
 } from "@kcode/contracts";
-import type { DaemonClient } from "./daemon-client.js";
+import { buildAskPreview } from "@kcode/tools";
+import {
+  composeSession,
+  resolveResumeHistory,
+  trustProject,
+  type ComposedSession,
+  type PlanVerdict,
+} from "@kcode/session";
+import { listSessions } from "@kcode/runtime";
+import type { Runtime } from "./bootstrap.js";
 
 /**
- * CLI 侧会话句柄：全部操作经本地通道转发给守护进程，
- * CLI 自身不再组装任何引擎组件（守护进程是唯一组装点）。
+ * 本地会话句柄（单进程）：引擎内嵌 CLI 进程组装（composeSession），
+ * 会话事件照旧落 JSONL——resume/回放/rewind 语义不变。
  */
 export interface SessionHandle {
-  /** 远程会话的运行入口：发送消息并等待本轮完成 */
+  /** 运行入口：发送消息并等待本轮完成 */
   loop: {
-    run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number; status: import("@kcode/contracts").RunStatus }>;
+    run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number; status: RunStatus }>;
   };
   sessionId: string;
   /** 中断当前运行（Esc）：流式停止、未开始的工具调用取消 */
@@ -58,18 +68,18 @@ export interface SessionHandle {
   } | null>;
 }
 
-export interface RemoteSessionOptions {
-  client: DaemonClient;
+export interface LocalSessionOptions {
+  runtime: Runtime;
   model: string;
   cwd: string;
-  /** 续接来源：会话 id / 前缀 / "latest"（由守护进程解析与重建历史） */
+  /** 续接来源：会话 id / 前缀 / "latest"（本地解析与重建历史） */
   resumeFrom?: string;
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
   /** 思考过程增量（reasoning 模型）：灰色斜体实时渲染 */
   onReasoning?: (delta: string) => void;
   onNotice?: (message: string) => void;
-  /** 交互确认由守护进程推送过来，经此回调交给界面（preview 为写/编辑类 diff） */
+  /** 权限确认（preview 为写/编辑类 diff，本地补齐） */
   asker?: {
     confirm(call: {
       callId: string;
@@ -79,7 +89,7 @@ export interface RemoteSessionOptions {
     }): Promise<boolean | PermissionAnswer>;
   };
   askUser?: { ask: (question: StructuredQuestion) => Promise<string[]> };
-  /** 计划批准交互（plan_submit 工具推送的 plan_question）：渲染计划全文 + 批准菜单 */
+  /** 计划批准交互（plan_submit 工具）：渲染计划全文 + 批准菜单 */
   onPlanApproval?: (payload: {
     plan: string;
     question: StructuredQuestion;
@@ -87,310 +97,135 @@ export interface RemoteSessionOptions {
   }) => void;
 }
 
+/** 计划批准三选项 */
+const PLAN_OPTIONS: { label: string; description: string }[] = [
+  { label: "批准并执行", description: "切换到执行模式，按计划执行" },
+  { label: "继续研究", description: "留在计划模式，补充调研后重新提交" },
+  { label: "放弃", description: "放弃该计划，等待新指示" },
+];
+
 /**
- * 建立远程会话：在守护进程侧组装引擎，本地只保留协议订阅。
- * 事件/增量/通知按会话 id 过滤后交给回调；run 的完成以 run_done 为准。
+ * 建立本地会话：进程内组装引擎（composeSession），事件/增量/交互以回调直连界面。
+ * resume 由本地从 JSONL 重建。
  */
-export async function createSession(opts: RemoteSessionOptions): Promise<SessionHandle> {
-  const created = await opts.client.request({
-    method: "session_create",
-    cwd: opts.cwd,
+export async function createSession(opts: LocalSessionOptions): Promise<SessionHandle> {
+  const kcodeHomeDir = opts.runtime.kcodeHomeDir;
+  const resume =
+    opts.resumeFrom !== undefined
+      ? (await resolveResumeHistory(kcodeHomeDir, opts.resumeFrom)) ?? undefined
+      : undefined;
+  if (opts.resumeFrom !== undefined && resume === undefined) {
+    throw new Error(`未找到会话「${opts.resumeFrom}」（/sessions 查看清单）`);
+  }
+  if (resume !== undefined && resume.messages.length > 0) {
+    opts.onNotice?.(`已续接历史（${resume.messages.length} 条消息）`);
+  }
+
+  const baseAsker = opts.asker;
+  const composed: ComposedSession = await composeSession({
+    llmFactory: (model) => opts.runtime.router.resolve(model),
     model: opts.model,
-    ...(opts.resumeFrom !== undefined ? { resumeFrom: opts.resumeFrom } : {}),
-  });
-  if (created.kind !== "session_ok") {
-    throw new Error("会话创建失败");
-  }
-  const sessionId = created.sessionId;
-  if (created.resumedMessages > 0) {
-    opts.onNotice?.(`已续接历史（${created.resumedMessages} 条消息）`);
-  }
-
-  // 会话事件订阅（按会话 id 过滤）
-  opts.client.onEvent((sid, raw) => {
-    if (sid === sessionId) {
-      opts.onEvent?.(raw as unknown as SessionEvent);
-    }
-  });
-  opts.client.onDelta((sid, text, channel) => {
-    if (sid === sessionId) {
-      if (channel === "reasoning") {
-        opts.onReasoning?.(text);
-      } else {
-        opts.onDelta?.(text);
-      }
-    }
-  });
-  opts.client.onNotice((message) => {
-    opts.onNotice?.(message);
-  });
-  // 交互确认：守护进程请求 → 界面回调 → 应答（含会话级放行标记）回传
-  if (opts.asker !== undefined) {
-    opts.client.onAsk((callId, tool, args, preview) => {
-      void Promise.resolve(opts.asker!.confirm({ callId, tool, args, preview })).then((answer) => {
-        const normalized =
-          typeof answer === "boolean" ? { allowed: answer } : answer;
-        opts.client.replyAsk(callId, normalized.allowed, normalized.scope);
-      });
-    });
-  }
-  if (opts.askUser !== undefined) {
-    opts.client.onQuestion((questionId, raw) => {
-      const question = raw as unknown as { question: string; options: { label: string; description?: string }[]; multiSelect?: boolean };
-      // 计划批准走专用通道（渲染计划全文 + 批准菜单）
-      if (raw.kind === "plan_question" && opts.onPlanApproval !== undefined) {
-        const plan = (raw as unknown as { plan: string }).plan;
-        opts.onPlanApproval({
-          plan,
-          question,
-          reply: (labels) => {
-            opts.client.replyQuestion(questionId, labels);
+    cwd: opts.cwd,
+    kcodeHomeDir,
+    resumeFrom: resume?.messages,
+    resumeUsage: resume?.usage,
+    onEvent: opts.onEvent,
+    onDelta: opts.onDelta,
+    onReasoning: opts.onReasoning,
+    onNotice: opts.onNotice,
+    // 权限确认：本地补 diff 预览后交界面
+    asker:
+      baseAsker === undefined
+        ? undefined
+        : {
+            confirm: async (call) => {
+              const preview = await buildAskPreview(call.tool, call.args, {
+                sessionId: call.callId,
+                cwd: opts.cwd,
+              }).catch(() => undefined);
+              return baseAsker.confirm({ ...call, ...(preview !== undefined ? { preview } : {}) });
+            },
           },
-        });
-        return;
-      }
-      void opts.askUser!.ask(question).then((labels) => {
-        opts.client.replyQuestion(questionId, labels);
-      });
-    });
-  } else if (opts.onPlanApproval !== undefined) {
-    // 无 ask_user 端口也要接计划批准（plan_submit 独立于 ask_user 工具）
-    opts.client.onQuestion((questionId, raw) => {
-      if (raw.kind !== "plan_question") return;
-      const plan = (raw as unknown as { plan: string }).plan;
-      const question = raw as unknown as { question: string; options: { label: string; description?: string }[]; multiSelect?: boolean };
-      opts.onPlanApproval!({
-        plan,
-        question,
-        reply: (labels) => {
-          opts.client.replyQuestion(questionId, labels);
-        },
-      });
-    });
-  }
-
-  let activeRunId: string | undefined;
-  const runDoneWaiters = new Set<{
-    resolve: (summary: { sessionId: string; turns: number; toolCalls: number; status: import("@kcode/contracts").RunStatus }) => void;
-    reject: (err: Error) => void;
-  }>();
-  opts.client.onRunDone((sid, turns, toolCalls, runId, status) => {
-    if (sid === sessionId && runId === activeRunId) {
-      for (const waiter of runDoneWaiters) {
-        waiter.resolve({ sessionId: sid, turns, toolCalls, status });
-      }
-      runDoneWaiters.clear();
-    }
+    askUser: opts.askUser,
+    planAsker:
+      opts.onPlanApproval === undefined
+        ? undefined
+        : {
+            ask: (plan) =>
+              new Promise<PlanVerdict>((resolve) => {
+                opts.onPlanApproval!({
+                  plan,
+                  question: { question: "以上是模型提交的执行计划，是否批准执行？", options: PLAN_OPTIONS, multiSelect: false },
+                  reply: (labels) => {
+                    const picked = labels[0] ?? "";
+                    resolve(picked === "批准并执行" ? "approved" : picked === "继续研究" ? "revise" : "abandon");
+                  },
+                });
+              }),
+          },
   });
-  // daemon 掉线：未决运行立即失败，界面解除 busy 并提示续接（历史在 JSONL，可 --resume）
-  opts.client.onClose(() => {
-    for (const waiter of runDoneWaiters) {
-      waiter.reject(new Error("与守护进程的连接已断开（daemon 可能已退出）"));
-    }
-    runDoneWaiters.clear();
-  });
-
-  // 命令清单预取：必须在 return 之前执行（写在 return 后是永不运行的死代码，
-  // 且闭包引用未初始化的 let 会触发 TDZ 报错——该 bug 自 P1 潜伏至今）
-  let commandCache: { name: string; source: "project" | "user" }[] = [];
-  void opts.client
-    .request({ method: "commands_list", cwd: opts.cwd })
-    .then((response) => {
-      if (response.kind === "commands") {
-        commandCache = response.commands;
-      }
-    })
-    .catch(() => {
-      // 命令列表获取失败不影响主流程
-    });
 
   return {
-    sessionId,
+    sessionId: composed.sessionId,
     loop: {
-      run: async (input, runOpts) => {
-        if (activeRunId !== undefined) throw new Error("会话正在运行");
-        const runId = randomUUID();
-        activeRunId = runId;
-        try {
-          return await new Promise((resolve, reject) => {
-            const waiter = { resolve, reject };
-            // 必须先订阅再发送：空回复或 gate 拒绝可能与 accepted 同批到达。
-            runDoneWaiters.add(waiter);
-            void opts.client.request({ method: "session_send", sessionId, runId, content: input,
-              ...(runOpts?.images !== undefined ? { images: runOpts.images } : {}),
-            }).then((response) => {
-              if (response.kind !== "accepted") throw new Error("运行请求未被接受");
-            }).catch((err) => { runDoneWaiters.delete(waiter); reject(err); });
-          });
-        } finally { if (activeRunId === runId) activeRunId = undefined; }
-      },
+      run: (input, runOpts) => composed.loop.run(input, runOpts ?? {}),
     },
-    abort: () => {
-      if (activeRunId === undefined) return;
-      void opts.client.request({ method: "session_abort", sessionId, runId: activeRunId }).catch(() => {});
-    },
+    abort: () => composed.abort(),
     setMode: (mode) => {
-      void opts.client.request({ method: "session_mode", sessionId, mode }).catch(() => {
-        // 模式切换失败不阻断界面（头部显示以下次成功切换为准）
-      });
+      composed.setMode(mode);
     },
     setModel: async (model) => {
-      const response = await opts.client
-        .request({ method: "session_set_model", sessionId, model })
-        .catch((err: Error) => err);
-      if (response instanceof Error) {
-        return response.message;
+      try {
+        await composed.setModel(model);
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
       }
-      return response.kind === "accepted" ? null : (("message" in response ? response.message : "未知错误") as string);
     },
     models: async () => {
-      const response = await opts.client.request({ method: "models_list" });
-      if (response.kind !== "models") {
-        return { providers: [] };
-      }
-      return { ...(response.default !== undefined ? { default: response.default } : {}), providers: response.providers };
+      const models = opts.runtime.models;
+      return {
+        ...(models.default !== undefined ? { default: models.default } : {}),
+        providers: Object.keys(models.providers ?? {}),
+      };
     },
-    listSkills: async () => {
-      const response = await opts.client.request({ method: "skills_list", sessionId });
-      if (response.kind !== "skills") {
-        return [];
-      }
-      return response.skills.map((s) => ({ name: s.name, description: s.description }));
-    },
-    skillBody: async (name) => {
-      const response = await opts.client.request({ method: "skill_body", sessionId, name });
-      if (response.kind !== "skill_body_ok") {
-        return null;
-      }
-      return response.body;
-    },
+    listSkills: async () => composed.listSkills().map((s) => ({ name: s.name, description: s.description })),
+    skillBody: (name) => composed.skillBody(name),
     listSessions: async () => {
-      const response = await opts.client.request({ method: "sessions_list" });
-      if (response.kind !== "sessions") {
-        return [];
-      }
-      return response.sessions;
+      const summaries = await listSessions(join(kcodeHomeDir, "cli", "sessions"));
+      return summaries.slice(0, 10).map((s) => ({ sessionId: s.sessionId, preview: s.preview, turns: s.turns }));
     },
-    listCommands: () => {
-      // 命令列表在连接期缓存一次即可；此处同步返回由创建时预取
-      return commandCache;
-    },
-    expandCommand: async (name, args) => {
-      const response = await opts.client
-        .request({ method: "command_expand", cwd: opts.cwd, name, args })
-        .catch(() => null);
-      if (response === null || response.kind !== "command_expanded") {
-        return null;
-      }
-      return response.template;
-    },
-    trustProject: async () => {
-      await opts.client.request({ method: "session_trust", cwd: opts.cwd });
-    },
-    listPersistentGrants: async () => {
-      const response = await opts.client
-        .request({ method: "permissions_list", sessionId })
-        .catch(() => null);
-      if (response === null || response.kind !== "permissions") {
-        return [];
-      }
-      return response.patterns;
-    },
+    listCommands: () => composed.listCommands(),
+    expandCommand: (name, args) => composed.expandCommand(name, args),
+    trustProject: () => trustProject(opts.cwd, kcodeHomeDir),
+    listPersistentGrants: () => composed.listPersistentGrants(),
     clearPersistentGrants: async () => {
-      const response = await opts.client
-        .request({ method: "permissions_clear", sessionId })
-        .catch(() => null);
-      return response !== null && response.kind === "accepted";
+      await composed.clearPersistentGrants();
+      return true;
     },
     usage: async () => {
-      const response = await opts.client
-        .request({ method: "session_usage", sessionId })
-        .catch(() => null);
-      if (response === null || response.kind !== "usage") {
-        return null;
-      }
-      return {
-        inputTokens: response.inputTokens,
-        outputTokens: response.outputTokens,
-        calls: response.calls,
-      };
+      const u = composed.usageSummary();
+      return { inputTokens: u.inputTokens, outputTokens: u.outputTokens, calls: u.calls };
     },
-    rewindPoints: async () => {
-      const response = await opts.client
-        .request({ method: "session_rewind_points", sessionId })
-        .catch(() => null);
-      if (response === null || response.kind !== "rewind_points") {
-        return [];
-      }
-      return response.points;
-    },
-    mcpStatus: async () => {
-      const response = await opts.client
-        .request({ method: "session_mcp", sessionId })
-        .catch(() => null);
-      if (response === null || response.kind !== "mcp_info") {
+    rewindPoints: () => composed.listRewindPoints(),
+    rewind: async (eventIndex) => {
+      try {
+        await composed.rewind(eventIndex);
         return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
       }
-      return response.servers;
-    },
-    runBash: async (command, timeoutMs) => {
-      const response = await opts.client
-        .request({
-          method: "bash_run",
-          sessionId,
-          command,
-          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-        })
-        .catch(() => null);
-      if (response === null || response.kind !== "bash_result") {
-        return null;
-      }
-      return {
-        ok: response.ok,
-        output: response.output,
-        ...(response.error !== undefined ? { error: response.error } : {}),
-        durationMs: response.durationMs,
-      };
     },
     compact: async () => {
-      const response = await opts.client
-        .request({ method: "session_compact", sessionId })
-        .catch((err: Error) => err);
-      if (response instanceof Error) {
-        return response.message;
+      try {
+        const r = await composed.compactNow();
+        return r === null ? { dropped: 0, summaryChars: 0 } : { dropped: r.dropped, summaryChars: r.summaryChars };
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
       }
-      if (response.kind === "compact_ok") {
-        return { dropped: response.dropped, summaryChars: response.summaryChars };
-      }
-      return response.kind === "error" ? response.message : "未知错误";
     },
-    context: async () => {
-      const response = await opts.client
-        .request({ method: "session_context", sessionId })
-        .catch(() => null);
-      if (response === null || response.kind !== "context_info") {
-        return null;
-      }
-      return {
-        model: response.model,
-        contextWindow: response.contextWindow,
-        historyTokens: response.historyTokens,
-        historyBudget: response.historyBudget,
-        systemTokens: response.systemTokens,
-        pinnedAnchor: response.pinnedAnchor,
-      };
-    },
-    rewind: async (eventIndex: number) => {
-      const response = await opts.client
-        .request({ method: "session_rewind", sessionId, eventIndex })
-        .catch((err: Error) => err);
-      if (response instanceof Error) {
-        return response.message;
-      }
-      if (response.kind === "rewind_ok") {
-        return null;
-      }
-      return response.kind === "error" ? response.message : "未知错误";
-    },
+    context: async () => composed.contextStats(),
+    runBash: (command, timeoutMs) => composed.runBash(command, timeoutMs),
+    mcpStatus: async () => composed.mcpInfo().servers,
   };
 }

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { KeychainEntry } from "@kcode/contracts";
-import type { KeychainStore } from "./keychain.js";
+import type { KeychainStore } from "./types.js";
 
 /**
  * Windows DPAPI keychain（B5）：CurrentUser 作用域的 ProtectedData 加密，

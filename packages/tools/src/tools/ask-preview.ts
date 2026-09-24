@@ -12,7 +12,7 @@ export interface AskPreview {
 const MAX_DIFF_LINES = 40;
 
 /**
- * 为写/编辑类工具构建变更预览（daemon 在推送 ask 前调用）：
+ * 为写/编辑类工具构建变更预览（组合层在推送 ask 前调用）：
  * - edit：oldString/newString 直接对拍；
  * - write：与磁盘旧内容做行级替换对比（新文件整体为新增）；
  * 其余工具返回 undefined（args 摘要即预览）。

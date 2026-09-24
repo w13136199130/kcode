@@ -11,4 +11,3 @@ export * from "./update.js";
 export * from "./plugin-manifest.js";
 export * from "./hooks.js";
 export * from "./relay.js";
-export * from "./localapi.js";

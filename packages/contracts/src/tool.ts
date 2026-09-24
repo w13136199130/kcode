@@ -18,7 +18,7 @@ export interface ToolContext {
   sessionId: string;
   /** 本次工具调用的 callId（与 tool_call 事件对应；检查点/审计关联用） */
   callId?: string;
-  /** 会话工作目录（daemon 注入）；工具的相对路径以此为基准 */
+  /** 会话工作目录（组合层注入）；工具的相对路径以此为基准 */
   cwd?: string;
   /** 用户中断信号（Esc/Ctrl+C）：长任务工具（bash 等）应监听并终止子进程 */
   signal?: AbortSignal;
@@ -88,7 +88,7 @@ export interface PermissionAnswer {
 }
 
 /**
- * ask 交互确认端口：权限裁决为 ask 时由组合层（CLI/daemon）注入实现；
+ * ask 交互确认端口：权限裁决为 ask 时由组合层（CLI）注入实现；
  * 无实现则按 deny 处理——headless/automation 同款降级语义（§5.5）。
  * 返回布尔视为 { allowed } 的简写（测试/evals 的最小实现保持兼容）。
  */
@@ -120,7 +120,14 @@ export const StructuredQuestion = z.object({
 });
 export type StructuredQuestion = z.infer<typeof StructuredQuestion>;
 
-/** 用户应答端口：TUI/daemon 注入；不可交互时工具返回降级话术 */
+/** 用户应答端口：TUI 注入；不可交互时工具返回降级话术 */
 export interface UserPromptPort {
   ask(question: StructuredQuestion): Promise<string[]>;
 }
+
+/** 写/编辑类工具 ask 时的变更预览（TUI 渲染红绿 diff 行） */
+export const AskPreviewPayload = z.object({
+  path: z.string().optional(),
+  diff: z.string(),
+});
+export type AskPreviewPayload = z.infer<typeof AskPreviewPayload>;

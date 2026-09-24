@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** daemon ↔ relay WSS 协议消息（§5.6；P4 落地，P0 定型最小集） */
+/** 设备 ↔ relay WSS 协议消息（§5.6；P4 落地，P0 定型最小集） */
 
 const b64 = z.string().regex(/^[A-Za-z0-9+/=]+$/);
 const sessionId = z.string().min(1);

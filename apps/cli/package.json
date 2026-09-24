@@ -16,7 +16,10 @@
     "ink-text-input": "^5.0.1",
     "marked": "^18.0.13",
     "react": "^18.3.1",
-    "string-width": "5.1.2"
+    "string-width": "5.1.2",
+    "@kcode/session": "workspace:*",
+    "@kcode/tools": "workspace:*",
+    "@kcode/runtime": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

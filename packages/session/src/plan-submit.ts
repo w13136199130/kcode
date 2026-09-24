@@ -10,7 +10,7 @@ export type PlanVerdict = "approved" | "revise" | "abandon";
 
 export interface PlanSubmitToolDeps {
   currentMode: () => PermissionMode;
-  /** 计划批准交互端口（daemon 注入；无交互通道时工具降级为未批准） */
+  /** 计划批准交互端口（调用方注入；无交互通道时工具降级为未批准） */
   planAsker?: { ask(plan: string): Promise<PlanVerdict> };
   /** 批准后回调（composition：钉固计划锚点 + 切回执行模式） */
   onApproved: (plan: string) => void;

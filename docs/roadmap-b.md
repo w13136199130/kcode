@@ -1,4 +1,8 @@
+
+
 # B 级路线：Agent 能力核（2026-09 设计定稿）
+
+
 
 > A 级体验轮（bash cd 持久 / 项目级放行 / /cost / LLM 重试 / /resume+多行 / Markdown 渲染）已于 2026-09 全部交付。
 > 本文档是 B 级的对标分析结论与实施设计，是 P4（账户/云/市场）之前的产物主线。
@@ -52,7 +56,11 @@
 
 Shift+Tab 权限循环 + 状态栏常显档位；`@` 文件路径补全（glob 菜单注入路径）；`!命令` 直接执行 shell（结果进上下文）；输入历史持久化（`~/.kcode/cli/history.json`）；`/clear` `/status` `/mcp` `/context`；ask_user 增加 preview 参数。
 
-## 6. B5 稳固性（约 1 周，可与主线并行插队）
+## 6. B5 稳固性（✅ 2026-09 基本交付）
+
+> 实际交付：MCP 三传输（stdio/http/sse）+ 连接与 callTool 超时、Windows DPAPI 免口令 keychain、
+> hooks 扩充（user_prompt_submit / pre_compact）+ fail-closed、协议方法级清单（hello.methods）、
+> /mcp、ask_user preview。遗留：run-ui 四个交互测试为存量失败（提交时即红，与本轮无关）。
 
 - MCP callTool 超时（挂死拖轮是生产隐患）+ HTTP/SSE 传输。
 - 原生 keychain：DPAPI（Windows）/ Keychain（macOS）——替代口令环境变量方案（新用户流失点）。

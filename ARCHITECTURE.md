@@ -1,11 +1,12 @@
 # kcode（快码）架构设计文档
 
-> **版本** v1.3 ｜ **日期** 2026-09-17 ｜ **状态** 定稿（P0 入库文档）
+> **版本** v1.4 ｜ **日期** 2026-09-24 ｜ **状态** 定稿（P0 入库文档）
 > **定位**：对标 ZCode 的全功能本地优先 AI 编程 Agent；差异化 = 插件市场 + 账户体系 + 远程操控电脑对话。
 > **名称**：kcode / 快码（K = 快/开 双关）。npm scope：`@kcode`，配置目录 `~/.kcode/`，域名 `kcode.dev`（待注册）。
 > **v1.1 变更**：六处信任边界安全修订；ADR-5 改判（自托管 IdP）并新增 ADR-10/11/12；新增 §12 企业就绪达标线。明细见 §13 变更记录。
 > **v1.2 变更**：新增 §4.4 完整仓库目录树；apps/web 拆为 web（控制台）+ market（市场）分源，应用数 3→4。明细见 §13 变更记录。
 > **v1.3 变更**：新增 ADR-13 命名决策（保留 kcode，备选 tcode）与 §11.C 品牌锁定清单。明细见 §13 变更记录。
+> **v1.4 变更**：默认形态切换为 Claude Code 同款单进程（引擎抽入 `packages/session`，CLI 内嵌组装）；`apps/daemon` 与 `contracts/localapi` 本地 API 协议**完全删除**。明细见 §13 变更记录。
 
 ---
 
@@ -14,13 +15,13 @@
 | 项 | 结论 |
 |---|---|
 | 语言 | TypeScript 全栈（Node.js 22 LTS，ESM，strict） |
-| 形态 | 本地 daemon（大脑）+ 云端单体（中继/账户/市场）+ 多前端（CLI/Web/后期桌面） |
-| 本地通道 | UDS/named pipe 优先（访问控制=文件权限/ACL），TCP 回环+token 兜底（ADR-10） |
+| 形态 | **单进程 CLI（Claude Code 同款）** + 云端单体（中继/账户/市场）；daemon 已剔除 |
+| 本地通道 | 进程内组装（无 IPC）；多端接入（P4 web 控制台）届时再定 |
 | 认证 | 自托管 IdP（Zitadel/Logto）承载 Device Flow，不自研（ADR-5，v1.1 改判） |
 | 更新/签名 | 更新链 TUF 角色分离（Ed25519）+ 插件签名 Sigstore keyless（ADR-11） |
 | 扩展协议 | MCP（工具层）+ Agent Skills/SKILL.md（技能层）+ 插件包（分发层，ZCode 同构格式） |
 | 核心纪律 | core 零 IO（接口注入）；contracts 除 zod 外零运行时依赖；依赖单向（引擎层 ← 能力层 ← 组合层反向禁止） |
-| 起步规模 | **7 个物理包 + 4 个应用**起步（web 控制台 / market 市场分源），17 个逻辑模块按边界成熟度逐步拆包；完整目录树见 §4.4 |
+| 起步规模 | **8 个物理包 + 3 个应用**起步（cli / web 控制台 / market 市场分源），17 个逻辑模块按边界成熟度逐步拆包；完整目录树见 §4.4 |
 | 工期基线 | 3 人团队 10 个月完成 ZCode 全量对标（P0–P6）；v1.1 安全修订 +3–4 周按阶段摊入 |
 | 产物 | 对外只有三个：`@kcode/cli`（npm）、插件包、server Docker 镜像（web/market 随其部署）；内部包永远 `workspace:*` 不发布 |
 
@@ -46,7 +47,7 @@
 
 ### 1.2 差异化
 
-ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市场（第一天兼容 MCP + SKILL.md 生态）、账户与用量体系、daemon 化带来的远程操控**。这三项全部在 P4 闭环。
+ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市场（第一天兼容 MCP + SKILL.md 生态）、账户与用量体系、云端中继带来的多端远程对话**。这三项全部在 P4 闭环。
 安全侧差异化（v1.1 新增）：**key 受众绑定、TUF 更新链、epoch 撤销、Sigstore 插件签名**为同类产品少有，可进官网安全页。
 
 ---
@@ -54,6 +55,8 @@ ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市�
 ## 2. 总体架构
 
 ### 2.1 架构图
+
+> **v1.4 已作废**：下图为 P3 的 daemon 架构；现默认形态是单进程 CLI（引擎内嵌、无 IPC），见 §9 执行进度与 docs/roadmap-c.md。云端单体（relay/账户/市场）仍为 P4 目标。
 
 ```text
    CLI(薄壳) ─┐                        ┌─ Web(Next.js: 控制台/远程对话 + 市场分源)
@@ -141,8 +144,7 @@ ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市�
 
 | 位置 | 职责 |
 |---|---|
-| `apps/daemon` | **唯一组装点**：开 SQLite 注入各模块、起本地 API（UDS/named pipe 为主，TCP 回环兜底，§5.6）、起 transport/scheduler、进程生命周期与自更新 |
-| `apps/cli` | 薄壳：spawn/attach daemon，Ink 渲染与输入，零业务逻辑 |
+| `apps/cli` | **单进程组装点**：内嵌组装引擎（`@kcode/session`）、Ink 渲染与输入；会话落 JSONL、`--resume` 续接 |
 | `apps/web` | Next.js **控制台**：仪表盘 + 远程对话（WebCrypto 参与解密，non-extractable 私钥）——持有设备私钥的 origin |
 | `apps/market` | Next.js **市场**：搜索/详情/发布者页，与 web **分源部署**，UGC 只在 sandboxed iframe 渲染（§5.6）——v1.2 由分源决策独立成应用 |
 | `services/server` | Fastify 单体：relay / auth（IdP 反代）/ registry / usage 四模块硬隔离 |
@@ -152,7 +154,7 @@ ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市�
 ### 4.2 分层依赖模型（用工具强制）
 
 ```text
-组合层  apps/daemon ──────────────► （唯一允许 import 一切的地方）
+组合层  apps/cli + packages/session ──► （唯一允许 import 一切的地方）
 引擎层  core + context ──► 定义 Provider 接口，依赖 contracts
 能力层  tools/runtime/extensions/platform ──► 实现 engine 接口
 底座    contracts / shared（零依赖）
@@ -163,7 +165,7 @@ ZCode 对标的"表格式"能力是入场券；商业化差异在：**插件市�
 1. **能力层之间禁止互引**（tools 不能 import runtime）；
 2. **任何包不得反向依赖引擎层/组合层**；
 3. 引擎层首选通过 contracts 中的接口消费能力层（DI 注入）；P0 期间允许引擎层直接引用能力层类型，但不得调用其 IO 实现；
-4. `apps/cli`、`apps/web` 只通过 daemon 本地 API / relay 通信，禁止直接 import packages（类型除外）。
+4. `apps/web`、`apps/market` 只通过 relay 通信（P4），禁止直接 import packages（类型除外）。
 
 ### 4.3 插件包格式（ZCode 同构 + 签名强化）
 
@@ -221,8 +223,7 @@ kcode/
 │   │       ├── tool.ts              # Tool / ToolResult / 权限裁决接口
 │   │       ├── provider.ts          # Provider 接口 + ProviderConfig 双作用域（§5.7）
 │   │       ├── keyhierarchy.ts      # epoch 密钥 / 信封 / 设备授权表消息（§5.6.1）
-│   │       ├── relay.ts             # daemon↔relay WSS 协议消息
-│   │       ├── localapi.ts          # daemon 本地 API 消息（UDS/named pipe 承载）
+│   │       ├── relay.ts             # 设备↔relay WSS 协议消息（P4）
 │   │       ├── hooks.ts             # hook 事件 + 模板变量
 │   │       ├── usage.ts             # UsageEvent（BYOK 假名化）
 │   │       ├── plugin-manifest.ts   # .kcode-plugin（路径正则 + plugin:<name>:: 命名空间）
@@ -278,20 +279,12 @@ kcode/
 │           └── telemetry/           # logger.ts（pino）/ optin.ts
 │
 ├── apps/
-│   ├── daemon/                      # 唯一组装点（唯一允许 import 一切）
+│   ├── cli/                         # 单进程组装点：唯一允许 import 一切
 │   │   └── src/
-│   │       ├── main.ts              # 生命周期 / 信号 / kcode halt（§6 kill switch）
-│   │       ├── container.ts         # DI 组装：开 SQLite（WAL+worker）注入各模块
-│   │       ├── api/
-│   │       │   ├── server.ts        # UDS(~/.kcode/daemon.sock)/named pipe 优先，TCP 兜底三件套
-│   │       │   └── token.ts         # stdio 发放 / daemon.token 600+ACL+自检轮换
-│   │       ├── selfupdate.ts        # TUF 验签 → 原子替换 → 回滚（§5.6.3）
-│   │       └── worker.ts            # SQLite worker 线程入口
-│   ├── cli/                         # 薄壳：零业务逻辑
-│   │   └── src/
-│   │       ├── main.ts              # spawn/attach daemon（token 经继承 stdio）
-│   │       ├── client.ts            # UDS/named pipe 客户端
-│   │       └── tui/                 # Ink 渲染与输入（app.tsx + components/）
+│   │       ├── main.tsx             # 入口：bootstrap 组装 Runtime → KcodeApp
+│   │       ├── bootstrap.ts         # 配置 → keychain → providers 路由（受众绑定）
+│   │       ├── session.ts           # createSession：进程内 composeSession 句柄
+│   │       └── tui/                 # Ink 渲染与输入（App.tsx + components/）
 │   ├── web/                         # 控制台（持有设备私钥的 origin）
 │   │   └── src/
 │   │       ├── app/                 # (dashboard)/ 仪表盘 + chat/ 远程对话
@@ -323,7 +316,7 @@ kcode/
 1. **包内一级目录 = 逻辑模块**（core、context、tools、mcp、skills、hooks、plugins、permissions、session、memory、scheduler、transport、auth、providers、usage、telemetry 等）——P3 后"物理拆包 7→17"即目录提升为包，import 路径经 tsconfig paths 重指不变；
 2. **web 与 market 是两个应用、两个 origin**：§5.6 分源决策的落地——market 渲染不可信 UGC，永远不加载设备私钥相关代码；两边 shadcn/ui 组件各自拷贝，不为共享 UI 增包；
 3. **部署对应**：`deploy/docker-compose.yml` = §3 的 server + IdP + pg + redis；web/market 各自独立部署（market 可上 CDN 静态化）；
-4. **可信项目门控（§5.4）与 automation 模式（§5.5）落在 extensions/permissions**，daemon 只做注入，不自带策略。
+4. **可信项目门控（§5.4）与 automation 模式（§5.5）落在 extensions/permissions**，组合层只做注入，不自带策略。
 
 ---
 
@@ -360,7 +353,7 @@ tool_call ─► permissions（纯本地裁决，快） ─► pre_tool_use hook
 ### 5.3 会话与记忆
 
 - JSONL 事件流首字段 `v: 1`；支持 resume/分支；跨会话读取按 `sess_id` 授权拉取；
-- SQLite 由 **daemon 统一开库注入**（WAL + worker），各模块不自管连接；
+- SQLite 由 **组合层统一开库注入**（WAL + worker），各模块不自管连接；
 - 记忆三层：会话内上下文（压缩）→ 项目/用户级 markdown（AGENTS.md 同构）→ 长期记忆（可选 sqlite-vec，P4 后评估）；
 - 多设备：会话密文上云镜像，**单活跃设备锁定**（ADR-8）。锁为**带 TTL 的租约**：60s 过期、15s 心跳经 relay 续租；租约丢失一方自动转只读；不合并、快照覆盖——持锁设备崩溃不再死锁。
 
@@ -389,7 +382,7 @@ tool_call ─► permissions（纯本地裁决，快） ─► pre_tool_use hook
 
 #### 5.6.1 E2E 密钥层级（epoch 模型，contracts P0 定型）
 
-- **设备密钥对**：每台设备（daemon 电脑、浏览器 session、手机）登录时生成，云端只存公钥；新设备接入需**已授权设备批准**（WhatsApp 式）+ 配对码——防钓鱼配对；
+- **设备密钥对**：每台设备（本地 CLI 电脑、浏览器 session、手机）登录时生成，云端只存公钥；新设备接入需**已授权设备批准**（WhatsApp 式）+ 配对码——防钓鱼配对；
 - **会话 DEK 按 epoch 管理**：每会话每 epoch 一把内容密钥，用当前全部授权设备的公钥各包一份（信封加密）→ 浏览器/手机可解密，relay 永远只见密文；消息内再加一层 **HKDF 逐消息 ratchet**（每条消息密钥从前一条派生）取得消息级前向保密；
 - **epoch 自动轮换**：每 24h 或每 N 条消息，不等撤销，压缩泄露窗口；
 - **撤销 = epoch+1**（v1.1 修正）：生成新 DEK 只包给剩余设备，后续消息全部换钥；同时 relay 侧**每会话设备授权表**拒绝被撤销设备接入（设备连接用设备私钥签名握手认证，纵深防御）。注意：仅重包旧 DEK 信封对已解包过 DEK 的设备**无效**——这是 v1.0 方案错误；
@@ -397,6 +390,8 @@ tool_call ─► permissions（纯本地裁决，快） ─► pre_tool_use hook
 - **诚实边界**：无后向保密——被攻陷设备可永久读取其攻陷前已解密的内容；高风险用户可选"全量重加密"（一台活跃设备本地解开整会话、换新 DEK 重传）。relay 零知识指**内容**，元数据（路由/时间/规模）仍可见。
 
 #### 5.6.2 本地通道（ADR-10）
+
+> **v1.4 已作废**：daemon 与本地 API 已删除（单进程内嵌组装，无 IPC）。以下为 P3 历史设计留档；P4 多端接入时重新评估。
 
 - **优先 UDS**（`~/.kcode/daemon.sock`，macOS/Linux）**/ Windows named pipe**（`\\.\pipe\kcode`，每用户 ACL）：访问控制即文件权限，无端口即无 rebinding/跨站 WS 攻击面，多用户机器上其他账户不可连；
 - **TCP 回环仅兜底**：绑定 127.0.0.1（禁止 0.0.0.0），校验 `Host` ∈ localhost 变体（杀 DNS rebinding），WS 升级校验 `Origin` 白名单（非浏览器客户端无 Origin 则必须持 token）；
@@ -442,7 +437,7 @@ tool_call ─► permissions（纯本地裁决，快） ─► pre_tool_use hook
 规则（v1.1 重写）：
 
 - **双作用域 schema（防 key 外泄，第一层）**：`providers`（含 `type`/`baseURL`/`keyRef`）**只存在于用户级配置**；项目级 `.kcode/config.json` 是独立小 schema，仅可**按名引用**用户级已配置的 provider 设默认模型，出现 `providers` 字段即 parse error——恶意仓库改 baseURL 指向攻击者在 schema 层不可表达；
-- **key 受众绑定（第二层，同类产品少有）**：keychain 条目同时存 key 与**允许端点列表（audiences）**；daemon 每次调用前校验 `provider.baseURL ∈ keyEntry.audiences`，不匹配即硬失败并走交互式重新授权（`kcode config` 改端点同样触发）——用户配置被篡改或 daemon bug 均无法把 key 发往新端点；
+- **key 受众绑定（第二层，同类产品少有）**：keychain 条目同时存 key 与**允许端点列表（audiences）**；组合层每次调用前校验 `provider.baseURL ∈ keyEntry.audiences`，不匹配即硬失败并走交互式重新授权（`kcode config` 改端点同样触发）——用户配置被篡改或组合层 bug 均无法把 key 发往新端点；
 - API key 永远只存 OS keychain（Windows **DPAPI** / macOS **Keychain**；两者皆不可用才降级为 passphrase 加密文件并显式告警——**禁止**自制机器 ID 派生密钥的假保护），config 只存 `keyRef`；BYOK 的 key 绝不上云；
 - provider 声明/探测能力（tool calling、多模态、cache）；不支持 tool calling 的模型启动时明确降级提示（内置工具强依赖）；
 - 每次调用模型可参数化（`model: "deepseek/chat"` 解析 → provider 路由），为未来按任务类型路由便宜模型留口；
@@ -490,7 +485,7 @@ API：搜索 / 详情 / 版本列表 / 发布（CLI `kcode plugin publish`）/ �
 | 命令 | 分层沙箱（§6）+ 工作区外 default-deny 写；**可信项目门控覆盖项目 hooks/技能/MCP/配置四类** |
 | 插件 | 进程外运行（MCP）+ `--ignore-scripts` 安装；技能按提示注入面处理（默认手动）；Sigstore keyless + registry 副签 + 扫描门 + seed 锁定 + CRL |
 | 传输 | E2E epoch 信封加密 + 逐消息 ratchet（§5.6）；relay 零知识（内容）；新设备需已授权设备批准；撤销即时生效 |
-| 本地 | UDS/named pipe（文件权限/每用户 ACL）；TCP 兜底三件套（127.0.0.1 绑定/Host/Origin/token）；keychain 只在 daemon 进程内读取 |
+| 本地 | 进程内组装（无 IPC，v1.4）；keychain 只在 CLI 进程内读取；P4 多端接入的通道届时再定 |
 | 更新链 | TUF 角色分离签名 + 验签后原子替换 + 健康检查回滚 + 带签名的强制升级声明（§5.6） |
 | 远程会话 | 默认收紧权限（只读工具默认放行，写/网络/电脑控制逐项确认）；全量审计 |
 | 无人值守 | `automation` 权限模式（§5.5）：ask 降级为 deny+记录+通知 |
@@ -531,7 +526,7 @@ pino 结构化日志 + 每 loop 的 trace 导出（消息/工具调用/token 数
 **P3 后动作**：物理拆包（7 → 17）；评估 Node SEA 单二进制。
 **工期影响**：v1.1 安全修订合计 +3–4 周，已摊入上表各阶段（P0 +1 周、P3 +1 周、P4 +1.5 周），R6 持续监控。
 
-**执行进度（2026-09）**：P0–P3 已完成并超概——P3-3 插件装卸+沙箱 v1、P4-1 epoch E2E 加密层提前落地；P2 主体完成（分窗压缩/真 tokenizer 归入 B3）。此后插入两轮增量：**A 级体验轮**（2026-09 交付：bash cd 持久、项目级放行 + /permissions、/cost 用量、LLM 重试退避、/resume + 多行输入、Markdown 渲染+代码高亮）与 **B 级 Agent 能力核**（设计定稿见 docs/roadmap-b.md：子代理 .kcode/agents + task 工具、计划双闸门 + /rewind 检查点、上下文三层压缩、交互补齐、稳固性），B 级完成后再回 P4 主线。
+**执行进度（2026-09）**：P0–P3 已完成并超概——P3-3 插件装卸+沙箱 v1、P4-1 epoch E2E 加密层提前落地；P2 主体完成（分窗压缩/真 tokenizer 归入 B3）。此后插入两轮增量：**A 级体验轮**（2026-09 交付：bash cd 持久、项目级放行 + /permissions、/cost 用量、LLM 重试退避、/resume + 多行输入、Markdown 渲染+代码高亮）与 **B 级 Agent 能力核**（设计定稿见 docs/roadmap-b.md：子代理 .kcode/agents + task 工具、计划双闸门 + /rewind 检查点、上下文三层压缩、交互补齐、稳固性），B 级完成后再回 P4 主线。**C 级单进程化（2026-09，docs/roadmap-c.md）**：默认形态改为 Claude Code 同款单进程（引擎抽入 packages/session，CLI 内嵌组装，会话 JSONL+resume 不变）；**apps/daemon 与 contracts/localapi 已完全删除**，P4 web 控制台接入形态届时再定。
 
 ---
 
@@ -624,6 +619,12 @@ Logo 方向（供设计参考）：圆角方块深色底 + 高亮单字母 K + �
 ---
 
 ## 13. 变更记录
+
+### v1.4（2026-09-24）
+
+- 默认形态切换为 Claude Code 同款单进程：引擎抽入 `packages/session`（composition / subagent / plan-submit / checkpoints），CLI 内嵌组装（`createSession` → `composeSession`）。
+- **删除 `apps/daemon` 应用与 `contracts/src/localapi.ts` 本地 API 协议**；CLI/contracts/core/platform/runtime/tools 中的 daemon 残留表述同步清理。
+- §0 / §1.2 / §4.1 / §4.2 / §4.4 / §5.6.2 / §9 同步修订（daemon → 单进程）。
 
 ### v1.3（2026-09-17）
 

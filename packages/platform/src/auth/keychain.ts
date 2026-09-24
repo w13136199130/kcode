@@ -30,13 +30,9 @@ export function openKeychain(keysFilePath: string): KeychainStore {
   );
 }
 
-/** 凭证存取端口：daemon 组装时注入；实现仅 platform 与测试可替换 */
-export interface KeychainStore {
-  get(ref: string): Promise<KeychainEntry | null>;
-  set(ref: string, key: string, audiences: string[]): Promise<void>;
-  delete(ref: string): Promise<void>;
-  list(): Promise<string[]>;
-}
+import type { KeychainStore } from "./types.js";
+
+export type { KeychainStore };
 
 /**
  * P1 加密文件降级（§5.7）：passphrase（PBKDF2 100k 轮）→ AES-256-GCM。

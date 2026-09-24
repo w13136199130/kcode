@@ -17,7 +17,7 @@ import { DpapiKeychain, EncryptedFileKeychain } from "@kcode/platform";
 import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { killDaemonByPidfile, type DaemonClient } from "../daemon-client.js";
+import type { Runtime } from "../bootstrap.js";
 import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
@@ -27,15 +27,15 @@ import { appendHistory, loadInputHistory, saveInputHistory } from "../history-st
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
 
 export interface KcodeAppProps {
-  /** 守护进程连接：会话在守护进程侧组装与执行 */
-  client: DaemonClient;
+  /** 运行时（配置/keychain/providers 路由）：引擎内嵌本进程组装（C 级单进程化） */
+  runtime: Runtime;
   model: string;
   cwd: string;
   /** 一次性提问（非交互/脚本模式）；缺省进 REPL */
   oneShot?: string;
   /** 一次性提问附图（本地文件路径，多模态输入） */
   images?: string[];
-  /** 续接来源（会话 id / 前缀 / latest，由守护进程解析重建） */
+  /** 续接来源（会话 id / 前缀 / latest，本地从 JSONL 解析重建） */
   resumeFrom?: string;
   /** 独立验收入口可指定输入历史，避免混入日常会话。 */
   historyFile?: string;
@@ -725,7 +725,7 @@ export function KcodeApp(props: KcodeAppProps) {
     }
   }, [busy]);
 
-  /** 中断当前运行：发送 abort，并立即收掉挂起的交互（daemon 侧也会结算未决 ask） */
+  /** 中断当前运行：发送 abort，并立即收掉挂起的交互 */
   const interruptRun = (): void => {
     if (!busy) {
       return;
@@ -825,17 +825,6 @@ export function KcodeApp(props: KcodeAppProps) {
     { isActive: interactive },
   );
 
-  // daemon 掉线：提示重启与续接（pending 运行由 session 层 reject，busy 随之解除）
-  useEffect(() => {
-    return props.client.onClose(() => {
-      pushBlock({
-        kind: "info",
-        tone: "warn",
-        text: "✗ 与守护进程的连接已断开（daemon 可能已退出）。请 exit 后重新启动；历史可 --resume latest 续接",
-      });
-    });
-  }, []);
-
   /** /rewind：取回退点并打开选择菜单（空闲时才可用） */
   const openRewindPicker = (): void => {
     if (busy) {
@@ -847,7 +836,7 @@ export function KcodeApp(props: KcodeAppProps) {
       if (session === null) return;
       const points = await session.rewindPoints().catch(() => null);
       if (points === null) {
-        pushBlock({ kind: "info", tone: "warn", text: "回退点获取失败（守护进程连接异常）" });
+        pushBlock({ kind: "info", tone: "warn", text: "回退点获取失败（会话操作异常）" });
         return;
       }
       if (points.length === 0) {
@@ -895,7 +884,7 @@ export function KcodeApp(props: KcodeAppProps) {
     }
   };
 
-  /** 手动 /skill 注入：下一轮 user_message 不整段回显（daemon 侧仍落盘） */
+  /** 手动 /skill 注入：下一轮 user_message 不整段回显（事件仍落盘 JSONL） */
   const suppressNextUserBlock = useRef(false);
 
   const handleEvent = (event: SessionEvent): void => {
@@ -987,14 +976,14 @@ export function KcodeApp(props: KcodeAppProps) {
     }
   };
 
-  /** 应用模式切换：本地状态 + 守护进程侧引擎换档 */
+  /** 应用模式切换：本地状态 + 引擎换档 */
   const applyMode = (next: PermissionMode): void => {
     setMode(next);
     sessionRef.current?.setMode(next);
     pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
-  /** 计划批准交互（plan_submit 推送）：批准后本地同步模式（daemon 侧已切换，双保险） */
+  /** 计划批准交互（plan_submit 触发）：批准后本地同步模式 */
   const onPlanApproval = (payload: {
     plan: string;
     question: { question: string; options: { label: string; description?: string }[] };
@@ -1041,7 +1030,7 @@ export function KcodeApp(props: KcodeAppProps) {
     void (async () => {
       try {
         const handle = await createSession({
-          client: props.client,
+          runtime: props.runtime,
           model: modelLabel,
           cwd: props.cwd,
           resumeFrom,
@@ -1079,7 +1068,7 @@ export function KcodeApp(props: KcodeAppProps) {
     void (async () => {
       try {
         const handle = await createSession({
-          client: props.client,
+          runtime: props.runtime,
           model: props.model,
           cwd: props.cwd,
           resumeFrom: props.resumeFrom,
@@ -1132,12 +1121,11 @@ export function KcodeApp(props: KcodeAppProps) {
       } catch (err) {
         if (!cancelled) {
           const raw = err instanceof Error ? err.message : String(err);
-          // keychain 报错几乎总是「daemon 继承了无口令终端的环境」——给出可操作修复步骤
+          // keychain 报错 = 当前进程环境未设口令——给出可操作修复步骤
           const hint = raw.includes("KCODE_KEYCHAIN_PASSPHRASE")
-            ? "\n\n修复：在设置了口令的终端里结束旧 daemon 后重启 kcode——\n" +
-              "  1) 结束旧 daemon：taskkill /F /PID <pid>（pid 见 ~/.kcode/daemon.pid 文件内容）\n" +
-              '  2) 设置口令：PowerShell $env:KCODE_KEYCHAIN_PASSPHRASE="..." ／ cmd set KCODE_KEYCHAIN_PASSPHRASE=...\n' +
-              "  3) 重新运行 npx tsx src/main.tsx（daemon 将以新环境自动拉起）"
+            ? "\n\n修复：在当前终端设置 keychain 口令后重启 kcode——\n" +
+              '  1) 设置口令：PowerShell $env:KCODE_KEYCHAIN_PASSPHRASE="..." ／ cmd set KCODE_KEYCHAIN_PASSPHRASE=...\n' +
+              "  2) 重新运行 npx tsx src/main.tsx（或 kcode key add 重新录入）"
             : "";
           setFatal(raw + hint);
           setTimeout(() => exit(), 80);
@@ -1168,7 +1156,7 @@ export function KcodeApp(props: KcodeAppProps) {
       try {
         const result = await session.runBash(command);
         if (result === null) {
-          pushBlock({ kind: "info", tone: "warn", text: "✗ 命令执行失败（守护进程连接异常）" });
+          pushBlock({ kind: "info", tone: "warn", text: "✗ 命令执行失败（会话操作异常）" });
         } else {
           const shown = result.output.length > 2000 ? `${result.output.slice(0, 2000)}
 （截断显示）` : result.output;
@@ -1226,7 +1214,7 @@ ${result.error}` : ""}`,
           // 选择菜单：默认引用 + 当前会话模型（自定义引用用 /model <provider/模型名>）
           const info = await session.models().catch(() => null);
           if (info === null) {
-            pushBlock({ kind: "info", tone: "warn", text: "模型清单获取失败（守护进程连接异常）" });
+            pushBlock({ kind: "info", tone: "warn", text: "模型清单获取失败（会话操作异常）" });
             return;
           }
           const options: MenuOption[] = [];
@@ -1308,7 +1296,7 @@ ${body}
       if (name === "resume") {
         const sessions = await session.listSessions().catch(() => null);
         if (sessions === null) {
-          pushBlock({ kind: "info", tone: "warn", text: "会话清单获取失败（守护进程连接异常）" });
+          pushBlock({ kind: "info", tone: "warn", text: "会话清单获取失败（会话操作异常）" });
           return;
         }
         const currentId = sessionRef.current?.sessionId;
@@ -1347,7 +1335,7 @@ ${body}
       if (name === "cost") {
         const usage = await session.usage().catch(() => null);
         if (usage === null) {
-          pushBlock({ kind: "info", tone: "warn", text: "用量获取失败（守护进程连接异常）" });
+          pushBlock({ kind: "info", tone: "warn", text: "用量获取失败（会话操作异常）" });
           return;
         }
         const fmt = (n: number): string => n.toLocaleString("en-US");
@@ -1370,7 +1358,7 @@ ${body}
         setBusySince(Date.now());
         try {
           const handle = await createSession({
-            client: props.client,
+            runtime: props.runtime,
             model: modelLabel,
             cwd: props.cwd,
             onEvent: handleEvent,
@@ -1423,7 +1411,7 @@ ${body}
           kind: "info",
           text:
             servers === null
-              ? "MCP 状态获取失败（守护进程连接异常）"
+              ? "MCP 状态获取失败（会话操作异常）"
               : servers.length === 0
                 ? "（未配置 MCP 服务器——~/.kcode/mcp.json 可添加；支持 stdio / http / sse 三种传输）"
                 : `MCP 服务器（${servers.filter((x) => x.ok).length}/${servers.length} 接入成功）：
@@ -1468,7 +1456,7 @@ ${servers
       if (name === "context") {
         const stats = await session.context().catch(() => null);
         if (stats === null) {
-          pushBlock({ kind: "info", tone: "warn", text: "上下文信息获取失败（守护进程连接异常）" });
+          pushBlock({ kind: "info", tone: "warn", text: "上下文信息获取失败（会话操作异常）" });
           return;
         }
         const fmt = (n: number): string => n.toLocaleString("en-US");
@@ -1490,7 +1478,7 @@ ${servers
       if (name === "permissions") {
         const grants = await session.listPersistentGrants().catch(() => null);
         if (grants === null) {
-          pushBlock({ kind: "info", tone: "warn", text: "持久放行清单获取失败（守护进程连接异常）" });
+          pushBlock({ kind: "info", tone: "warn", text: "持久放行清单获取失败（会话操作异常）" });
           return;
         }
         if (grants.length === 0) {
@@ -1801,7 +1789,7 @@ ${servers
                     tone: ok ? "ok" : "warn",
                     text: ok
                       ? `❯ 已清空本项目持久放行（${grants.length} 项）`
-                      : "✗ 清除失败（守护进程连接异常）",
+                      : "✗ 清除失败（会话操作异常）",
                   });
                 })();
               }
@@ -1939,7 +1927,6 @@ ${servers
                       } else {
                         throw new Error("口令不能为空（当前平台无 DPAPI，需设置口令）");
                       }
-                      killDaemonByPidfile();
                       pushBlock({
                         kind: "info",
                         tone: "ok",

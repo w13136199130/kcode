@@ -9,11 +9,11 @@ import {
   listInstalledPlugins,
   uninstallPlugin,
 } from "@kcode/extensions";
-import { ensureDaemon, killDaemonByPidfile } from "./daemon-client.js";
+import { bootstrap, type Runtime } from "./bootstrap.js";
 import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
 
-/** key 录入子命令：直接操作本地加密文件（不经过守护进程） */
+/** key 录入子命令：直接操作本地加密文件 */
 async function keyCommand(args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
   // 环境无口令时交互式询问（set 只对当前窗口生效，新开窗口常见此况）
@@ -29,10 +29,6 @@ async function keyCommand(args: string[]): Promise<void> {
   if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
     await keychain.set(ref, key, audiences);
     console.log(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
-    // daemon 在启动时解密并缓存 keychain——磁盘更新后必须换新进程才生效
-    if (killDaemonByPidfile()) {
-      console.log("已结束旧守护进程：下次启动 kcode 将使用新 key");
-    }
     return;
   }
   if (op === "list") {
@@ -168,12 +164,12 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 模型引用仅作显示与传递，实际供给由守护进程解析（含受众绑定校验）
+  // 模型引用仅作显示与传递，实际供给由 providers 路由解析（含受众绑定校验）
   const models = await loadUserConfig();
   const modelRef = requireDefaultModelRef(models);
 
   // 提前预警：配置了需要 key 的 provider 但当前终端没设口令——
-  // daemon 继承本终端环境，此刻启动必然在会话创建时报 keychain 错
+  // 单进程直接继承本终端环境，此刻启动必然在会话创建时报 keychain 错
   const needsKey = Object.values(models.providers ?? {}).some(
     (p) => p.type !== "gateway" && p.keyRef !== undefined,
   );
@@ -208,11 +204,7 @@ async function main(): Promise<void> {
         );
         process.exit(1);
       }
-      if (verified) {
-        // 现有 daemon 可能是「无口令/错口令」环境拉起的——握手只比对有无，比对不了对错；
-        // 交互取得正确口令后主动换新 daemon，确保以本环境拉起
-        killDaemonByPidfile();
-      }
+      void 0;
     } else {
       console.error(
         "⚠ 当前终端未设置 KCODE_KEYCHAIN_PASSPHRASE：需要 API key 的模型将无法使用。\n" +
@@ -221,8 +213,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const client = await ensureDaemon();
-  console.error(`已连接守护进程（模型 ${modelRef}）`);
+  // 单进程：引擎内嵌本进程组装（bootstrap → router/keychain），无守护进程
+  const runtime: Runtime = await bootstrap();
 
   if (process.stdout.isTTY !== true) {
     // 输出经管道（如 pnpm --filter 转发）时 Ink 无法局部刷新，帧会逐行堆积刷屏
@@ -264,7 +256,7 @@ async function main(): Promise<void> {
   // exitOnCtrlC=false：运行中 Ctrl+C = 中断、空闲双击 = 退出（自建 raw 层接管）
   const { waitUntilExit } = render(
     <KcodeApp
-      client={client}
+      runtime={runtime}
       model={modelRef}
       cwd={process.cwd()}
       oneShot={oneShot}
@@ -274,7 +266,7 @@ async function main(): Promise<void> {
     { exitOnCtrlC: false },
   );
   await waitUntilExit();
-  client.close();
+  void runtime;
 }
 
 // 进程级兜底：任何未捕获异常都写 ~/kcode-crash.log（拿不到现场的崩溃一次定位）
