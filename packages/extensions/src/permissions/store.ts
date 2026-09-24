@@ -1,6 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { createServiceLogger } from "@kcode/shared";
 import { matchTool } from "./engine.js";
+
+const log = createServiceLogger("permissions.store");
 
 /** 持久放行文件结构：按项目绝对路径分键（克隆来的仓库无法伪造自己的放行清单） */
 interface PermissionsFile {
@@ -92,7 +95,7 @@ export class ProjectGrantStore {
     } catch (err) {
       if (!this.warned) {
         this.warned = true;
-        console.warn(
+        log.warn(
           `持久放行文件不是合法 JSON（${this.file}），按空处理：${err instanceof Error ? err.message : String(err)}`,
         );
       }

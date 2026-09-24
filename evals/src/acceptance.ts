@@ -22,9 +22,9 @@ import {
 import { DEFAULT_RULES, RuleBasedPermissionEngine } from "@kcode/extensions";
 import { createSessionTools } from "@kcode/tools";
 
-export const FIXTURE_DIR = fileURLToPath(new URL("../fixtures/mini-shop", import.meta.url));
+const FIXTURE_DIR = fileURLToPath(new URL("../fixtures/mini-shop", import.meta.url));
 
-export interface VerifyContext {
+interface VerifyContext {
   /** 任务工作区（夹具仓库的独立副本） */
   ws: string;
   events: SessionEvent[];
@@ -74,7 +74,7 @@ function attemptedTool(events: SessionEvent[], toolName: string): boolean {
  * P1 验收任务集（§9：真实仓库完成 10 个任务）。
  * scripted 模式验证验收框架自身（进 CI）；真实模型模式验收模型×工具链的实际能力。
  */
-export const ACCEPTANCE_TASKS: AcceptanceTask[] = [
+const ACCEPTANCE_TASKS: AcceptanceTask[] = [
   {
     id: "T1",
     name: "问答·定位实现（grep/read）",
@@ -312,7 +312,7 @@ export const ACCEPTANCE_TASKS: AcceptanceTask[] = [
   },
 ];
 
-export async function runTask(
+async function runTask(
   task: AcceptanceTask,
   llm: LLMProvider,
   model: string,

@@ -20,6 +20,8 @@ export interface ToolContext {
   callId?: string;
   /** 会话工作目录（组合层注入）；工具的相对路径以此为基准 */
   cwd?: string;
+  /** 工作区身份键（与 session_start 同源）：需要项目身份时使用，本地为规范化路径 */
+  workspaceKey?: string;
   /** 用户中断信号（Esc/Ctrl+C）：长任务工具（bash 等）应监听并终止子进程 */
   signal?: AbortSignal;
 }

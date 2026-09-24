@@ -155,7 +155,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
 /** PowerShell 侧强制 UTF-8 输出：中文 Windows 默认 GBK 代码页会输出乱码 */
 const PS_UTF8_PREFIX = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;";
 
-export interface ShellChoice {
+interface ShellChoice {
   name: "bash" | "powershell";
   file: string;
   args: (command: string) => string[];

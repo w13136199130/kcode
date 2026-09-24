@@ -1,5 +1,7 @@
 /** 纯工具函数（§4.1：零外部依赖） */
 
+export * from "./logger.js";
+
 /** 生成带前缀的 ID：sess_xxx / agent_xxx / call_xxx */
 export function newId(prefix: string): string {
   const c = globalThis.crypto;

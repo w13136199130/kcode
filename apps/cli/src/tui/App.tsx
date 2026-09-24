@@ -25,6 +25,7 @@ import { markdownToLines } from "./markdown.js";
 import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
 import { appendHistory, loadInputHistory, saveInputHistory } from "../history-store.js";
 import { onHomeEnd, patchStdinReadForKeys } from "./home-end-tee.js";
+import { c } from "./theme.js";
 
 export interface KcodeAppProps {
   /** 运行时（配置/keychain/providers 路由）：引擎内嵌本进程组装（C 级单进程化） */
@@ -159,7 +160,7 @@ function HiddenInput(props: { label: string; onDone: (v: string) => void; onCanc
   });
   return (
     <Text>
-      <Text color="magenta">{props.label}</Text>
+      <Text color={c("accent")}>{props.label}</Text>
       {"•".repeat(value.length)}
     </Text>
   );
@@ -180,7 +181,7 @@ function PromptInput(props: {
   });
   return (
     <Box>
-      <Text color="magenta">{props.label}</Text>
+      <Text color={c("accent")}>{props.label}</Text>
       <TextInput value={value} onChange={setValue} onSubmit={props.onDone} />
     </Box>
   );
@@ -267,7 +268,7 @@ function OptionsMenu(props: {
         const marker =
           props.multi === true ? (checked.has(i) ? "☒" : "☐") : highlighted ? "❯" : " ";
         return (
-          <Text key={o.key} color={highlighted ? "cyan" : undefined} bold={highlighted}>
+          <Text key={o.key} color={highlighted ? c("brand") : undefined} bold={highlighted}>
             {marker} {i + 1}. {o.label}
           </Text>
         );
@@ -291,7 +292,7 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
   return (
     <Box flexDirection="column">
       {props.preview.path !== undefined && (
-        <Text color="cyan" bold>
+        <Text color={c("brand")} bold>
           {"  "}
           {props.preview.path}
         </Text>
@@ -299,7 +300,7 @@ function DiffPreview(props: { preview: AskPreviewPayload }) {
       {shown.map((line, i) => (
         <Text
           key={i}
-          color={line.startsWith("+") ? "green" : line.startsWith("-") ? "red" : undefined}
+          color={line.startsWith("+") ? c("success") : line.startsWith("-") ? c("destructive") : undefined}
           dimColor={!line.startsWith("+") && !line.startsWith("-")}
         >
           {"  "}
@@ -570,15 +571,15 @@ export function InputBox(props: {
     <Box flexDirection="column">
       {showMenu && (
         <Box flexDirection="column">
-          {matches.slice(0, 8).map((c, i) => (
+          {matches.slice(0, 8).map((cmd, i) => (
             <Text
-              key={c.name}
-              color={i === clamped ? "cyan" : undefined}
+              key={cmd.name}
+              color={i === clamped ? c("brand") : undefined}
               bold={i === clamped}
             >
               {i === clamped ? "❯ /" : "  /"}
-              {c.name}
-              <Text dimColor={i !== clamped}>  {c.desc}</Text>
+              {cmd.name}
+              <Text dimColor={i !== clamped}>  {cmd.desc}</Text>
             </Text>
           ))}
           <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
@@ -587,7 +588,7 @@ export function InputBox(props: {
       {fileMenu !== null && (
         <Box flexDirection="column">
           {fileMenu.items.map((f, i) => (
-            <Text key={f} color={i === fileMenu.index ? "cyan" : undefined} bold={i === fileMenu.index}>
+            <Text key={f} color={i === fileMenu.index ? c("brand") : undefined} bold={i === fileMenu.index}>
               {i === fileMenu.index ? "❯ @" : "  @"}
               {f}
             </Text>
@@ -1554,7 +1555,7 @@ ${servers
 
   if (fatal !== null) {
     return (
-      <Text color="red">✗ {fatal}</Text>
+      <Text color={c("destructive")}>✗ {fatal}</Text>
     );
   }
 
@@ -1596,10 +1597,10 @@ ${servers
           ✻ {reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
         </Text>
       )}
-      {streamText !== "" && <Text color="white">{streamText}</Text>}
+      {streamText !== "" && <Text>{streamText}</Text>}
       {todos.length > 0 && <TodoPanel todos={todos} />}
       {notice !== null && (
-        <Text color="yellow" wrap="truncate-end">
+        <Text color={c("warning")} wrap="truncate-end">
           {notice}
         </Text>
       )}
@@ -1610,7 +1611,7 @@ ${servers
       )}
       {ask !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta">
+          <Text color={c("accent")}>
             ⚠ 允许 {ask.call.tool} {JSON.stringify(ask.call.args).slice(0, 80)} ？
           </Text>
           {ask.call.preview !== undefined && <DiffPreview preview={ask.call.preview} />}
@@ -1656,7 +1657,7 @@ ${servers
         </Box>
       ) : planApproval !== null ? (
         <Box flexDirection="column">
-          <Text color="cyan" bold>
+          <Text color={c("brand")} bold>
             📋 执行计划（plan_submit 提交，等待批准）
           </Text>
           {markdownToLines(planApproval.plan).map((line, i) => (
@@ -1707,7 +1708,7 @@ ${servers
         </Box>
       ) : rewindPicker !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta" bold>
+          <Text color={c("accent")} bold>
             选择回退点（回到该提问之前：恢复文件快照 + 截断对话 · Esc 取消）
           </Text>
           <OptionsMenu
@@ -1744,7 +1745,7 @@ ${servers
         </Box>
       ) : resumePicker !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta" bold>
+          <Text color={c("accent")} bold>
             选择要续接的会话（回车确认 · Esc 取消）
           </Text>
           <OptionsMenu
@@ -1764,7 +1765,7 @@ ${servers
         </Box>
       ) : permissionsPanel !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta" bold>
+          <Text color={c("accent")} bold>
             本项目持久放行（{permissionsPanel.length} 项，存于 ~/.kcode/permissions.json）：
           </Text>
           {permissionsPanel.map((p) => (
@@ -1801,7 +1802,7 @@ ${servers
         </Box>
       ) : fullAccessConfirm ? (
         <Box flexDirection="column">
-          <Text color="red" bold>
+          <Text color={c("destructive")} bold>
             ⚠ 切换到完全访问？此会话内全部工具（含 bash）自动放行。
           </Text>
           <OptionsMenu
@@ -1828,7 +1829,7 @@ ${servers
         <Box flexDirection="column">
           {loginWizard.stage === "method" ? (
             <>
-              <Text color="magenta" bold>
+              <Text color={c("accent")} bold>
                 Login · 选择模型厂商（Esc 取消）
               </Text>
               <OptionsMenu
@@ -1854,7 +1855,7 @@ ${servers
             </>
           ) : loginWizard.stage === "model" ? (
             <>
-              <Text color="magenta" bold>
+              <Text color={c("accent")} bold>
                 Login · 2/4 模型名
               </Text>
               <PromptInput
@@ -1866,7 +1867,7 @@ ${servers
             </>
           ) : loginWizard.stage === "baseURL" ? (
             <>
-              <Text color="magenta" bold>
+              <Text color={c("accent")} bold>
                 Login · 3/4 API 地址
               </Text>
               <PromptInput
@@ -1880,7 +1881,7 @@ ${servers
             </>
           ) : loginWizard.stage === "apikey" ? (
             <>
-              <Text color="magenta" bold>
+              <Text color={c("accent")} bold>
                 Login · 4/4 API key（输入不回显）
               </Text>
               <HiddenInput
@@ -1893,7 +1894,7 @@ ${servers
             </>
           ) : (
             <>
-              <Text color="magenta" bold>
+              <Text color={c("accent")} bold>
                 Login · 设置 keychain 口令（不回显；解锁本地 key 存储）
               </Text>
               {DpapiKeychain.available ? (
@@ -1948,7 +1949,7 @@ ${servers
         </Box>
       ) : modelPicker !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta" bold>
+          <Text color={c("accent")} bold>
             Select model（Enter 切换 · Esc 取消；自定义模型用 /model &lt;provider/模型名&gt;）
           </Text>
           <OptionsMenu
@@ -1977,7 +1978,7 @@ ${servers
         </Box>
       ) : question !== null ? (
         <Box flexDirection="column">
-          <Text color="magenta" bold>
+          <Text color={c("accent")} bold>
             ? {question.question.question}
           </Text>
           <OptionsMenu

@@ -10,7 +10,7 @@ import { visualWidth } from "./width.js";
  * 只用于落定的 assistant 块：流式期间按纯文本渲染，避免未闭合围栏导致的结构抖动。
  */
 
-export interface MdSegment {
+interface MdSegment {
   text: string;
   color?: string;
   bold?: boolean;

@@ -42,9 +42,8 @@ module.exports = {
     },
     {
       name: "engine-to-capability",
-      comment:
-        "规则3：P0 允许 core 引用能力层【类型】（不得调用其 IO 实现），上线 P1 前清零本警告",
-      severity: "warn",
+      comment: "规则3：core 不得引用能力层实现（类型经 contracts 接口消费）",
+      severity: "error",
       from: { path: "^packages/core" },
       to: { path: "^packages/(tools|runtime|extensions|platform)" },
     },
@@ -58,7 +57,8 @@ module.exports = {
     },
     {
       name: "no-circular",
-      severity: "warn",
+      comment: "任何包之间禁止循环依赖",
+      severity: "error",
       from: {},
       to: { circular: true },
     },

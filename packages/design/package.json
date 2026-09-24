@@ -1,5 +1,5 @@
 {
-  "name": "@kcode/platform",
+  "name": "@kcode/design",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,11 +12,6 @@
   },
   "scripts": {
     "typecheck": "tsc -p ."
-  },
-  "dependencies": {
-    "@ai-sdk/openai-compatible": "^0.2.16",
-    "@kcode/contracts": "workspace:*",
-    "ai": "^4.3.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

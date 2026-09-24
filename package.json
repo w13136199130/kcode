@@ -13,11 +13,13 @@
     "test": "vitest run",
     "lint": "oxlint packages apps services evals",
     "lint:deps": "depcruise packages apps services evals --config .dependency-cruiser.cjs",
+    "knip": "knip",
     "format": "prettier --write ."
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "dependency-cruiser": "^16.6.0",
+    "knip": "^6.37.0",
     "oxlint": "^0.16.0",
     "prettier": "^3.4.0",
     "turbo": "^2.3.0",

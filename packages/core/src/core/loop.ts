@@ -123,6 +123,7 @@ export class AgentLoop {
       this.sessionId,
       opts.cwd,
       ports.asker,
+      opts.workspaceKey,
     );
   }
 

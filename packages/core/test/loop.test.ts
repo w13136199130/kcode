@@ -459,4 +459,32 @@ describe("AgentLoop（§5.1 状态机）", () => {
     expect(ends2).toHaveLength(2);
     expect(ends2[1]).toMatchObject({ type: "session_end", usage: { inputTokens: 0, outputTokens: 0, calls: 1 } });
   });
+
+  it("workspaceKey 贯穿到工具执行上下文（ToolContext）", async () => {
+    const llm = new ScriptedLLM([
+      { toolCalls: [{ callId: "c1", tool: "probe", args: {} }] },
+      { text: "done" },
+    ]);
+    const seen: unknown[] = [];
+    const probe: Tool = {
+      definition: { name: "probe", description: "探测上下文", parameters: { type: "object" }, readOnly: true },
+      execute: async (_input, ctx) => {
+        seen.push(ctx.workspaceKey);
+        return { ok: true, output: "ok" };
+      },
+    };
+    const loop = new AgentLoop(
+      {
+        llm,
+        tools: new InMemoryToolRegistry([probe]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink: new MemorySink(),
+        audit: new MemoryAudit().sink,
+      },
+      { sessionId: "sess_wk", model: "m", systemPrompt: "t", workspaceKey: "E:/proj", now: () => 0 },
+    );
+    await loop.run("go");
+    expect(seen).toEqual(["E:/proj"]);
+  });
 });

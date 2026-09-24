@@ -1,7 +1,7 @@
 import stringWidth from "string-width";
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-export function graphemes(text: string): string[] {
+function graphemes(text: string): string[] {
   return Array.from(segmenter.segment(text), (part) => part.segment);
 }
 export function previousBoundary(text: string, at: number): number {

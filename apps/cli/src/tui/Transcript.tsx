@@ -3,6 +3,7 @@ import type { TodoItem } from "@kcode/contracts";
 import { markdownToLines, type MdLine } from "./markdown.js";
 // 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
 import { visualWidth, wrapVisual, truncateVisual } from "./width.js";
+import { c } from "./theme.js";
 
 export { visualWidth, wrapVisual };
 
@@ -30,11 +31,11 @@ export type Block =
 /** Todo 面板（§1.1 A 域）：☐ 待办 / ◐ 进行 / ☑ 完成 */
 export function TodoPanel(props: { todos: TodoItem[] }) {
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={c("brand")} paddingX={1}>
       {props.todos.map((t, i) => (
         <Text
           key={i}
-          color={t.status === "completed" ? "green" : t.status === "in_progress" ? "cyan" : undefined}
+          color={t.status === "completed" ? c("success") : t.status === "in_progress" ? c("brand") : undefined}
           dimColor={t.status === "completed"}
         >
           {t.status === "completed" ? "☑" : t.status === "in_progress" ? "◐" : "☐"} {t.content}
@@ -104,21 +105,21 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     return (
       <Box marginBottom={1}>
         <Box marginRight={2} flexDirection="column">
-          <Text color="cyan" bold>
+          <Text color={c("brand")} bold>
             {"█   █  █████  █████  █████"}
           </Text>
-          <Text color="cyan" bold>
+          <Text color={c("brand")} bold>
             {"█  █  ██     ██     ██"}
           </Text>
-          <Text color="cyan" bold>
+          <Text color={c("brand")} bold>
             {"████  ██     ██     ██"}
           </Text>
-          <Text color="cyan" bold>
+          <Text color={c("brand")} bold>
             {"█   █  █████  █████  █████"}
           </Text>
           <Text dimColor> </Text>
           <Text>
-            <Text color="cyan">kcode</Text>
+            <Text color={c("brand")}>kcode</Text>
             <Text dimColor> · 本地优先代码助手</Text>
           </Text>
           <Text dimColor wrap="truncate-end">
@@ -129,7 +130,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           </Text>
         </Box>
         <Box flexDirection="column" paddingTop={1}>
-          <Text color="yellow" bold>
+          <Text color={c("warning")} bold>
             Tips for getting started
           </Text>
           <Text dimColor>输入 / 弹出命令菜单；/login 配置厂商与 key</Text>
@@ -146,7 +147,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     return (
       <Box flexDirection="column">
         {lines.map((l, j) => (
-          <Text key={j} color="green" dimColor wrap="wrap">
+          <Text key={j} color={c("success")} dimColor wrap="wrap">
             {j === 0 ? "> " : "  "}
             {l}
           </Text>
@@ -165,7 +166,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
       <Box flexDirection="column">
         {lines.map((line, j) => (
           <Text key={j}>
-            {j === 0 ? <Text color="green">⏺ </Text> : null}
+            {j === 0 ? <Text color={c("success")}>⏺ </Text> : null}
             {line.segments.map((s, k) => (
               <Text
                 key={k}
@@ -211,11 +212,11 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
   if (block.kind === "info") {
     const color =
       block.tone === "ok"
-        ? "green"
+        ? c("success")
         : block.tone === "deny"
-          ? "red"
+          ? c("destructive")
           : block.tone === "warn"
-            ? "yellow"
+            ? c("warning")
             : undefined;
     return (
       <Text color={color} dimColor={block.tone === undefined}>
@@ -224,7 +225,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
-  const color = block.status === "failed" ? "red" : block.status === "running" ? "yellow" : "blue";
+  const color = block.status === "failed" ? c("destructive") : block.status === "running" ? c("warning") : c("info");
   const timing =
     block.status === "running" && block.startedAt !== undefined && props.now !== undefined
       ? ` (${formatMs(Math.max(0, props.now - block.startedAt))})`
@@ -277,7 +278,7 @@ export function Transcript(props: {
           ✻ {props.reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
         </Text>
       )}
-      {props.streamText !== "" && <Text color="white">{props.streamText}</Text>}
+      {props.streamText !== "" && <Text>{props.streamText}</Text>}
     </Box>
   );
 }

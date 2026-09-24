@@ -32,6 +32,7 @@ export class ToolPipeline {
     private readonly sessionId: string,
     private readonly cwd?: string,
     private readonly asker?: PermissionAsker,
+    private readonly workspaceKey?: string,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -107,6 +108,7 @@ export class ToolPipeline {
         sessionId: this.sessionId,
         callId,
         cwd: this.cwd,
+        ...(this.workspaceKey !== undefined ? { workspaceKey: this.workspaceKey } : {}),
         ...(signal !== undefined ? { signal } : {}),
       });
     } catch (err) {

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
+    "@kcode/design": "workspace:*",
     "@kcode/extensions": "workspace:*",
     "@kcode/platform": "workspace:*",
     "highlight.js": "^11.12.0",

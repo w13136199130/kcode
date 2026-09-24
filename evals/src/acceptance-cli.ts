@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { UserConfigFile } from "@kcode/contracts";
 import { ScriptedLLM } from "@kcode/core";
-import { EncryptedFileKeychain, createProviderRouter } from "@kcode/platform";
+import { createProviderRouter, openKeychain } from "@kcode/platform";
 import type { LLMProvider } from "@kcode/contracts";
 import { runAcceptance, type AcceptanceTask } from "./acceptance.js";
 
@@ -34,7 +34,8 @@ async function main(): Promise<void> {
       throw new Error(`配置不合法: ${parsed.success ? "缺少 models" : parsed.error.message}`);
     }
     const models = parsed.data.models;
-    const keychain = EncryptedFileKeychain.fromEnv(join(homedir(), ".kcode", "keys.json"));
+    // 与 CLI 走同一 keychain 工厂：Windows 默认 DPAPI 免口令，其余平台按口令环境变量
+    const keychain = openKeychain(join(homedir(), ".kcode", "keys.json"));
     const router = createProviderRouter(models, keychain);
     model = process.env["KCODE_ACCEPTANCE_MODEL"] ?? models.default ?? "";
     if (model === "") {
