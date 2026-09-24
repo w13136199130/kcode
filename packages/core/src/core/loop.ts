@@ -49,6 +49,8 @@ export interface AgentLoopOptions {
   systemPrompt: string;
   /** 会话工作目录：注入 ToolContext，工具的相对路径以此为基准 */
   cwd?: string;
+  /** 工作区身份键：落盘到 session_start，供会话分组/续接作用域使用 */
+  workspaceKey?: string;
   /** AGENTS.md 项目记忆（会话期不变，进稳定区，§5.3） */
   agentsMd?: string;
   /** 续接历史（resume/分支：由会话 JSONL 重建，§5.3） */
@@ -254,6 +256,7 @@ export class AgentLoop {
         ts: ts(),
         sessionId: this.sessionId,
         model: this.model,
+        ...(this.opts.workspaceKey !== undefined ? { workspaceKey: this.opts.workspaceKey } : {}),
       });
       await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
     }

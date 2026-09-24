@@ -6,8 +6,12 @@ import type { ChatMessage, ToolCallPart } from "@kcode/contracts";
  * 工具执行器替换为录制结果；本模块只读不执行，CI 中真实命令/hooks 永不运行。
  */
 
-/** 解析 JSONL 夹具为事件序列；非法行带行号报错 */
-export function parseJsonlSession(text: string): SessionEvent[] {
+/**
+ * 逐行解析 JSONL 事件流。
+ * stopOnError=true：遇到坏行（多为崩溃时追加到一半的尾部截断）立即停止并返回已解析的有效前缀，用于崩溃恢复；
+ * stopOnError=false：坏行抛错，用于夹具校验（坏夹具应在 CI 里响亮失败）。
+ */
+function parseJsonl(text: string, stopOnError: boolean): SessionEvent[] {
   const events: SessionEvent[] = [];
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -17,15 +21,27 @@ export function parseJsonlSession(text: string): SessionEvent[] {
     try {
       raw = JSON.parse(line);
     } catch (err) {
+      if (stopOnError) return events;
       throw new Error(`fixture 第 ${i + 1} 行不是合法 JSON: ${String(err)}`);
     }
     const parsed = SessionEvent.safeParse(raw);
     if (!parsed.success) {
+      if (stopOnError) return events;
       throw new Error(`fixture 第 ${i + 1} 行不符合 v:1 事件契约: ${parsed.error.message}`);
     }
     events.push(parsed.data);
   }
   return events;
+}
+
+/** 严格解析（夹具校验）：坏行抛错 */
+export function parseJsonlSession(text: string): SessionEvent[] {
+  return parseJsonl(text, false);
+}
+
+/** 宽松解析（崩溃恢复）：坏行视为尾部截断，返回已解析的有效前缀 */
+export function parseJsonlPrefix(text: string): SessionEvent[] {
+  return parseJsonl(text, true);
 }
 
 /** 比较录制与产出的事件序列（忽略 ts），返回首个差异——eval 断言锚点 */
@@ -145,6 +161,10 @@ export function rebuildHistory(allEvents: SessionEvent[]): ChatMessage[] {
         break;
     }
   }
-  flushAssistantTurn();
+  // 收尾：崩溃于 tool_result 落盘之前会留下无结果的 tool_call——
+  // 结果未知的写操作不得在续接时被模型当作待执行而重放，丢弃这些调用，仅保留已产出的正文。
+  if (pendingCalls.length > 0 && pendingText !== null && pendingText !== "") {
+    history.push({ role: "assistant", content: pendingText });
+  }
   return history;
 }

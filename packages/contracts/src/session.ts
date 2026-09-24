@@ -14,6 +14,8 @@ export const SessionStartEvent = z.object({
   sessionId,
   cwd: z.string().optional(),
   model: z.string().optional(),
+  /** 工作区身份键：会话分组/续接作用域的依据（本地为规范化路径，未来接远程时为 identity） */
+  workspaceKey: z.string().optional(),
 });
 
 export const UserMessageEvent = z.object({

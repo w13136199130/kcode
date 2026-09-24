@@ -29,7 +29,7 @@ import {
 } from "@kcode/extensions";
 import { SessionRunner, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
-import { newId } from "@kcode/shared";
+import { newId, workspaceKey } from "@kcode/shared";
 import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
@@ -333,6 +333,7 @@ ${plan}`);
       model: opts.model,
       systemPrompt: basePrompt,
       cwd: opts.cwd,
+      workspaceKey: workspaceKey(opts.cwd),
       agentsMd,
       initialHistory: opts.resumeFrom,
       initialUsage: opts.resumeUsage,
@@ -508,15 +509,21 @@ ${plan}`);
 export async function resolveResumeHistory(
   kcodeHomeDir: string,
   resumeFrom: string,
+  workspacePath?: string,
 ): Promise<{ messages: ChatMessage[]; usage: SessionUsage } | null> {
   const sessionsDir = join(kcodeHomeDir, "cli", "sessions");
   const summaries = await listSessions(sessionsDir);
   if (summaries.length === 0) {
     return null;
   }
+  // "latest" 只在当前工作区内取最近：listSessions 已按 (workspaceKey, mtime) 排序，
+  // 取首个匹配当前工作区的即为该工作区最近会话；未指定工作区时退化为全局最近。
+  const scopeKey = workspacePath !== undefined ? workspaceKey(workspacePath) : undefined;
   const target =
     resumeFrom === "latest"
-      ? summaries[0]
+      ? scopeKey === undefined
+        ? summaries[0]
+        : summaries.find((s) => s.workspaceKey === scopeKey)
       : summaries.find((s) => s.sessionId === resumeFrom || s.sessionId.startsWith(resumeFrom));
   if (target === undefined) {
     return null;

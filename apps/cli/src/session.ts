@@ -112,7 +112,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
   const kcodeHomeDir = opts.runtime.kcodeHomeDir;
   const resume =
     opts.resumeFrom !== undefined
-      ? (await resolveResumeHistory(kcodeHomeDir, opts.resumeFrom)) ?? undefined
+      ? (await resolveResumeHistory(kcodeHomeDir, opts.resumeFrom, opts.cwd)) ?? undefined
       : undefined;
   if (opts.resumeFrom !== undefined && resume === undefined) {
     throw new Error(`未找到会话「${opts.resumeFrom}」（/sessions 查看清单）`);
