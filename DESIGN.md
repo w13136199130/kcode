@@ -85,6 +85,13 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 → N2 平台抽象
 4. **无 IO 的引擎层**（`packages/core` 全端口注入）：这是能做多宿主的结构前提。
 5. **可回放会话 + eval 体系**（JSONL append-only + mini-shop 10 任务 + 回放进 CI）：ZCode 没有这么成体系的评测。
 
+### 1.4 对标口径与分档
+
+- **快照口径**：对标锁定 ZCode 快照（提交 `29628c9`），**不追实时版本**——ZCode 每周发版，3 人规模追实时不现实；上游演进按需复核（见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §6）。
+- **对标分档**：功能对标（有等价能力，默认档）／体验对标（手感/信息密度到 ZCode 档）／不追（明确不做）。分档与取舍见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §5。
+- **人力量级**：N3/N4 每个动作的"人周"量级估算见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §4——用于排期取舍，非工期承诺。
+- **关键取舍**：桌面/Web 在 kcode 规模下先按**功能对标**落地，体验对标 ZCode 桌面为二期目标。
+
 ---
 
 ## 2. 现状基线

@@ -286,7 +286,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     ...pluginMcpSessions.flatMap((s) => s.tools),
   ];
   // B2 /rewind：写类工具执行前快照目标文件（bash 造成的改动无法快照——与 CC 检查点同边界）
-  const checkpoints = new CheckpointStore(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
+  const checkpoints = await CheckpointStore.open(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
   const guardedTools = baseTools.map((t) => withFileCheckpoints(t, checkpoints, resolveInCtx));
   const taskTool = buildTaskTool({
     llmFactory: opts.llmFactory,
@@ -450,13 +450,15 @@ ${plan}`);
       if (result === null) {
         return null;
       }
-      opts.onEvent?.({
+      // 手动压缩与自动压缩走同一条落盘路径：经 sink 写 JSONL，重启后可回放，避免摘要只留在界面
+      await sink.append({
         v: 1,
         type: "compaction_summary",
         ts: Date.now(),
         sessionId,
         summary: result.summary,
         dropped: result.dropped,
+        covered: result.covered,
       });
       return { dropped: result.dropped, summaryChars: result.summary.length };
     },
@@ -497,7 +499,7 @@ ${plan}`);
     close: async () => {
       runner.abort();
       await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
-      await checkpoints.cleanup();
+      // 检查点目录不再随关闭清理：保留清单与前像，重启后可继续列出/回退
     },
   };
 }

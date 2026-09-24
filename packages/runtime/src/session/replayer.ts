@@ -129,7 +129,17 @@ export function rebuildHistory(allEvents: SessionEvent[]): ChatMessage[] {
         break;
       case "compaction_summary":
         flushAssistantTurn();
-        history.push({ role: "assistant", content: event.summary });
+        // 折叠头部 covered 条，保留首用户锚点，再放摘要与尾部：
+        // 这样回放出的历史与在线压缩后的历史一致，既不复活已折叠内容，也不与原文重复。
+        {
+          const covered = event.covered ?? event.dropped;
+          const folded = history.splice(0, Math.max(0, covered));
+          const anchor = folded.find((m) => m.role === "user");
+          history.unshift({ role: "assistant", content: event.summary });
+          if (anchor !== undefined) {
+            history.unshift(anchor);
+          }
+        }
         break;
       default:
         break;

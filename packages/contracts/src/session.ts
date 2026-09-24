@@ -63,6 +63,8 @@ export const CompactionSummaryEvent = z.object({
   sessionId,
   summary: z.string(),
   dropped: z.number().int().nonnegative(),
+  /** 头部折叠条数：回放据此重建「首用户锚点 + 摘要 + 尾部」，避免已折叠内容复活或与原文重复 */
+  covered: z.number().int().nonnegative().optional(),
 });
 
 /** Todo 任务项（§1.1 A 域）：同一时刻至多一个 in_progress */

@@ -245,32 +245,44 @@ SKILL.md = YAML frontmatter（`name`/`description` 含触发词/`allowed-tools`/
 
 ### N3 通道扩展（P2）
 
-| ID | 详细执行动作 | 设计思路 |
-|---|---|---|
-| N3-1 | `apps/host` 子进程 + stdio JSON-Line 协议（stdout 只跑 RPC、stderr 分开）；`composeSession` 两种宿主 | 对标 ZCode zcodeStdioTransport |
-| N3-2 | 凭证读取限定 host 进程；渲染进程拿 `probe(keyRef)` 布尔 | 对标 DESIGN.md §5.4 + ZCode provider 分层 |
-| N3-3 | Web（React+Vite+Hono+node-ws）；默认 127.0.0.1，非本机显式 token；远程 TLS | 对标 ZCode §1.11 + kcode 加强 TLS |
-| N3-4 | Desktop（Electron utilityProcess 每窗口 host + MessageChannelMain） | 对标 ZCode §1.11 |
-| N3-5 | 插件加载期重校验 hash（排除 seed 自身） | 对标 threat-model B5 |
+| ID | 详细执行动作 | 设计思路 | 量级 |
+|---|---|---|---|
+| N3-1 | `apps/host` 子进程 + stdio JSON-Line 协议（stdout 只跑 RPC、stderr 分开）；`composeSession` 两种宿主 | 对标 ZCode zcodeStdioTransport | 2–3 人周 |
+| N3-2 | 凭证读取限定 host 进程；渲染进程拿 `probe(keyRef)` 布尔 | 对标 DESIGN.md §5.4 + ZCode provider 分层 | 0.5–1 人周（与 N3-1 同批） |
+| N3-3 | Web（React+Vite+Hono+node-ws）；默认 127.0.0.1，非本机显式 token；远程 TLS | 对标 ZCode §1.11 + kcode 加强 TLS | 4–6 人周 |
+| N3-4 | Desktop（Electron utilityProcess 每窗口 host + MessageChannelMain） | 对标 ZCode §1.11 | 6–10 人周 |
+| N3-5 | 插件加载期重校验 hash（排除 seed 自身） | 对标 threat-model B5 | 0.5–1 人周 |
 
 ### N4 生态与云（P3+）
 
-| ID | 详细执行动作 | 设计思路 |
-|---|---|---|
-| N4-1 | 插件市场（5 类来源 + 生命周期状态机 + Restorable Builtin/Orphaned） | 对标 §1.13 |
-| N4-2 | IdP + relay E2E 消费者 + 远程对话 | E2E 层已落地，补 relay |
-| N4-3 | 用量计量（假名化）+ 遥测（opt-in + 脱敏） | 对标 telemetry 包，kcode 假名化更强 |
-| N4-4 | registry + Sigstore keyless + 扫描门 + seed + CRL | 供应链闭环 |
-| N4-5 | cron 调度器 + automation 权限 + CronCreate/OffPeakCreate 工具 | 对标 ZCode automation 工具 |
-| N4-6 | computer-use / browser-use（Playwright） | 对标 browser-use-plugin |
-| N4-7 | i18n（en-US/zh-CN 两 locale） | 对标 §1.10 |
-| N4-8 | dynamic-workflow 评估 | 对标 dynamic-workflow，倾向后置 |
+| ID | 详细执行动作 | 设计思路 | 量级 |
+|---|---|---|---|
+| N4-1 | 插件市场（5 类来源 + 生命周期状态机 + Restorable Builtin/Orphaned） | 对标 §1.13 | 8–12 人周 |
+| N4-2 | IdP + relay E2E 消费者 + 远程对话 | E2E 层已落地，补 relay；远程设计见 §7 | 8–12 人周 |
+| N4-3 | 用量计量（假名化）+ 遥测（opt-in + 脱敏） | 对标 telemetry 包，kcode 假名化更强 | 2–3 人周 |
+| N4-4 | registry + Sigstore keyless + 扫描门 + seed + CRL | 供应链闭环 | 3–4 人周 |
+| N4-5 | cron 调度器 + automation 权限 + CronCreate/OffPeakCreate 工具 | 对标 ZCode automation 工具 | 2–3 人周 |
+| N4-6 | computer-use / browser-use（Playwright） | 对标 browser-use-plugin | 4–6 人周 |
+| N4-7 | i18n（en-US/zh-CN 两 locale） | 对标 §1.10 | 1–2 人周 |
+| N4-8 | dynamic-workflow 评估 | 对标 dynamic-workflow，倾向后置 | 4–6 人周（若做） |
+
+> 量级小计（人周，仅排期量级、非工期承诺）：**N3 ≈ 14–21**；**N4 ≈ 32–48**；全量对标 N0–N4 ≈ **60–90 人周**（3 人约 5–7 个月，1 人约 15–22 个月）。
 
 ---
 
-## 5. 明确不对标（约束范围）
+## 5. 对标分档与取舍
 
-formal-proof、zcode-cua、swift-bridge、superpowers-plugin、postject bytecode、node-repl-host 独立宿主、OpenTUI 自研渲染器、自研二进制 RPC、飞书生态、多设备同步合并、Zai 主题变体、桌面九色工作流头像。
+"对标 ZCode"不是一刀切，按三档划分并写死取舍，防止范围失控：
+
+| 档 | 定义 | kcode 判定 |
+|---|---|---|
+| **功能对标** | 有等价能力，不追求 UI 像素级一致 | 默认档：协议、工具、插件市场、调度、i18n、电脑控制、遥测 |
+| **体验对标** | 手感/信息密度/输出分层/键盘流到 ZCode 档 | TUI 交互 + 设计令牌（N1-5/N2-3）；桌面/Web 先功能对标，体验为二期 |
+| **不追** | 明确不做 | 见下清单 |
+
+**不追清单**：formal-proof、zcode-cua、swift-bridge、superpowers-plugin、postject bytecode、node-repl-host 独立宿主、OpenTUI 自研渲染器、自研二进制 RPC、飞书生态、多设备同步合并、Zai 主题变体、OTel 全量、桌面九色工作流头像。
+
+**关键取舍**：桌面/Web 在 kcode 3 人规模下先按**功能对标**落地（能用的 Web/桌面，复用 `packages/ui`），"体验对标 ZCode 桌面"是二期目标——否则前端打磨会吞掉 N0–N2 的可靠性主线。
 
 ---
 
@@ -279,3 +291,46 @@ formal-proof、zcode-cua、swift-bridge、superpowers-plugin、postject bytecode
 - DESIGN.md §8 是**阶段与优先级**，本文 §4 是**每个动作的详细设计思路**。
 - 冲突时以 DESIGN.md 为准；本文的技术细节是 DESIGN.md 的展开。
 - 本文 §1 的 ZCode 剖析是**一次性事实快照**（提交 29628c9），ZCode 上游演进时按需复核。
+- 对标口径：**锁定快照，不追实时版本**（ZCode 每周发版，3 人规模追实时不现实）。
+
+## 7. 远程 workspace 设计（N4-2 展开）
+
+kcode 的差异化定位是"数据留在本机 + 自选模型"，远程不是"把代码传上云"，而是"**在另一台机器上跑 host，本机/手机跑前端**"。这正好复用已落地的 E2E 层与 host 子进程设计（N3-1）。
+
+### 7.1 核心原则
+
+- 远程 workspace = host 进程在远端，前端在本机；API key 与工具执行都在远端 host 内，本机只持会话令牌。
+- 传输复用 `packages/platform/src/transport/e2e/`（epoch/ratchet/envelope 已落地），host **出站** WSS 连 relay（Tailscale 式，免 NAT/端口）。
+- 本机访问走 stdio（N3-1），远程访问走 WSS + E2E——同一 `composeSession`，仅传输端口不同。
+
+### 7.2 身份模型（对标 ZCode remote-workspace-identity）
+
+- `workspaceIdentity`（稳定 key）与 `workspacePath`（真实 IO 路径）分离。
+- 格式：`local:<path>`（本地，identity 退化为 path）／ `remote:ssh:<host>:<port>:<user>:<posixPath>`（WSL/Docker 未来各加一段）。
+- 归一化 `normalizeWorkspacePathForIdentity`：分隔符统一 `/`、去首尾斜杠、路径恒以 `/` 开头、host 小写。
+- 业务代码禁止手拼 identity，一律走构造/解析工具。
+
+### 7.3 两种链路（对标 ZCode desktop-continuous / web-remote-replayable）
+
+| 链路 | 角色 | 场景 | 语义 |
+|---|---|---|---|
+| desktop-continuous | trusted-host-relay | 桌面持续远控 | 完整服务面（含 provisioning），实时流 |
+| web-remote-replayable | terminal-client | 手机/Web 恢复 | 受限，E2E 重放（snapshot/resume） |
+
+两者必须明确区分：改 stream/snapshot/queue/重连时**同时验证两种语义**（ZCode AGENTS.md 结论）。
+
+### 7.4 连接注册表与生命周期
+
+- 按 target 建 key（ssh host-key / wsl distro+user / docker），维护逻辑 session + 连接复用缓存 + idle TTL（对标 ZCode WSL 60s idle）。
+- 设备授权表：会话 DEK 每 epoch 包给授权设备；新设备需已授权设备批准 + 配对码；撤销 = epoch+1（见 threat-model.md B4）。
+
+### 7.5 安全与诚实边界
+
+- 远程来源默认更高确认档（写/命令逐项确认），**不得**经远程开 fullAccess。
+- 令牌撤销即时断连（非仅拒新连接）。
+- **诚实声明**：E2E 层无 relay 消费者前，若先做非 E2E 远程，须标注"此路径 relay/host 可见明文"，不得沿用"密文上云"口径（DESIGN §5.2）。
+
+### 7.6 量级
+
+- relay 消费者 + 配对/授权表 + Web 远控前端：8–12 人周（含 N4-2）。
+- 若先只做 SSH/WSL 本机复用（无 relay），可降为 4–6 人周。

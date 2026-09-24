@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { estimateTokens } from "@kcode/shared";
-import type { Tool } from "@kcode/contracts";
+import type { ChatMessage, Tool } from "@kcode/contracts";
 import { DEFAULT_BUDGET, capToolResult, contextWindowFor, deriveBudget } from "../src/context/budget.js";
 import { COMPACTION_KEEP_TAIL, planCompaction } from "../src/context/compact.js";
 import { AgentLoop } from "../src/core/loop.js";
@@ -125,5 +125,30 @@ describe("B3：loop 集成", () => {
     const plan = planCompaction(history, { ...DEFAULT_BUDGET, history: 1 }, true);
     expect(plan?.keepTail.length).toBe(COMPACTION_KEEP_TAIL);
     expect(COMPACTION_KEEP_TAIL).toBe(10);
+  });
+
+  it("压缩切分不拆调用组：保留区起点回退到 assistant 调用，无孤立 tool result", () => {
+    const history: ChatMessage[] = [{ role: "user", content: "任务" }];
+    // 4 组「assistant(toolCalls) + 两个 tool 结果」，共 13 条；默认起点 13-10=3 恰好落在 tool 上
+    for (let i = 1; i <= 4; i++) {
+      history.push({ role: "assistant", content: "", toolCalls: [{ callId: `c${i}`, tool: "t", args: {} }] });
+      history.push({ role: "tool", content: `r${i}a`, toolCallId: `c${i}`, name: "t" });
+      history.push({ role: "tool", content: `r${i}b`, toolCallId: `c${i}`, name: "t" });
+    }
+    const plan = planCompaction(history, { ...DEFAULT_BUDGET, history: 1 }, true);
+    expect(plan).not.toBeNull();
+    // 保留区起点不得是 tool（否则其 assistant(toolCalls) 被拆到待摘要区，形成孤立结果）
+    expect(plan!.keepTail[0]?.role).not.toBe("tool");
+    expect(plan!.keepTail[0]).toMatchObject({ role: "assistant" });
+  });
+
+  it("历史过短（≤ 保留区）时返回 null：不制造孤立 tool result", () => {
+    const history: ChatMessage[] = [{ role: "user", content: "任务" }];
+    for (let i = 1; i <= 3; i++) {
+      history.push({ role: "assistant", content: "", toolCalls: [{ callId: `c${i}`, tool: "t", args: {} }] });
+      history.push({ role: "tool", content: `r${i}`, toolCallId: `c${i}`, name: "t" });
+    }
+    // 7 条 < 10 条保留区：无法折叠出完整轮次，应返回 null 而非拆组
+    expect(planCompaction(history, { ...DEFAULT_BUDGET, history: 1 }, true)).toBeNull();
   });
 });

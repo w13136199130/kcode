@@ -234,7 +234,7 @@ export class AgentLoop {
     }
     const applied = applyCompaction(plan, summary, this.pinnedAnchor !== undefined ? [this.pinnedAnchor] : []);
     this.history = applied.history;
-    return { summary, dropped: applied.dropped };
+    return { summary, dropped: applied.dropped, covered: plan.toSummarize.length };
   }
 
   private async emit(event: SessionEvent): Promise<void> {
@@ -323,6 +323,7 @@ export class AgentLoop {
             sessionId: this.sessionId,
             summary: compacted.summary,
             dropped: compacted.dropped,
+            covered: compacted.covered,
           });
         }
 

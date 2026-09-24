@@ -23,6 +23,9 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# 临时抓取/调试产物（apps/cli 为纯 CLI，不应有 html）
+apps/cli/*.html
+
 # 操作系统杂项
 .DS_Store
 Thumbs.db

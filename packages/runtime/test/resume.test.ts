@@ -51,6 +51,24 @@ describe("rebuildHistory（事件流→历史，§5.3）", () => {
     expect(history).toHaveLength(2);
     expect(history[1]).toMatchObject({ role: "assistant", content: "压缩摘要" });
   });
+
+  it("compaction_summary 折叠头部：保留首用户锚点 + 摘要，已折叠内容不复活", () => {
+    const history = rebuildHistory([
+      { v: 1, type: "user_message", ts: 0, sessionId: "s", content: "第一问" },
+      { v: 1, type: "assistant_message", ts: 0, sessionId: "s", content: "第一答" },
+      { v: 1, type: "user_message", ts: 0, sessionId: "s", content: "第二问" },
+      { v: 1, type: "assistant_message", ts: 0, sessionId: "s", content: "第二答" },
+      { v: 1, type: "compaction_summary", ts: 0, sessionId: "s", summary: "压缩摘要", dropped: 2, covered: 2 },
+      { v: 1, type: "user_message", ts: 0, sessionId: "s", content: "第三问" },
+      { v: 1, type: "assistant_message", ts: 0, sessionId: "s", content: "第三答" },
+    ]);
+    const text = JSON.stringify(history);
+    expect(text).toContain("第一问"); // 首用户锚点保留
+    expect(text).toContain("压缩摘要"); // 摘要占位
+    expect(text).not.toContain("第一答"); // 已折叠内容不复活
+    expect(text).toContain("第二问"); // 尾部保留
+    expect(text).toContain("第三问");
+  });
 });
 
 describe("listSessions / loadSessionEvents", () => {

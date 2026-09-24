@@ -21,6 +21,8 @@ export interface CompactionResult {
   summary: string;
   /** 被折叠的消息条数 */
   dropped: number;
+  /** 头部折叠条数（= toSummarize.length）：落盘供回放重建「首用户锚点 + 摘要 + 尾部」 */
+  covered: number;
 }
 
 /**
@@ -31,8 +33,18 @@ export function planCompaction(history: ChatMessage[], budget: Budget, force = f
   if ((!force && !exceedsBudget(history, budget)) || history.length < COMPACTION_MIN_MESSAGES) {
     return null;
   }
-  const keepTail = history.slice(history.length - COMPACTION_KEEP_TAIL);
-  const toSummarize = history.slice(0, history.length - COMPACTION_KEEP_TAIL);
+  // 保留区起点默认取末尾 KEEP_TAIL 条；若落在 tool 消息上，向左回退到它所属的
+  // assistant(toolCalls)，避免把工具结果与其调用拆到两个区，产生孤立 tool result。
+  let split = Math.max(0, history.length - COMPACTION_KEEP_TAIL);
+  while (split > 0 && history[split]?.role === "tool") {
+    split--;
+  }
+  const toSummarize = history.slice(0, split);
+  if (toSummarize.length === 0) {
+    // 历史太短、没有可折叠的完整轮次：宁可不压缩，也不制造孤立 tool result
+    return null;
+  }
+  const keepTail = history.slice(split);
   const taskAnchor = history.find((m) => m.role === "user");
   return { toSummarize, keepTail, taskAnchor };
 }

@@ -177,7 +177,9 @@ describe("AgentLoop（§5.1 状态机）", () => {
       { toolCalls: [{ callId: "c2", tool: "dump", args: {} }] },
       { toolCalls: [{ callId: "c3", tool: "dump", args: {} }] },
       { text: "首轮完成" },
-      { text: "第二轮回答" },
+      { toolCalls: [{ callId: "c4", tool: "dump", args: {} }] },
+      { text: "第二轮完成" },
+      { text: "第三轮回答" },
     ]);
     const dump: Tool = {
       definition: {
@@ -214,15 +216,17 @@ describe("AgentLoop（§5.1 状态机）", () => {
       },
     );
     await loop.run("开始任务：保持目标");
-    await loop.run("第二问");
+    await loop.run("第二轮任务");
+    await loop.run("第三轮任务");
 
     const event = sink.events.find((e) => e.type === "compaction_summary");
     expect(event && "summary" in event ? event.summary : "").toContain("【摘要】");
+    expect(event && "covered" in event ? event.covered : 0).toBeGreaterThan(0);
     expect(summarized.length).toBeGreaterThanOrEqual(1);
-    // 第二次提问的请求是最后一次：压缩后的历史里应同时有任务锚点与摘要
-    const second = llm.requests[llm.requests.length - 1]?.messages ?? [];
-    expect(second.some((m) => m.content === "开始任务：保持目标")).toBe(true);
-    expect(second.some((m) => m.content.includes("任务=验证压缩"))).toBe(true);
+    // 压缩后的最后一次请求：任务锚点与摘要同时存在
+    const last = llm.requests[llm.requests.length - 1]?.messages ?? [];
+    expect(last.some((m) => m.content === "开始任务：保持目标")).toBe(true);
+    expect(last.some((m) => m.content.includes("任务=验证压缩"))).toBe(true);
   });
 
   it("权限 deny：工具不执行、留审计、结果标记失败", async () => {
