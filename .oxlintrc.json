@@ -1,3 +1,21 @@
 {
-  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/fixtures/**"]
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/fixtures/**"],
+  "rules": {
+    "no-console": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "packages/shared/src/logger.ts",
+        "evals/src/acceptance-cli.ts",
+        "services/server/src/index.ts",
+        "apps/cli/scripts/**",
+        "apps/cli/bin/**"
+      ],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

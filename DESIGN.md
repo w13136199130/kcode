@@ -372,7 +372,7 @@ export interface IPlatformService {
 | N1-1 | 治理门禁升 error（§6.2 B1–B3） | N0 | `no-circular` 升 error；修类型环；knip 上 CI |
 | N1-2 | 冻结跨进程协议 `contracts/protocol.ts`（主/次版本 + 运行时校验 + 一致性测试） | N0 | 故意改一处字段形状会让一致性测试失败 |
 | N1-3 | workspace 身份贯穿（`ToolContext`/事件/`listSessions`） | N0 | 同 N0-6 |
-| N1-4 | 统一 logger（`createServiceLogger` + `packages/ui/src/logger.ts`） | 无 | 禁业务代码 `console.log`，分级生效 |
+| N1-4 | 统一 logger（`createServiceLogger` + `packages/shared/src/logger.ts`） | 无 | 禁业务代码 `console.log`，分级生效；oxlint `no-console: error` 机器化（白名单仅：logger 实现、evals 报告器、services 占位、cli scripts/bin 的界面出口） |
 | N1-5 | 设计令牌单一来源 + 终端映射器（先只服务 CLI） | 无 | `packages/design/tokens` 成立；正文继承终端前景色 |
 
 ### 8.3 阶段 N2：多端地基（P1）
@@ -455,6 +455,10 @@ export interface IPlatformService {
 ---
 
 ## 11. 变更记录
+
+### v4（2026-09-28）
+
+- N1 收口：knip 挂上 CI（ci.yml）；oxlint 挂 `no-console: error`（§8.2 N1-4 机器化），`main.tsx` 的 console 全部改为显式 `print`/`printErr` 出口；N1-4 logger 落点由 `packages/ui`（N2-3 才立包）改为 `packages/shared`，§8.2 行同步。
 
 ### v3（2026-09-24）
 

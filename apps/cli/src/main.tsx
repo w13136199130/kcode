@@ -13,6 +13,14 @@ import { bootstrap, type Runtime } from "./bootstrap.js";
 import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
 
+/** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
+const print = (s: string): void => {
+  process.stdout.write(`${s}\n`);
+};
+const printErr = (s: string): void => {
+  process.stderr.write(`${s}\n`);
+};
+
 /** key 录入子命令：直接操作本地加密文件 */
 async function keyCommand(args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
@@ -28,13 +36,13 @@ async function keyCommand(args: string[]): Promise<void> {
   const keychain = openKeychain(join(kcodeHome(), "keys.json"));
   if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
     await keychain.set(ref, key, audiences);
-    console.log(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
+    print(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
     return;
   }
   if (op === "list") {
     for (const r of await keychain.list()) {
       const entry = await keychain.get(r);
-      console.log(`${r} → ${entry?.audiences.join(", ") ?? ""}`);
+      print(`${r} → ${entry?.audiences.join(", ") ?? ""}`);
     }
     return;
   }
@@ -48,22 +56,22 @@ async function pluginCommand(args: string[]): Promise<void> {
 
   if (op === "install" && rest[0] !== undefined) {
     const result = await installPlugin(rest[0], cacheDir, { force: rest.includes("--force") });
-    console.log(`\n${result.consentSummary}\n`);
-    console.log(`已安装 ${result.name}@${result.version} → ${result.installPath}`);
-    console.log(`seed hash：${result.hash.slice(0, 16)}…`);
+    print(`\n${result.consentSummary}\n`);
+    print(`已安装 ${result.name}@${result.version} → ${result.installPath}`);
+    print(`seed hash：${result.hash.slice(0, 16)}…`);
     return;
   }
   if (op === "list") {
     const plugins = await listInstalledPlugins(cacheDir);
     if (plugins.length === 0) {
-      console.log("（暂无已安装插件）");
+      print("（暂无已安装插件）");
       return;
     }
     for (const p of plugins) {
       const skills = p.manifest.skills.length > 0 ? ` 技能×${p.manifest.skills.length}` : "";
       const hooks = p.manifest.hooks.length > 0 ? ` hooks×${p.manifest.hooks.length}` : "";
       const mcp = p.manifest.mcp.length > 0 ? ` MCP×${p.manifest.mcp.length}` : "";
-      console.log(`${p.manifest.name}@${p.manifest.version}${skills}${hooks}${mcp}`);
+      print(`${p.manifest.name}@${p.manifest.version}${skills}${hooks}${mcp}`);
     }
     return;
   }
@@ -72,7 +80,7 @@ async function pluginCommand(args: string[]): Promise<void> {
     const at = rest[0].indexOf("@");
     const name = at === -1 ? rest[0] : rest[0].slice(0, at);
     const version = at === -1 ? undefined : rest[0].slice(at + 1);
-    console.log(await uninstallPlugin(cacheDir, name, version));
+    print(await uninstallPlugin(cacheDir, name, version));
     return;
   }
   throw new Error("用法：kcode plugin install <目录> [--force] ｜ list ｜ remove <name>[@version]");
@@ -155,7 +163,7 @@ async function main(): Promise<void> {
 
   if (process.stdin.isTTY !== true && oneShot === undefined) {
     // 无 TTY 且无提问：打印用法退出，而不是挂着等不可能到来的输入
-    console.log(
+    print(
       "kcode —— 本地优先代码助手\n" +
         "用法：kcode [一次性提问] [--image <路径>]... [--resume <会话id|latest>]\n" +
         "子命令：kcode key add/list ｜ kcode plugin install/list/remove\n" +
@@ -182,7 +190,7 @@ async function main(): Promise<void> {
           `未检测到 KCODE_KEYCHAIN_PASSPHRASE，请输入 keychain 口令（不回显，${attempt}/3，回车确认）：`,
         );
         if (pass === "") {
-          console.error("⚠ 未输入口令：需要 API key 的模型将无法使用");
+          printErr("⚠ 未输入口令：需要 API key 的模型将无法使用");
           break;
         }
         process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
@@ -192,11 +200,11 @@ async function main(): Promise<void> {
           await kc.list();
           verified = true;
         } catch {
-          console.error("✗ 口令校验失败：与 keys.json 的加密口令不一致");
+          printErr("✗ 口令校验失败：与 keys.json 的加密口令不一致");
         }
       }
       if (!verified && (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") !== "") {
-        console.error(
+        printErr(
           "口令三次校验失败。若忘记原口令，重置方法（注意：会清除已录的 key，需要重新录入）：\n" +
             '  1) set KCODE_KEYCHAIN_PASSPHRASE=新口令\n' +
             "  2) del \"%USERPROFILE%\\.kcode\\keys.json\"\n" +
@@ -206,7 +214,7 @@ async function main(): Promise<void> {
       }
       void 0;
     } else {
-      console.error(
+      printErr(
         "⚠ 当前终端未设置 KCODE_KEYCHAIN_PASSPHRASE：需要 API key 的模型将无法使用。\n" +
           '  PowerShell：$env:KCODE_KEYCHAIN_PASSPHRASE="你的口令"；cmd：set KCODE_KEYCHAIN_PASSPHRASE=你的口令',
       );
@@ -218,12 +226,12 @@ async function main(): Promise<void> {
 
   if (process.stdout.isTTY !== true) {
     // 输出经管道（如 pnpm --filter 转发）时 Ink 无法局部刷新，帧会逐行堆积刷屏
-    console.error(
+    printErr(
       "提示：当前 stdout 非直接终端，动态界面可能反复刷屏；建议直接运行：cd apps/cli && npx tsx src/main.tsx",
     );
   } else if (process.platform === "win32" && process.env["WT_SESSION"] === undefined && process.env["TERM_PROGRAM"] === undefined) {
     // 老式 conhost 可能未启用 VT 转义序列：Ink 无法擦除旧帧，会整段重复打印
-    console.error(
+    printErr(
       "提示：检测到非 Windows Terminal / VS Code 终端，若界面出现整段重复，请改用 Windows Terminal 或 VS Code 集成终端运行",
     );
   }
@@ -278,7 +286,7 @@ process.on("uncaughtException", (err) => {
       "utf8",
     );
   } catch {}
-  console.error(`✗ ${err.message}`);
+  printErr(`✗ ${err.message}`);
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
@@ -294,9 +302,9 @@ process.on("unhandledRejection", (reason) => {
 });
 
 main().catch((err) => {
-  console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
+  printErr(`✗ ${err instanceof Error ? err.message : String(err)}`);
   if (err instanceof Error && err.stack !== undefined) {
-    console.error(err.stack);
+    printErr(err.stack);
     try {
       appendFileSync(join(homedir(), "kcode-crash.log"), `${new Date().toISOString()}\n${err.stack}\n`, "utf8");
     } catch {}
