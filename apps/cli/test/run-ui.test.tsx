@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RuntimeCommandQueue } from "@kcode/runtime";
 import type { SessionEvent } from "@kcode/contracts";
 import type { LocalSessionOptions, SessionHandle } from "../src/session.js";
 import type { Runtime } from "../src/bootstrap.js";
@@ -41,6 +42,7 @@ async function setup() {
     // 缺失会抛错并被 React 静默吞掉，表现为「界面看着正常但交互不结算」。
     return {
       sessionId: "s1",
+      commandQueue: new RuntimeCommandQueue(),
       loop: { run },
       abort,
       setMode: () => {},
@@ -113,7 +115,7 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
   // 每个用例要跑真实 Ink 渲染并串行等待多个状态文案，默认 5s 不够。
   const T = 30_000;
 
-  it("审批中 Ctrl+C 取消整轮，重复按键不重发，实际结束后才恢复输入", async () => {
+  it("审批中 Ctrl+C 取消整轮，重复按键不重发；输入区常驻（N2-2 提交排队）", async () => {
     const t = await setup();
     // 经 App 真实 asker 发起审批，测试与 UI 共用同一个 promise
     const answer = t.options.asker!.confirm({ callId: "ask1", tool: "write", args: {} });
@@ -127,7 +129,8 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
     await t.settle(100);
     await expect(answer).resolves.toEqual({ allowed: false });
     expect(t.actions).toEqual(["abort", "reply"]);
-    expect(t.frame()).not.toContain("> █");
+    // 审批面板关闭后输入区回到画面（常驻）：运行中提交进入排队，不再隐藏
+    expect(t.frame()).toContain("> █");
 
     // 重复按 Ctrl+C 不应重发 abort
     t.stdin.write("\x03");
@@ -205,7 +208,8 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
     await t.eventually("等待模型响应");
     event({ type: "session_end", reason: "completed" });
     await t.eventually("正在结束本轮");
-    expect(t.frame()).not.toContain("> █");
+    // 输入区常驻（N2-2）：运行中也在画面上，提交走排队
+    expect(t.frame()).toContain("> █");
     t.end("completed");
     await t.eventually("> █");
   }, T);

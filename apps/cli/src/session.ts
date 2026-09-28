@@ -15,7 +15,7 @@ import {
   type ComposedSession,
   type PlanVerdict,
 } from "@kcode/session";
-import { listSessions } from "@kcode/runtime";
+import { listSessions, type QueuedCommand, type RuntimeCommandQueue } from "@kcode/runtime";
 import type { Runtime } from "./bootstrap.js";
 
 /**
@@ -28,6 +28,8 @@ export interface SessionHandle {
     run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number; status: RunStatus }>;
   };
   sessionId: string;
+  /** 运行中输入排队（N2-2）：busy 时入队而非丢弃；完成即排空；中断清空 */
+  commandQueue: RuntimeCommandQueue;
   /** 中断当前运行（Esc）：流式停止、未开始的工具调用取消 */
   abort(): void;
   /** 切换权限模式四档（plan/default/acceptEdits/fullAccess） */
@@ -95,6 +97,8 @@ export interface LocalSessionOptions {
     question: StructuredQuestion;
     reply: (labels: string[]) => void;
   }) => void;
+  /** 排队变化（N2-2）：入队/出队/清空回调，界面镜像排队数 */
+  onQueueChange?: (items: readonly QueuedCommand[]) => void;
 }
 
 /** 计划批准三选项 */
@@ -147,6 +151,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
             },
           },
     askUser: opts.askUser,
+    onQueueChange: opts.onQueueChange,
     planAsker:
       opts.onPlanApproval === undefined
         ? undefined
@@ -167,6 +172,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
 
   return {
     sessionId: composed.sessionId,
+    commandQueue: composed.commandQueue,
     loop: {
       run: (input, runOpts) => composed.loop.run(input, runOpts ?? {}),
     },

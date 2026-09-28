@@ -27,7 +27,7 @@ import {
   loadHookConfigs,
   trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
-import { SessionRunner, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
+import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId, workspaceKey } from "@kcode/shared";
 import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
@@ -52,6 +52,8 @@ export const PLAN_MODE_SUFFIX = `
 export interface ComposedSession {
   loop: AgentLoop;
   runner: SessionRunner;
+  /** 运行中输入排队（N2-2）：busy 时入队而非拒绝；中断清空；单 reservation 防双 turn */
+  commandQueue: RuntimeCommandQueue;
   sessionId: string;
   jsonlPath: string;
   /** 中断当前运行（Esc abort）：流式立即停止、未开始的工具调用取消 */
@@ -112,6 +114,8 @@ export interface ComposeSessionOptions {
   askUser?: UserPromptPort;
   /** 计划批准交互（plan_submit 工具，B2）：调用方注入，批准/修订/放弃三态 */
   planAsker?: { ask(plan: string): Promise<PlanVerdict> };
+  /** 排队变化通知（N2-2）：入队/出队/清空时回调快照，界面镜像排队状态 */
+  onQueueChange?: (items: readonly QueuedCommand[]) => void;
 }
 
 /** 读取用户级 MCP 配置；缺失或非法按空处理 */
@@ -341,6 +345,7 @@ ${plan}`);
     },
   );
   const runner = new SessionRunner();
+  const commandQueue = new RuntimeCommandQueue(opts.onQueueChange);
   const rawLoopRun = loop.run.bind(loop);
   loop.run = (input, runOpts = {}) => {
     try {
@@ -364,6 +369,7 @@ ${plan}`);
   return {
     loop,
     runner,
+    commandQueue,
     sessionId,
     jsonlPath,
     abort: (runId) => runner.abort(runId),

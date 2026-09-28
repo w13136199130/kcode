@@ -381,7 +381,7 @@ export interface IPlatformService {
 | ID | 项 | 依赖 | 验收标准 |
 |---|---|---|---|
 | N2-1 | `IPlatformService` + 依赖注入装配 | N1-2 | UI 不碰平台 API（§6 规则5 机器校验：装配点唯一 bootstrap.ts）——**已落地** |
-| N2-2 | `RuntimeCommandQueue`（priority now/next/later）+ 单 reservation；busy 时入队不抛错 | N1-2/N1-3 | 运行中提交 3 条输入按序执行（简化版，不抄 ZCode 500 行幂等网关；owner/lease 随 host 进程挪至 N3-1） |
+| N2-2 | `RuntimeCommandQueue`（priority now/next/later）+ 单 reservation；busy 时入队不抛错 | N1-2/N1-3 | 运行中提交 3 条输入按序执行（简化版，不抄 ZCode 500 行幂等网关；owner/lease 随 host 进程挪至 N3-1）——**已落地**（runtime 队列 + session 句柄暴露 + CLI 输入区常驻/中断清空；TUI 集成测试覆盖验收场景） |
 | N2-3 | `App.tsx` 拆为 `theme/ terminal/ state/ transcript/ input/ dialogs/ status/`；`packages/ui` 立包（注入模式见下方注）；工具统一 `ToolEntry` 契约（schema+permission+resultBudget+timeout） | N2-1 | 新增文件立即受限（maxFileLines 500）；Ink 与 DOM 组件均经 `useServices` 取服务，不直接 import runtime/core |
 | N2-4 | 发行链：tar.gz + sha256 + `latest.json` + 安装脚本 | N1 | 干净机器从零安装后首个任务通过 |
 | N2-5 | 例外清零，门禁升 error（§6.2 B4）+ 例外登记制（对标 ZCode expired-exception） | N2-3 | `gates-exceptions.json` 每条例外带理由与到期日，过期即 CI fail；门禁成真门禁 |
@@ -466,6 +466,7 @@ export interface IPlatformService {
 - N1 收口：knip 挂上 CI（ci.yml）；oxlint 挂 `no-console: error`（§8.2 N1-4 机器化），`main.tsx` 的 console 全部改为显式 `print`/`printErr` 出口；N1-4 logger 落点由 `packages/ui`（N2-3 才立包）改为 `packages/shared`，§8.2 行同步。
 - N2 口径统一与机制补强（对标 ZCode 两处耐久机制）：N2-2 定为简化版 `RuntimeCommandQueue`，owner/lease 随 host 进程挪至 N3-1（kill -9 验收随迁）；N2-3 补服务注入模式（`ServicesProvider`/`useServices` + Zustand slice，先定后拆）并纳入 `ToolEntry` 工具契约；N2-5 补例外登记制 `gates-exceptions.json`（例外带到期日，过期即 CI fail）。
 - N2-1 落地：`contracts.IPlatformService`（keychain 端口 + 平台事实，按实际使用面裁剪）+ `platform.createPlatformService` 工厂；`Runtime.platform` 注入，`main.tsx`/`tui/App.tsx` 去 `@kcode/platform` 直接依赖（login 向导、key 子命令、启动口令校验全走端口）；depcruise 新增规则5 `ui-no-platform-impl` 机器校验。
+- N2-2 落地：`packages/runtime` 新增 `RuntimeCommandQueue`（now/next/later 稳定排序 + `tryReserve` 单 reservation + `clear` 绑定中断语义）；`ComposedSession.commandQueue` 暴露 + `onQueueChange` 镜像；CLI 接线——busy 提交入队（含历史记录与输入清空）、完成即排空（`runOccupied` 四路径统一）、Esc/Ctrl+C 清空排队、busy 行显示排队数、输入区常驻（原"运行中隐藏输入区"的旧契约随排队的引入废除）。
 
 ### v3（2026-09-24）
 

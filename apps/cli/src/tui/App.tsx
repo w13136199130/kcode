@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Runtime } from "../bootstrap.js";
 import { saveUserModelsConfig } from "../bootstrap.js";
-import { createSession } from "../session.js";
+import { createSession, type SessionHandle } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 import { markdownToLines } from "./markdown.js";
 import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
@@ -622,6 +622,14 @@ export function KcodeApp(props: KcodeAppProps) {
   const [streamText, setStreamText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** busy 的同步镜像：排队/排空路径在 setBusy 状态提交前就需要准确的在跑判定（React 状态闭包会过期） */
+  const busyRef = useRef(false);
+  const setBusyBoth = (v: boolean): void => {
+    busyRef.current = v;
+    setBusy(v);
+  };
+  /** 排队输入条数（N2-2）：镜像 commandQueue.onChange，状态栏展示 */
+  const [queuedCount, setQueuedCount] = useState(0);
   const [busySince, setBusySince] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -716,7 +724,7 @@ export function KcodeApp(props: KcodeAppProps) {
     setCancelling(false);
     setPendingTools({});
     setRunPhase("处理请求");
-    setBusy(true);
+    setBusyBoth(true);
   };
   useEffect(() => {
     if (!busy) {
@@ -736,6 +744,11 @@ export function KcodeApp(props: KcodeAppProps) {
     abortSent.current = true;
     setCancelling(true);
     setNotice("正在取消，等待当前操作退出…");
+    // N2-2：中断即清空排队输入——取消当前轮后不应自动续跑后续提交
+    const cleared = sessionRef.current?.commandQueue.clear() ?? 0;
+    if (cleared > 0) {
+      pushBlock({ kind: "info", tone: "warn", text: `已清空 ${cleared} 条排队输入（中断不续跑）` });
+    }
     // 先发取消，再结算本地交互，避免拒绝回复先到达后触发下一次模型调用。
     sessionRef.current?.abort();
     if (ask !== null) {
@@ -827,7 +840,7 @@ export function KcodeApp(props: KcodeAppProps) {
 
   /** /rewind：取回退点并打开选择菜单（空闲时才可用） */
   const openRewindPicker = (): void => {
-    if (busy) {
+    if (busyRef.current) {
       pushBlock({ kind: "info", tone: "warn", text: "运行中不能回退（等本轮完成或 Esc 中断）" });
       return;
     }
@@ -1021,7 +1034,7 @@ export function KcodeApp(props: KcodeAppProps) {
 
   /** /resume：换建一个续接旧会话历史的新会话并切换为当前会话（旧转写保留在上方作上下文） */
   const switchSession = (resumeFrom: string): void => {
-    if (busy) {
+    if (busyRef.current) {
       pushBlock({ kind: "info", tone: "warn", text: "运行中不能续接会话（等本轮完成或 Esc 中断）" });
       return;
     }
@@ -1041,6 +1054,7 @@ export function KcodeApp(props: KcodeAppProps) {
           asker,
           askUser,
           onPlanApproval,
+          onQueueChange: (items) => setQueuedCount(items.length),
         });
         sessionRef.current = handle;
         setTodos([]);
@@ -1057,7 +1071,7 @@ export function KcodeApp(props: KcodeAppProps) {
           text: `✗ 续接失败：${err instanceof Error ? err.message : String(err)}`,
         });
       } finally {
-        setBusy(false);
+        setBusyBoth(false);
         setBusySince(null);
       }
     })();
@@ -1087,6 +1101,7 @@ export function KcodeApp(props: KcodeAppProps) {
           asker,
           askUser,
           onPlanApproval,
+          onQueueChange: (items) => setQueuedCount(items.length),
         });
         sessionRef.current = handle;
         setReady(true);
@@ -1113,7 +1128,7 @@ export function KcodeApp(props: KcodeAppProps) {
               props.images !== undefined ? { images: props.images } : {},
             );
           } finally {
-            setBusy(false);
+            setBusyBoth(false);
             setBusySince(null);
             setTimeout(() => exit(), 80);
           }
@@ -1137,23 +1152,70 @@ export function KcodeApp(props: KcodeAppProps) {
     };
   }, []);
 
+  /** N2-2：本轮结束即取下一条排队输入递归执行；队列空则停（中断路径已 clear，取消不续跑） */
+  const drainQueue = async (): Promise<void> => {
+    const next = sessionRef.current?.commandQueue.dequeue();
+    if (next !== undefined) {
+      await dispatch(next.text);
+    }
+  };
+
+  /**
+   * N2-2 占位执行：reservation 拿不到（双 turn 竞态）则入队而非抛错；
+   * 完成/中断释放并排空。四个占引擎的路径（!命令 / /skill / 自定义命令 / 纯文本）共用。
+   */
+  const runOccupied = async (session: SessionHandle, text: string, work: () => Promise<unknown>): Promise<void> => {
+    if (!session.commandQueue.tryReserve()) {
+      session.commandQueue.enqueue(text);
+      pushBlock({ kind: "info", text: `⧗ 已排队（第 ${session.commandQueue.size} 位）` });
+      return;
+    }
+    beginWork();
+    setBusySince(Date.now());
+    try {
+      await work();
+    } catch (err) {
+      pushBlock({ kind: "info", tone: "warn", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      session.commandQueue.release();
+      setBusyBoth(false);
+      setBusySince(null);
+      void drainQueue();
+    }
+  };
+
+  /** 输入提交：运行中入队（N2-2），空闲直接分发 */
   const submit = async (value: string): Promise<void> => {
     const text = value.trim();
-    if (text === "" || busy || sessionRef.current === null) return;
+    if (text === "" || sessionRef.current === null) return;
     if (text === "exit" || text === "quit") {
       exit();
       return;
     }
+    if (busyRef.current) {
+      const session = sessionRef.current;
+      session.commandQueue.enqueue(text);
+      setInput("");
+      inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
+      void saveInputHistory(inputHistory.current, props.historyFile);
+      const preview = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+      pushBlock({ kind: "info", text: `⧗ 本轮运行中，已排队（第 ${session.commandQueue.size} 位）：${preview}——Esc/Ctrl+C 中断将清空排队` });
+      return;
+    }
+    await dispatch(text);
+  };
+
+  /** 分发一条输入（submit 直达或排空递归）：解析 !/斜杠命令与纯文本 */
+  const dispatch = async (text: string): Promise<void> => {
+    const session = sessionRef.current;
+    if (session === null) return;
     // ! 前缀：用户直执行 shell（不经 LLM、不问权限；结果仅显示）
     if (text.startsWith("!") && text.slice(1).trim() !== "") {
-      const session = sessionRef.current;
       const command = text.slice(1).trim();
       pushBlock({ kind: "user", text });
       inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
       void saveInputHistory(inputHistory.current, props.historyFile);
-      beginWork();
-      setBusySince(Date.now());
-      try {
+      await runOccupied(session, text, async () => {
         const result = await session.runBash(command);
         if (result === null) {
           pushBlock({ kind: "info", tone: "warn", text: "✗ 命令执行失败（会话操作异常）" });
@@ -1168,13 +1230,9 @@ ${shown === "" ? "（无输出）" : shown}${result.error !== undefined && resul
 ${result.error}` : ""}`,
           });
         }
-      } finally {
-        setBusy(false);
-        setBusySince(null);
-      }
+      });
       return;
     }
-    const session = sessionRef.current;
 
     if (text.startsWith("/")) {
       const body = text.slice(1);
@@ -1266,18 +1324,11 @@ ${result.error}` : ""}`,
         }
         pushBlock({ kind: "info", text: `📖 手动注入技能 ${args}` });
         suppressNextUserBlock.current = true;
-        beginWork();
-        setBusySince(Date.now());
-        try {
-          await session.loop.run(`<skill name="${args}">
+        await runOccupied(session, text, () =>
+          session.loop.run(`<skill name="${args}">
 ${body}
-</skill>`);
-        } catch (err) {
-          pushBlock({ kind: "info", tone: "warn", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
-        } finally {
-          setBusy(false);
-          setBusySince(null);
-        }
+</skill>`),
+        );
         return;
       }
       if (name === "sessions") {
@@ -1350,7 +1401,7 @@ ${body}
         return;
       }
       if (name === "clear") {
-        if (busy) {
+        if (busyRef.current) {
           pushBlock({ kind: "info", tone: "warn", text: "运行中不能清屏开新会话（等本轮完成或 Esc 中断）" });
           return;
         }
@@ -1368,6 +1419,7 @@ ${body}
             asker,
             askUser,
             onPlanApproval,
+            onQueueChange: (items) => setQueuedCount(items.length),
           });
           sessionRef.current = handle;
           setTodos([]);
@@ -1380,13 +1432,12 @@ ${body}
         } catch (err) {
           pushBlock({ kind: "info", tone: "warn", text: `✗ 新会话创建失败：${err instanceof Error ? err.message : String(err)}` });
         } finally {
-          setBusy(false);
+          setBusyBoth(false);
           setBusySince(null);
         }
         return;
       }
       if (name === "status") {
-        const session = sessionRef.current;
         const usage = await session.usage().catch(() => null);
         const stats = await session.context().catch(() => null);
         const skills = await session.listSkills().catch(() => []);
@@ -1434,7 +1485,7 @@ ${servers
         return;
       }
       if (name === "compact") {
-        if (busy) {
+        if (busyRef.current) {
           pushBlock({ kind: "info", tone: "warn", text: "运行中不能压缩（等本轮完成或 Esc 中断）" });
           return;
         }
@@ -1503,6 +1554,7 @@ ${servers
           "/compact 手动压缩历史 · /context 查看 token 占用（超预算 60% 自动压缩）",
           "/clear 清屏开新会话 · /status 会话状态一览 · /mcp MCP 接入状态",
           "!命令 直接执行 shell（结果仅显示） · Shift+Tab 循环权限模式 · @ 补全文件路径",
+          "运行中提交的输入自动排队，本轮完成后按序执行（Esc/Ctrl+C 中断将清空排队）",
           "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
           "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
           "/plan 计划模式快捷切换",
@@ -1523,16 +1575,7 @@ ${servers
       }
       inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
       void saveInputHistory(inputHistory.current, props.historyFile);
-      beginWork();
-      setBusySince(Date.now());
-      try {
-        await session.loop.run(expanded);
-      } catch (err) {
-        pushBlock({ kind: "info", tone: "warn", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
-      } finally {
-        setBusy(false);
-        setBusySince(null);
-      }
+      await runOccupied(session, text, () => session.loop.run(expanded));
       return;
     }
 
@@ -1540,16 +1583,7 @@ ${servers
     inputHistory.current = appendHistory(inputHistory.current, text).slice(-50);
     void saveInputHistory(inputHistory.current, props.historyFile);
     abortSent.current = false;
-    beginWork();
-    setBusySince(Date.now());
-    try {
-      await session.loop.run(text);
-    } catch (err) {
-      pushBlock({ kind: "info", tone: "warn", text: `✗ ${err instanceof Error ? err.message : String(err)}` });
-    } finally {
-      setBusy(false);
-      setBusySince(null);
-    }
+    await runOccupied(session, text, () => session.loop.run(text));
   };
 
   if (fatal !== null) {
@@ -1605,7 +1639,7 @@ ${servers
       )}
       {busy && (
         <Text dimColor>
-          ✻ {activityLabel}{busyElapsed}…（Ctrl+C 取消整轮{menuOccupied ? "" : " · Esc 中断"} · Ctrl+O {verbose ? "折叠" : "展开"}）
+          ✻ {activityLabel}{busyElapsed}…（Ctrl+C 取消整轮{menuOccupied ? "" : " · Esc 中断"} · Ctrl+O {verbose ? "折叠" : "展开"}）{queuedCount > 0 ? ` · 排队 ${queuedCount}` : ""}
         </Text>
       )}
       {ask !== null ? (
@@ -2017,7 +2051,8 @@ ${servers
           />
         </Box>
       ) : ready ? (
-        busy ? null : interactive ? (
+        interactive ? (
+          // N2-2：输入区常驻——busy 中提交进入排队而非丢弃；交互面板（审批/提问/菜单）经外层分支顶替
           <InputBox
             value={input}
             onChange={setInput}
