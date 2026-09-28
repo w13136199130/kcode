@@ -20,7 +20,9 @@
     "string-width": "5.1.2",
     "@kcode/session": "workspace:*",
     "@kcode/tools": "workspace:*",
-    "@kcode/runtime": "workspace:*"
+    "@kcode/runtime": "workspace:*",
+    "@kcode/ui": "workspace:*",
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",

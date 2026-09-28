@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markdownToLines } from "../src/tui/markdown.js";
+import { markdownToLines } from "../src/tui/transcript/markdown.js";
 
 const plain = (lines: ReturnType<typeof markdownToLines>): string[] =>
   lines.map((l) => l.segments.map((s) => s.text).join(""));

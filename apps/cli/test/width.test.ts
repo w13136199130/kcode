@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextBoundary, previousBoundary, visualWidth, wrapVisual, truncateVisual } from "../src/tui/width.js";
+import { nextBoundary, previousBoundary, visualWidth, wrapVisual, truncateVisual } from "../src/tui/terminal/width.js";
 
 describe("终端字符簇与显示宽度", () => {
   it("中文双宽，组合重音单宽，emoji 序列不按码点累加", () => {

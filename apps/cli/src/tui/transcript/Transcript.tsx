@@ -2,31 +2,13 @@ import { Box, Text, useStdout } from "ink";
 import type { TodoItem } from "@kcode/contracts";
 import { markdownToLines, type MdLine } from "./markdown.js";
 // 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
-import { visualWidth, wrapVisual, truncateVisual } from "./width.js";
-import { c } from "./theme.js";
+import { visualWidth, wrapVisual, truncateVisual } from "../terminal/width.js";
+import { c } from "../theme/theme.js";
 
 export { visualWidth, wrapVisual };
 
-export type Block =
-  | { kind: "banner"; model: string; cwd: string }
-  | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
-  | { kind: "reasoning"; text: string; ms?: number }
-  | {
-      kind: "tool";
-      callId: string;
-      tool: string;
-      argsPreview: string;
-      status: "running" | "done" | "failed";
-      summary?: string;
-      /** 完整输出（截断 2000 字符）：verbose 展开态渲染多行 */
-      output?: string;
-      /** 开始时间戳：running 态渲染动态耗时 */
-      startedAt?: number;
-      /** 执行耗时（完成态渲染；来自 tool_result.durationMs） */
-      durationMs?: number;
-    }
-  | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" };
+export type { Block } from "@kcode/ui";
+import type { Block } from "@kcode/ui";
 
 /** Todo 面板（§1.1 A 域）：☐ 待办 / ◐ 进行 / ☑ 完成 */
 export function TodoPanel(props: { todos: TodoItem[] }) {

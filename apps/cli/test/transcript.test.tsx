@@ -6,7 +6,7 @@ import {
   formatToolPreview,
   visualWidth,
   wrapVisual,
-} from "../src/tui/Transcript.js";
+} from "../src/tui/transcript/Transcript.js";
 
 describe("Transcript 组件（P1-5 TUI）", () => {
   it("渲染用户/工具/助手块与流式文本", () => {

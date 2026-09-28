@@ -1,6 +1,6 @@
 import { Lexer } from "marked";
 import hljs from "highlight.js/lib/common";
-import { visualWidth } from "./width.js";
+import { visualWidth } from "../terminal/width.js";
 
 /**
  * Markdown → 终端渲染行（A-6）：marked 只用其 Lexer 做 token 化，

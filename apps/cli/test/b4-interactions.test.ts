@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { filterFileCandidates, listProjectFiles } from "../src/tui/file-complete.js";
+import { filterFileCandidates, listProjectFiles } from "../src/tui/input/file-complete.js";
 import { appendHistory, loadInputHistory, saveInputHistory } from "../src/history-store.js";
 
 let root: string;

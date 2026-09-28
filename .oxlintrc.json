@@ -1,6 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "**/fixtures/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/fixtures/**"
+  ],
   "rules": {
     "no-console": "error"
   },
@@ -15,6 +19,17 @@
       ],
       "rules": {
         "no-console": "off"
+      }
+    },
+    {
+      "files": [
+        "apps/cli/src/tui/**"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          500
+        ]
       }
     }
   ]

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { render } from "ink";
 import { useState, type ReactElement } from "react";
-import { InputBox, type CommandInfo } from "../src/tui/App.js";
+import { InputBox } from "../src/tui/input/InputBox.js";
+import type { CommandInfo } from "../src/tui/input/builtin-commands.js";
 
 const COMMANDS: CommandInfo[] = [{ name: "mode", desc: "切换权限模式" }];
 
