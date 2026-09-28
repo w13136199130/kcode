@@ -15,7 +15,8 @@
     "lint:deps": "depcruise packages apps services evals --config .dependency-cruiser.cjs",
     "knip": "knip",
     "format": "prettier --write .",
-    "release": "node apps/cli/scripts/release.mjs"
+    "release": "node apps/cli/scripts/release.mjs",
+    "gates:check": "node scripts/gates-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

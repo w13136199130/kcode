@@ -6,7 +6,8 @@
     "**/fixtures/**"
   ],
   "rules": {
-    "no-console": "error"
+    "no-console": "error",
+    "max-lines": ["error", 500]
   },
   "overrides": [
     {
@@ -19,17 +20,6 @@
       ],
       "rules": {
         "no-console": "off"
-      }
-    },
-    {
-      "files": [
-        "apps/cli/src/tui/**"
-      ],
-      "rules": {
-        "max-lines": [
-          "error",
-          500
-        ]
       }
     }
   ]

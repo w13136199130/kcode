@@ -10,19 +10,14 @@ import {
   type SessionSink,
   type SkillPort,
   type SummarizerPort,
-  type Tool,
-  type ToolOutput,
   type ToolRegistry,
 } from "@kcode/contracts";
 import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
 import { capToolResult, contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
-import {
-  applyCompaction,
-  planCompaction,
-  type CompactionResult,
-} from "../context/compact.js";
-import { ToolPipeline, type AuditSink } from "./pipeline.js";
+import { runCompaction, type CompactionResult } from "../context/compact.js";
+import { ToolPipeline, type AuditSink, auditWithPermissionEvents } from "./pipeline.js";
+import { TurnExecutor, type PendingCall } from "./executor.js";
 
 export interface AgentLoopPorts {
   llm: LLMProvider;
@@ -77,12 +72,6 @@ export interface RunSummary {
   toolCalls: number;
 }
 
-interface PendingCall {
-  callId: string;
-  tool: string;
-  args: unknown;
-}
-
 /**
  * Loop 状态机（§5.1）：用户输入 → 上下文组装 → LLM(流式) → 工具调用(并行) → 结果回填 → 循环/结束。
  * 每步产生 JSONL 事件；core 零 IO——llm/tools/sink/audit 全部注入。
@@ -90,6 +79,7 @@ interface PendingCall {
 export class AgentLoop {
   readonly sessionId: string;
   private readonly pipeline: ToolPipeline;
+  private readonly executor: TurnExecutor;
   private history: ChatMessage[] = [];
   private systemPrompt: string;
   private started = false;
@@ -119,49 +109,18 @@ export class AgentLoop {
     this.pipeline = new ToolPipeline(
       ports.permissions,
       ports.hooks,
-      this.auditWithPermissionEvents(ports.audit),
+      auditWithPermissionEvents(ports.audit, (e) => this.emit(e).catch(() => {})),
       this.sessionId,
       opts.cwd,
       ports.asker,
       opts.workspaceKey,
     );
+    this.executor = new TurnExecutor(this.pipeline, this.now);
   }
 
   /** 会话累计用量（含 resume 种子）；/cost 经本地会话读取 */
   getUsage(): SessionUsage {
     return { ...this.usage };
-  }
-
-  /**
-   * 审计记录中的交互/拒绝项翻译为 permission_decision 事件落盘：
-   * 只记 ask 应答与规则拒绝——规则放行是高频常态，落盘只添噪声。
-   */
-  private auditWithPermissionEvents(base: AuditSink): AuditSink {
-    return (record) => {
-      base(record);
-      if (
-        record.decision !== "ask-allowed" &&
-        record.decision !== "ask-denied" &&
-        record.decision !== "deny"
-      ) {
-        return;
-      }
-      void Promise.resolve(
-        this.emit({
-          v: 1,
-          type: "permission_decision",
-          ts: record.ts,
-          sessionId: record.sessionId,
-          callId: record.callId,
-          tool: record.tool,
-          decision: record.decision,
-          ...(record.scope !== undefined ? { scope: record.scope } : {}),
-          ...(record.detail !== undefined ? { detail: record.detail } : {}),
-        }),
-      ).catch(() => {
-        // 审计事件落盘失败不阻断工具管线
-      });
-    };
   }
 
   /** 运行期更换 system prompt（计划模式切换等，§1.1 A 域） */
@@ -218,26 +177,16 @@ export class AgentLoop {
    * 以「任务锚点 + 摘要 + 近期原文」替换原历史；未配置摘要器时退化为计数占位。
    */
   private async maybeCompact(force = false): Promise<CompactionResult | null> {
-    const plan = planCompaction(this.history, this.budget, force);
-    if (plan === null) {
-      return null;
+    const result = await runCompaction(this.history, this.budget, force, {
+      sessionId: this.sessionId,
+      summarizer: this.summarizer,
+      pinnedAnchor: this.pinnedAnchor,
+      gatePreCompact: (invoke) => this.gateHook(invoke),
+    });
+    if (result !== null) {
+      this.history = result.history;
     }
-    // pre_compact 钩子（B5）：退出码 2 = 跳过本次压缩
-    const gate = await this.gateHook((h) =>
-      h.onPreCompact?.({ sessionId: this.sessionId, dropped: plan.toSummarize.length }),
-    );
-    if (gate.veto) {
-      return null;
-    }
-    let summary: string;
-    if (this.summarizer !== undefined) {
-      summary = await this.summarizer.summarize({ messages: plan.toSummarize });
-    } else {
-      summary = `【历史压缩】已折叠 ${plan.toSummarize.length} 条较早消息（未配置摘要器，仅保留任务与近期上下文）`;
-    }
-    const applied = applyCompaction(plan, summary, this.pinnedAnchor !== undefined ? [this.pinnedAnchor] : []);
-    this.history = applied.history;
-    return { summary, dropped: applied.dropped, covered: plan.toSummarize.length };
+    return result;
   }
 
   private async emit(event: SessionEvent): Promise<void> {
@@ -453,7 +402,7 @@ export class AgentLoop {
         this.history.push({ role: "assistant", content: text, toolCalls: calls });
 
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
-        const results = await this.executeCalls(calls, tools, signal);
+        const results = await this.executor.executeCalls(calls, tools, signal);
         const defByName = new Map(tools.map((t) => [t.definition.name, t.definition] as const));
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
@@ -541,45 +490,4 @@ export class AgentLoop {
     }
   }
 
-  private async executeCalls(
-    calls: PendingCall[],
-    tools: Tool[],
-    signal?: AbortSignal,
-  ): Promise<Array<{ result: ToolOutput; durationMs: number }>> {
-    const byName = new Map(tools.map((t) => [t.definition.name, t] as const));
-    const allReadOnly = calls.every((c) => byName.get(c.tool)?.definition.readOnly === true);
-    if (allReadOnly) {
-      return Promise.all(calls.map((c) => this.executeOne(byName, c, signal)));
-    }
-    const results: Array<{ result: ToolOutput; durationMs: number }> = [];
-    for (const call of calls) {
-      if (signal?.aborted) {
-        // 用户中断：未开始的调用直接按取消结算（已在执行中的由其自身超时收敛）
-        results.push({
-          result: { ok: false, output: "", error: "aborted（用户中断）" },
-          durationMs: 0,
-        });
-        continue;
-      }
-      results.push(await this.executeOne(byName, call, signal));
-    }
-    return results;
-  }
-
-  private async executeOne(
-    byName: Map<string, Tool>,
-    call: PendingCall,
-    signal?: AbortSignal,
-  ): Promise<{ result: ToolOutput; durationMs: number }> {
-    const tool = byName.get(call.tool);
-    if (tool === undefined) {
-      return {
-        result: { ok: false, output: "", error: `unknown tool: ${call.tool}` },
-        durationMs: 0,
-      };
-    }
-    const startedAt = this.now();
-    const result = await this.pipeline.run(tool, call.args, call.callId, signal);
-    return { result, durationMs: Math.max(0, this.now() - startedAt) };
-  }
 }

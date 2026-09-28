@@ -27,24 +27,13 @@ import {
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId, workspaceKey } from "@kcode/shared";
-import { connectMcpServers, createBashTool, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
-
-export const SYSTEM_PROMPT = `你是 kcode（快码），本地优先的代码助手。
-- 涉及本项目代码的问题先用工具查证（read/glob/grep），结论引用 file:line；能力介绍/常识问答/闲聊不需要工具，直接回答；
-- 读 PDF/DOCX/XLSX/图片一律用 extract 工具（read 只管文本文件）；
-- 需要网络资料时用 web_search 搜索、web_fetch 抓取（引用来源 URL）；
-- 不知道就说不知道，不臆造文件与符号；同一查询不重复发起，失败先换思路而不是原样重试；
-- 多步骤任务用 todo 工具维护任务清单；需要用户决策时用 ask_user 提选择题；
-- 回答简洁，中文。`;
-
-export const PLAN_MODE_SUFFIX = `
-
-【计划模式】只读研究：可用读工具调研，不得修改文件或执行有副作用的命令；
-产出完整计划（目标/步骤/涉及文件/风险）后调用 plan_submit 工具提交等待用户批准——
-批准后自动切回执行模式；用户要求继续研究则补充调研后重新提交。`;
+import { rewindTo } from "./rewind.js";
+import { runUserBash } from "./user-bash.js";
+import { PLAN_MODE_SUFFIX, SYSTEM_PROMPT } from "./prompt.js";
 
 export interface ComposedSession {
   loop: AgentLoop;
@@ -403,45 +392,17 @@ ${plan}`);
       }
       return points;
     },
-    rewind: async (eventIndex: number) => {
-      if (runner.busy) {
-        throw new Error("运行中不能回退（等待本轮完成或 Esc 中断）");
-      }
-      const all = await loadSessionEvents(jsonlPath);
-      // 回退点下标基于**有效前缀**（连续回退两次时，第二次的下标不再对应整个文件）
-      const events = effectiveEvents(all);
-      const target = events[eventIndex];
-      if (target === undefined || target.type !== "user_message") {
-        throw new Error("回退点无效");
-      }
-      if (eventIndex === events.length) {
-        throw new Error("该提问已是最后一个回退点");
-      }
-      // 恢复该提问起的全部写/编辑前像（store 内部按逆序回滚）
-      const callIds = events
-        .slice(eventIndex)
-        .filter(
-          (e): e is Extract<(typeof events)[number], { type: "tool_call" }> =>
-            e.type === "tool_call" && (e.tool === "write" || e.tool === "edit"),
-        )
-        .map((e) => e.callId)
-        .filter((id) => checkpoints.get(id) !== undefined);
-      const restoredFiles = await checkpoints.restore(callIds);
-      // M1-02：回退必须落盘，否则重启后被回退内容复活。
-      // 写成 append-only 的截断标记（含有效前缀长度），经 sink 同时通知 UI 与落盘。
-      await sink.append({
-        v: 1,
-        type: "session_rewind",
-        ts: Date.now(),
+    rewind: (eventIndex) =>
+      rewindTo({
+        eventIndex,
+        jsonlPath,
         sessionId,
-        keepEvents: eventIndex,
-        restoredFiles,
-      });
-      loop.replaceHistory(rebuildHistory(events.slice(0, eventIndex)));
-      const droppedEvents = events.length - eventIndex;
-      opts.onNotice?.(`已回退：恢复 ${restoredFiles} 个文件 · 对话截断 ${droppedEvents} 个事件`);
-      return { restoredFiles, droppedEvents };
-    },
+        busy: runner.busy,
+        checkpoints,
+        sink,
+        loop,
+        onNotice: opts.onNotice,
+      }),
     compactNow: async () => {
       if (runner.busy) {
         throw new Error("运行中不能压缩（等待本轮完成或 Esc 中断）");
@@ -477,24 +438,13 @@ ${plan}`);
         }),
       };
     },
-    runBash: async (command, timeoutMs) => {
-      const bash = createBashTool({
-        sessionId: `${sessionId}-user`,
-        artifactsDir: join(opts.kcodeHomeDir, "cli", "artifacts", `${sessionId}-user`),
+    runBash: (command, timeoutMs) =>
+      runUserBash(command, timeoutMs, {
+        sessionId,
+        kcodeHomeDir: opts.kcodeHomeDir,
+        cwd: opts.cwd,
         onNotice: opts.onNotice,
-      });
-      const started = Date.now();
-      const result = await bash.execute(
-        { command, ...(timeoutMs !== undefined ? { timeoutMs } : {}) },
-        { sessionId, cwd: opts.cwd },
-      );
-      return {
-        ok: result.ok,
-        output: result.output,
-        ...(result.error !== undefined ? { error: result.error } : {}),
-        durationMs: Date.now() - started,
-      };
-    },
+      }),
     contextStats: () => loop.contextStats(),
     close: async () => {
       runner.abort();

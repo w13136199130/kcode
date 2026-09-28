@@ -1,0 +1,40 @@
+{
+  "$schema": "./scripts/gates-check.mjs",
+  "version": 1,
+  "note": "门禁例外登记（N2-5，对标 ZCode expired-exception）：每条例外必须带理由与到期日（上限一个季度）；到期要么修复要么显式续期改期留痕。gates:check 校验过期与漂移（oxlint overrides 与本登记的集合一致性）。",
+  "entries": [
+    {
+      "rule": "no-console",
+      "files": [
+        "packages/shared/src/logger.ts"
+      ],
+      "reason": "logger 实现本体（console 是它的汇聚出口，全仓唯一合法落点）",
+      "expires": "2026-12-27"
+    },
+    {
+      "rule": "no-console",
+      "files": [
+        "evals/src/acceptance-cli.ts"
+      ],
+      "reason": "验收报告器：stdout 即界面",
+      "expires": "2026-12-27"
+    },
+    {
+      "rule": "no-console",
+      "files": [
+        "services/server/src/index.ts"
+      ],
+      "reason": "N4 占位进程的启动输出；服务落地时改用 pino 后移除",
+      "expires": "2026-12-27"
+    },
+    {
+      "rule": "no-console",
+      "files": [
+        "apps/cli/scripts/**",
+        "apps/cli/bin/**"
+      ],
+      "reason": "开发实验脚本与启动器的界面出口（stdout 即界面）",
+      "expires": "2026-12-27"
+    }
+  ]
+}

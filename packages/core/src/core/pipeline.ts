@@ -2,6 +2,7 @@ import type {
   HookRunner,
   PermissionAsker,
   PermissionEngine,
+  SessionEvent,
   Tool,
   ToolOutput,
 } from "@kcode/contracts";
@@ -19,6 +20,34 @@ export interface AuditRecord {
 }
 
 export type AuditSink = (record: AuditRecord) => void;
+/**
+ * 审计记录中的交互/拒绝项翻译为 permission_decision 事件落盘（自 loop 外迁，N2-5）：
+ * 只记 ask 应答与规则拒绝——规则放行是高频常态，落盘只添噪声。
+ */
+export function auditWithPermissionEvents(base: AuditSink, emit: (event: SessionEvent) => void): AuditSink {
+  return (record) => {
+    base(record);
+    if (
+      record.decision !== "ask-allowed" &&
+      record.decision !== "ask-denied" &&
+      record.decision !== "deny"
+    ) {
+      return;
+    }
+    emit({
+      v: 1,
+      type: "permission_decision",
+      ts: record.ts,
+      sessionId: record.sessionId,
+      callId: record.callId,
+      tool: record.tool,
+      decision: record.decision,
+      ...(record.scope !== undefined ? { scope: record.scope } : {}),
+      ...(record.detail !== undefined ? { detail: record.detail } : {}),
+    });
+  };
+}
+
 
 /**
  * 工具调用管线（§5.1，顺序定死）：

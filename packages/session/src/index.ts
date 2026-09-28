@@ -7,11 +7,11 @@ export {
   composeSession,
   resolveResumeHistory,
   trustProject,
-  SYSTEM_PROMPT,
-  PLAN_MODE_SUFFIX,
   type ComposeSessionOptions,
   type ComposedSession,
 } from "./composition.js";
+export { SYSTEM_PROMPT, PLAN_MODE_SUFFIX } from "./prompt.js";
 export { buildTaskTool, SUBAGENT_MAX_TURNS, type TaskToolDeps } from "./subagent.js";
 export { buildPlanSubmitTool, type PlanVerdict, type PlanSubmitToolDeps } from "./plan-submit.js";
 export { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
+export { rewindTo } from "./rewind.js";

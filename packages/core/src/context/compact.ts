@@ -1,4 +1,4 @@
-import type { ChatMessage } from "@kcode/contracts";
+import type { ChatMessage, HookPreOutcome, HookRunner } from "@kcode/contracts";
 import { exceedsBudget, type Budget } from "./budget.js";
 
 /** 触发压缩的最小历史条数：更短的历史压缩无收益 */
@@ -72,4 +72,40 @@ export function applyCompaction(
     history: [...anchors, { role: "assistant", content: summary }, ...plan.keepTail],
     dropped: plan.toSummarize.length,
   };
+}
+
+/**
+ * 压缩编排（自 loop.ts 外迁，N2-5）：计划 → pre_compact 钩子门 → 摘要（缺省计数占位）→ 应用。
+ * 返回新历史与结果；无需压缩/被钩子否决时返回 null。
+ */
+export async function runCompaction(
+  history: ChatMessage[],
+  budget: Budget,
+  force: boolean,
+  deps: {
+    sessionId: string;
+    summarizer?: { summarize(input: { messages: ChatMessage[] }): Promise<string> };
+    pinnedAnchor?: ChatMessage;
+    gatePreCompact: (
+      invoke: (hooks: HookRunner) => Promise<HookPreOutcome> | undefined,
+    ) => Promise<HookPreOutcome>;
+  },
+): Promise<{ summary: string; dropped: number; covered: number; history: ChatMessage[] } | null> {
+  const plan = planCompaction(history, budget, force);
+  if (plan === null) {
+    return null;
+  }
+  // pre_compact 钩子（B5）：退出码 2 = 跳过本次压缩
+  const gate = await deps.gatePreCompact((h) =>
+    h.onPreCompact?.({ sessionId: deps.sessionId, dropped: plan.toSummarize.length }),
+  );
+  if (gate.veto) {
+    return null;
+  }
+  const summary: string =
+    deps.summarizer !== undefined
+      ? await deps.summarizer.summarize({ messages: plan.toSummarize })
+      : `【历史压缩】已折叠 ${plan.toSummarize.length} 条较早消息（未配置摘要器，仅保留任务与近期上下文）`;
+  const applied = applyCompaction(plan, summary, deps.pinnedAnchor !== undefined ? [deps.pinnedAnchor] : []);
+  return { summary, dropped: applied.dropped, covered: plan.toSummarize.length, history: applied.history };
 }

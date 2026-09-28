@@ -50,10 +50,13 @@ module.exports = {
     {
       name: "apps-import-packages",
       comment:
-        "规则4：cli 单进程直接组装 packages（C 级单进程化，daemon 已剔除）——保持 warn 以监控依赖面，不阻断；web/market 只经 relay 通信（P4）",
-      severity: "warn",
-      from: { path: "^apps/(cli|web|market)" },
-      to: { path: "^packages/" },
+        "规则4（N2-5 升 error）：app 只经包的公开入口（src/index.ts）消费 packages——cli 单进程组装允许 import 包，但深路径（包内部文件）禁止，跨包边界从入口收敛",
+      severity: "error",
+      from: { path: "^apps/" },
+      to: {
+        path: "^packages/[^/]+/src/",
+        pathNot: "^packages/[^/]+/src/index\\.ts$",
+      },
     },
     {
       name: "ui-no-platform-impl",
