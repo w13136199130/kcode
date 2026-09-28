@@ -133,6 +133,11 @@ function promptHidden(label: string): Promise<string> {
 
 async function main(): Promise<void> {
   const [, , ...rest] = process.argv;
+  // 发行链（N2-4）：--version 由构建注入（tsup define），开发态显示 dev
+  if (rest[0] === "--version" || rest[0] === "-v") {
+    print(`kcode ${process.env["KCODE_VERSION"] ?? "dev"}（${process.platform}-${process.arch}，Node ${process.versions.node}）`);
+    return;
+  }
   const platform = createCliPlatformService();
   if (rest[0] === "key") {
     await keyCommand(platform, rest.slice(1));

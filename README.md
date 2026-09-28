@@ -45,10 +45,26 @@ Full design (13 ADRs, directory tree, security model, enterprise-readiness check
 
 **1. 安装 | Install**
 
+两种方式 | Two ways:
+
+- **发行包（免源码免依赖，只需 Node ≥22） | Release tarball**——先在仓库内 `pnpm release` 出产物（`apps/cli/dist/release/` 的 tar.gz + sha256 + latest.json），然后分发安装：
+
+```bash
+# POSIX：装到 ~/.kcode/bin（sha256 校验；参数为 tar.gz 的本地路径或 URL，可附 latest.json）
+sh deploy/install.sh kcode-0.1.0-win32-x64.tar.gz latest.json
+# Windows PowerShell
+.\deploy\install.ps1 -Source kcode-0.1.0-win32-x64.tar.gz -Meta latest.json
+# 或手动：解包后 node kcode.mjs "你的问题"
+```
+
+- **源码运行 | From source**：
+
 ```bash
 git clone https://github.com/w13136199130/kcode.git
 cd kcode && pnpm install
 ```
+
+> 构建发行包：`pnpm release`（tsup 全量打包 → tar.gz + sha256 + latest.json；rg 二进制为构建机平台，跨平台需在目标平台构建）。
 
 **2. 配置模型 | Configure a model** —— 写用户级配置 `~/.kcode/config.json`（`providers` 只允许在这一层，项目级配置无此字段——防 key 外泄的第一层防御 §5.7）：
 Write `~/.kcode/config.json` (the user-level config is the only place `providers` may live — the first layer of key-exfiltration defense):

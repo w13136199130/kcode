@@ -1,33 +1,35 @@
 {
   "name": "@kcode/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "tsx src/main.tsx",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "build": "tsup"
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
     "@kcode/design": "workspace:*",
     "@kcode/extensions": "workspace:*",
     "@kcode/platform": "workspace:*",
+    "@kcode/runtime": "workspace:*",
+    "@kcode/session": "workspace:*",
+    "@kcode/tools": "workspace:*",
+    "@kcode/ui": "workspace:*",
     "highlight.js": "^11.12.0",
     "ink": "^4.4.1",
     "ink-text-input": "^5.0.1",
     "marked": "^18.0.13",
     "react": "^18.3.1",
     "string-width": "5.1.2",
-    "@kcode/session": "workspace:*",
-    "@kcode/tools": "workspace:*",
-    "@kcode/runtime": "workspace:*",
-    "@kcode/ui": "workspace:*",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
     "ink-testing-library": "^3.0.0",
     "react-test-renderer": "^18.3.1",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
