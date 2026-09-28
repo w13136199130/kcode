@@ -33,6 +33,8 @@ export const editTool: Tool = {
       required: ["path", "oldString", "newString"],
     },
     readOnly: false,
+    permission: { default: "ask", acceptEdits: "allow" },
+    timeoutMs: 30_000,
   },
   async execute(input, ctx): Promise<{ ok: boolean; output: string; error?: string }> {
     const parsed = EditArgs.safeParse(input);

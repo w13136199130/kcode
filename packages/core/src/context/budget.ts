@@ -56,14 +56,15 @@ export function exceedsBudget(history: ChatMessage[], budget: Budget): boolean {
 /**
  * micro 压缩（B3）：工具结果回灌历史前截断——保留头 60% + 尾 25%，中部以标记替代。
  * 会话事件仍保留完整输出（JSONL）；只有发给模型的副本被截断。
+ * N2-3 ToolEntry：预算按工具收紧（definition.resultBudget），缺省由调用方传全局 toolResult。
  */
-export function capToolResult(text: string, budget: Budget): string {
+export function capToolResult(text: string, toolResultBudget: number): string {
   const tokens = estimateTokens(text);
-  if (tokens <= budget.toolResult) {
+  if (tokens <= toolResultBudget) {
     return text;
   }
   // 按估算比例换算字符额度（CJK 混排取 1.6 字符/token 的折中系数）
-  const maxChars = Math.floor(budget.toolResult * 1.6);
+  const maxChars = Math.floor(toolResultBudget * 1.6);
   const head = Math.floor(maxChars * 0.6);
   const tail = Math.floor(maxChars * 0.25);
   return `${text.slice(0, head)}\n…［已截断：中间内容省略，原文 ${text.length} 字符约 ${tokens} tok，头尾各保留一部分］\n${text.slice(-tail)}`;

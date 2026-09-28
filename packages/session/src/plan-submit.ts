@@ -35,6 +35,7 @@ export function buildPlanSubmitTool(deps: PlanSubmitToolDeps): Tool {
         required: ["plan"],
       },
       readOnly: true,
+      permission: { default: "allow" },
     },
     async execute(input) {
       const parsed = PlanSubmitArgs.safeParse(input);

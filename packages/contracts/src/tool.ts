@@ -6,11 +6,31 @@ export type PermissionDecision = z.infer<typeof PermissionDecision>;
 /** 工具名：内置走简名；插件注册物强制 plugin:<name>:: 命名空间（§4.3） */
 export const TOOL_NAME_RE = /^(?:[a-z][a-z0-9_]{0,63}|plugin:[a-z0-9][a-z0-9-_.]{1,63}::.+)$/;
 
+/**
+ * 工具自带的三档权限声明（N2-3）：声明驱动取代按工具名维护的四份模式名单——
+ * plan 档缺省按 readOnly 推导（只读→allow / 有副作用→deny），acceptEdits 缺省同 default。
+ */
+export const ToolPermission = z.object({
+  /** default 档裁决 */
+  default: PermissionDecision,
+  /** plan（只读研究）档裁决 */
+  plan: PermissionDecision.optional(),
+  /** acceptEdits 档裁决 */
+  acceptEdits: PermissionDecision.optional(),
+});
+export type ToolPermission = z.infer<typeof ToolPermission>;
+
 export const ToolDefinition = z.object({
   name: z.string().regex(TOOL_NAME_RE),
   description: z.string(),
   parameters: z.record(z.string(), z.unknown()), // JSON Schema
   readOnly: z.boolean().default(false),
+  /** 工具自带权限声明（N2-3 ToolEntry）：四档语义单点维护；fullAccess 恒 allow，不入声明 */
+  permission: ToolPermission.optional(),
+  /** 单次调用超时毫秒（N2-3 ToolEntry）：管线结算护栏——超时按失败结算，不保证强杀（工具内部可有更细超时） */
+  timeoutMs: z.number().int().positive().optional(),
+  /** 结果回灌历史的 token 预算（N2-3 ToolEntry）：缺省用全局 toolResult 预算（B3 micro 截断按此收紧） */
+  resultBudget: z.number().int().positive().optional(),
 });
 export type ToolDefinition = z.infer<typeof ToolDefinition>;
 

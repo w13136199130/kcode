@@ -2,76 +2,45 @@ import type {
   PermissionDecision,
   PermissionEngine,
   PermissionMode,
-  PermissionRule,
   ToolDefinition,
 } from "@kcode/contracts";
 
-/** 只读预设：查询/会话态放行，其余全拒绝（远程会话默认姿态的本地版，§7） */
-export const READONLY_RULES: PermissionRule[] = [
-  { match: "read", decision: "allow" },
-  { match: "glob", decision: "allow" },
-  { match: "grep", decision: "allow" },
-  { match: "extract", decision: "allow" },
-  { match: "web_fetch", decision: "allow" },
-  { match: "web_search", decision: "allow" },
-  { match: "todo", decision: "allow" },
-  { match: "ask_user", decision: "allow" },
-  { match: "sessions", decision: "allow" },
-  { match: "plan_submit", decision: "allow" },
-  { match: "*", decision: "deny" },
-];
-
-/** 默认预设：读放行、写/命令询问、未知工具拒绝（§7 本地默认姿态） */
-export const DEFAULT_RULES: PermissionRule[] = [
-  { match: "read", decision: "allow" },
-  { match: "glob", decision: "allow" },
-  { match: "grep", decision: "allow" },
-  { match: "extract", decision: "allow" },
-  { match: "web_fetch", decision: "allow" },
-  { match: "web_search", decision: "allow" },
-  { match: "todo", decision: "allow" },
-  { match: "ask_user", decision: "allow" },
-  { match: "sessions", decision: "allow" },
-  { match: "write", decision: "ask" },
-  { match: "edit", decision: "ask" },
-  { match: "bash", decision: "ask" },
-  { match: "plugin:*", decision: "ask" },
-  { match: "mcp__*", decision: "ask" },
-  { match: "task", decision: "allow" },
-  { match: "plan_submit", decision: "allow" },
-  { match: "*", decision: "deny" },
-];
-
-/** 全放行（等价 P0 allowAll；仅用于可信沙箱/测试） */
-export const YOLO_RULES: PermissionRule[] = [{ match: "*", decision: "allow" }];
-
-/** 自动编辑预设（acceptEdits 档）：读+文件写入放行，命令/插件/MCP 仍逐次确认 */
-export const ACCEPT_EDITS_RULES: PermissionRule[] = [
-  { match: "read", decision: "allow" },
-  { match: "glob", decision: "allow" },
-  { match: "grep", decision: "allow" },
-  { match: "extract", decision: "allow" },
-  { match: "web_fetch", decision: "allow" },
-  { match: "web_search", decision: "allow" },
-  { match: "todo", decision: "allow" },
-  { match: "ask_user", decision: "allow" },
-  { match: "sessions", decision: "allow" },
-  { match: "write", decision: "allow" },
-  { match: "edit", decision: "allow" },
-  { match: "bash", decision: "ask" },
-  { match: "plugin:*", decision: "ask" },
-  { match: "mcp__*", decision: "ask" },
-  { match: "task", decision: "allow" },
-  { match: "*", decision: "deny" },
-];
-
-/** 四档权限模式 → 规则集（composition 切档时整体替换基础引擎） */
-export const RULES_BY_MODE: Record<PermissionMode, PermissionRule[]> = {
-  plan: READONLY_RULES,
-  default: DEFAULT_RULES,
-  acceptEdits: ACCEPT_EDITS_RULES,
-  fullAccess: YOLO_RULES,
+/**
+ * 未声明 permission 的工具（MCP/插件/未知注册物）在各档的回退（N2-3）：
+ * plan 只读姿态最严（deny），default/acceptEdits 走人工确认，fullAccess 恒 allow。
+ */
+export const MODE_FALLBACK: Record<PermissionMode, PermissionDecision> = {
+  plan: "deny",
+  default: "ask",
+  acceptEdits: "ask",
+  fullAccess: "allow",
 };
+
+/**
+ * 档位引擎（N2-3 ToolEntry 声明驱动，取代四份按工具名维护的模式名单）：
+ * 1. fullAccess 恒 allow；2. 工具声明优先（plan 缺省按 readOnly 推导，acceptEdits 缺省同 default）；
+ * 3. 未声明（MCP/插件）按 MODE_FALLBACK 回退。会话级放行/项目持久放行由外层 MutablePermissionEngine 叠加。
+ */
+export class ModePermissionEngine implements PermissionEngine {
+  constructor(private readonly mode: PermissionMode) {}
+
+  async decide(tool: ToolDefinition, _args: unknown): Promise<PermissionDecision> {
+    if (this.mode === "fullAccess") {
+      return "allow";
+    }
+    const declared = tool.permission;
+    if (declared === undefined) {
+      return MODE_FALLBACK[this.mode];
+    }
+    if (this.mode === "plan") {
+      return declared.plan ?? (tool.readOnly ? "allow" : "deny");
+    }
+    if (this.mode === "acceptEdits") {
+      return declared.acceptEdits ?? declared.default;
+    }
+    return declared.default;
+  }
+}
 
 /**
  * automation 装饰器（§5.5）：无人值守会话 ask 一律降级 deny——

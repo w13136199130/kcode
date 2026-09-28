@@ -24,6 +24,7 @@ export function createAskUserTool(opts: { prompt?: UserPromptPort }): Tool {
         required: ["question", "options"],
       },
       readOnly: true,
+      permission: { default: "allow" },
     },
     async execute(input) {
       const parsed = StructuredQuestion.safeParse(input);

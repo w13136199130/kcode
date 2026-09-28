@@ -15,7 +15,7 @@ import { newId } from "@kcode/shared";
 /** 子代理轮次上限（成本护栏；到顶仍返回已有结论并标注不完整） */
 export const SUBAGENT_MAX_TURNS = 12;
 
-/** explore 子代理的只读工具集（与 READONLY_RULES 放行面对齐） */
+/** explore 子代理的只读工具集（与 plan 档声明驱动的放行面对齐，N2-3） */
 const EXPLORE_TOOLS = new Set(["read", "glob", "grep", "extract", "web_fetch", "web_search", "sessions"]);
 
 const TaskArgs = z.object({
@@ -110,6 +110,8 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
         required: ["subagent_type", "description", "prompt"],
       },
       readOnly: false,
+      permission: { default: "allow" },
+      timeoutMs: 600_000,
     },
     async execute(input, ctx): Promise<ToolOutput> {
       const parsed = TaskArgs.safeParse(input);

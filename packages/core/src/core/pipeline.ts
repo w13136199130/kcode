@@ -104,13 +104,32 @@ export class ToolPipeline {
     const effectiveArgs = pre.args ?? args;
     let result: ToolOutput;
     try {
-      result = await tool.execute(effectiveArgs, {
+      const exec = tool.execute(effectiveArgs, {
         sessionId: this.sessionId,
         callId,
         cwd: this.cwd,
         ...(this.workspaceKey !== undefined ? { workspaceKey: this.workspaceKey } : {}),
         ...(signal !== undefined ? { signal } : {}),
       });
+      // N2-3 ToolEntry：timeoutMs 结算护栏——超时按失败返回，不保证强杀
+      // （工具内部的更细超时通常先到；后台进程由其自身超时收敛）。
+      const timeoutMs = tool.definition.timeoutMs;
+      result =
+        timeoutMs === undefined
+          ? await exec
+          : await Promise.race([
+              exec,
+              new Promise<ToolOutput>((resolve) => {
+                const timer = setTimeout(
+                  () => resolve({ ok: false, output: "", error: `timeout after ${timeoutMs}ms（ToolEntry 超时护栏）` }),
+                  timeoutMs,
+                );
+                void exec.then(
+                  () => clearTimeout(timer),
+                  () => clearTimeout(timer),
+                );
+              }),
+            ]);
     } catch (err) {
       result = { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }

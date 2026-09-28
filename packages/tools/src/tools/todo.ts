@@ -35,6 +35,7 @@ export function createTodoTool(opts: TodoToolOptions): Tool {
         required: ["todos"],
       },
       readOnly: true,
+      permission: { default: "allow" },
     },
     async execute(input) {
       const parsed = TodoArgs.safeParse(input);

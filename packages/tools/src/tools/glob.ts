@@ -26,6 +26,8 @@ export const globTool: Tool = {
       required: ["pattern"],
     },
     readOnly: true,
+    permission: { default: "allow" },
+    timeoutMs: 30_000,
   },
   async execute(input, ctx) {
     const parsed = GlobArgs.safeParse(input);

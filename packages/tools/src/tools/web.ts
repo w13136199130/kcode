@@ -153,6 +153,8 @@ export function webFetchTool(doFetch: typeof globalThis.fetch): Tool {
         required: ["url"],
       },
       readOnly: true,
+      permission: { default: "allow" },
+      timeoutMs: 60_000,
     },
     async execute(input, _ctx: ToolContext): Promise<ToolOutput> {
       const parsed = FetchArgs.safeParse(input);
@@ -221,6 +223,8 @@ export function webSearchTool(doFetch: typeof globalThis.fetch): Tool {
         required: ["query"],
       },
       readOnly: true,
+      permission: { default: "allow" },
+      timeoutMs: 60_000,
     },
     async execute(input, _ctx: ToolContext): Promise<ToolOutput> {
       const parsed = SearchArgs.safeParse(input);

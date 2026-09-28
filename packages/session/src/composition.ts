@@ -15,14 +15,11 @@ import { AgentLoop, InMemoryToolRegistry, MemoryAudit, type SessionUsage } from 
 import {
   AgentLibrary,
   CommandLibrary,
-  DEFAULT_RULES,
   FsSkillLibrary,
+  ModePermissionEngine,
   MutablePermissionEngine,
   ProcessHookRunner,
   ProjectGrantStore,
-  READONLY_RULES,
-  RULES_BY_MODE,
-  RuleBasedPermissionEngine,
   listInstalledPlugins,
   loadHookConfigs,
   trustProject as trustProjectOnFile,
@@ -162,9 +159,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
       await disk.append(event);
     },
   };
-  const permissions = new MutablePermissionEngine(
-    new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
-  );
+  const permissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
   // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
   const grantStore = ProjectGrantStore.open(join(opts.kcodeHomeDir, "permissions.json"), opts.cwd);
   const persistentGrants = await grantStore.list();
@@ -299,8 +294,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     kcodeHomeDir: opts.kcodeHomeDir,
     baseTools: guardedTools,
     hooks,
-    permissionFor: (kind) =>
-      new RuleBasedPermissionEngine({ rules: kind === "readonly" ? READONLY_RULES : DEFAULT_RULES, fallback: "deny" }),
+    // 只读子代理走 plan 档语义（声明驱动的只读放行面）；其余同默认档
+    permissionFor: (kind) => new ModePermissionEngine(kind === "readonly" ? "plan" : "default"),
     asker,
     agents,
     envBlock: `<env>
@@ -361,9 +356,7 @@ ${plan}`);
       permissions.clearGrants();
     }
     sessionMode = mode;
-    permissions.set(
-      new RuleBasedPermissionEngine({ rules: RULES_BY_MODE[mode], fallback: "deny" }),
-    );
+    permissions.set(new ModePermissionEngine(mode));
     loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
   };
   return {

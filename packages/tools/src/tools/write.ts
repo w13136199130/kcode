@@ -38,6 +38,8 @@ export const writeTool: Tool = {
       required: ["path", "content"],
     },
     readOnly: false,
+    permission: { default: "ask", acceptEdits: "allow" },
+    timeoutMs: 30_000,
   },
   async execute(input, ctx): Promise<ToolOutput> {
     const parsed = WriteArgs.safeParse(input);

@@ -29,6 +29,8 @@ export function createSessionsTool(opts: { sessionsDir: string }): Tool {
         required: ["action"],
       },
       readOnly: true,
+      permission: { default: "allow" },
+      timeoutMs: 30_000,
     },
     async execute(input) {
       const parsed = SessionsArgs.safeParse(input);

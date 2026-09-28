@@ -13,7 +13,7 @@ import {
   allowAll,
   noHooks,
 } from "@kcode/core";
-import { DEFAULT_RULES, RuleBasedPermissionEngine } from "@kcode/extensions";
+import { ModePermissionEngine } from "@kcode/extensions";
 import { builtinTools } from "@kcode/tools";
 
 type ToolResultEvent = Extract<SessionEvent, { type: "tool_result" }>;
@@ -62,7 +62,7 @@ describe("P1-4 E2E：写入工具 × 权限引擎", () => {
       {
         llm: writeScript(),
         tools: new InMemoryToolRegistry(builtinTools),
-        permissions: new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
+        permissions: new ModePermissionEngine("default"),
         hooks: noHooks,
         sink,
         audit: audit.sink,
@@ -84,7 +84,7 @@ describe("P1-4 E2E：写入工具 × 权限引擎", () => {
       {
         llm: writeScript(),
         tools: new InMemoryToolRegistry(builtinTools),
-        permissions: new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
+        permissions: new ModePermissionEngine("default"),
         hooks: noHooks,
         sink,
         audit: new MemoryAudit().sink,

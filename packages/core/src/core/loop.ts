@@ -454,6 +454,7 @@ export class AgentLoop {
 
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
         const results = await this.executeCalls(calls, tools, signal);
+        const defByName = new Map(tools.map((t) => [t.definition.name, t.definition] as const));
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
           const { result, durationMs } = results[i]!;
@@ -471,7 +472,10 @@ export class AgentLoop {
           this.history.push({
             role: "tool",
             // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文
-            content: capToolResult(result.output !== "" ? result.output : (result.error ?? ""), this.budget),
+            content: capToolResult(
+              result.output !== "" ? result.output : (result.error ?? ""),
+              defByName.get(call.tool)?.resultBudget ?? this.budget.toolResult,
+            ),
             toolCallId: call.callId,
             name: call.tool,
           });

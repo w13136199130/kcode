@@ -19,7 +19,7 @@ import {
   noHooks,
   type ScriptedTurn,
 } from "@kcode/core";
-import { DEFAULT_RULES, RuleBasedPermissionEngine } from "@kcode/extensions";
+import { ModePermissionEngine } from "@kcode/extensions";
 import { createSessionTools } from "@kcode/tools";
 
 const FIXTURE_DIR = fileURLToPath(new URL("../fixtures/mini-shop", import.meta.url));
@@ -338,7 +338,7 @@ async function runTask(
         tools: new InMemoryToolRegistry(
           createSessionTools({ sessionId: `acc_${task.id}`, sink, prompt: askUser }),
         ),
-        permissions: new RuleBasedPermissionEngine({ rules: DEFAULT_RULES, fallback: "deny" }),
+        permissions: new ModePermissionEngine("default"),
         hooks: noHooks,
         sink,
         audit: new MemoryAudit().sink,

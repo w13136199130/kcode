@@ -34,13 +34,13 @@ describe("B3：token 估算与预算派生", () => {
 
   it("micro 截断：超 toolResult 预算截头尾并标记；未超原样", () => {
     const big = "x".repeat(200_000);
-    const capped = capToolResult(big, DEFAULT_BUDGET);
+    const capped = capToolResult(big, DEFAULT_BUDGET.toolResult);
     expect(capped.length).toBeLessThan(big.length);
     expect(capped).toContain("已截断");
     expect(capped.startsWith("xxxx")).toBe(true);
     expect(capped.endsWith("xxxx")).toBe(true);
     const small = "short";
-    expect(capToolResult(small, DEFAULT_BUDGET)).toBe(small);
+    expect(capToolResult(small, DEFAULT_BUDGET.toolResult)).toBe(small);
   });
 });
 

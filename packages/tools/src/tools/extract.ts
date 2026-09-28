@@ -43,6 +43,8 @@ export const extractTool: Tool = {
       required: ["path"],
     },
     readOnly: true,
+    permission: { default: "allow" },
+    timeoutMs: 120_000,
   },
   async execute(input, ctx: ToolContext): Promise<ToolOutput> {
     const parsed = ExtractArgs.safeParse(input);

@@ -26,6 +26,8 @@ export const readTool: Tool = {
       required: ["path"],
     },
     readOnly: true,
+    permission: { default: "allow" },
+    timeoutMs: 30_000,
   },
   async execute(input, ctx) {
     const parsed = ReadArgs.safeParse(input);
