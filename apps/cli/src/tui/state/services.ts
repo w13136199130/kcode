@@ -37,7 +37,8 @@ interface DialogActions {
 
 /** CLI 侧服务集（宿主 App 装配；面板组件只经 useServices 取用，N2-3 注入模式） */
 export type CliServices = ServiceSet & {
-  platform: import("@kcode/contracts").IPlatformService;
+  /** 前端侧平台端口（N3-2 注 E：只暴露 probe/saveKey，open*Keychain 不出宿主） */
+  platform: import("@kcode/contracts").PlatformClientPort;
   /** UI 语义 store（转写/运行状态） */
   ui: UiStore;
   /** 当前会话句柄（换建后指向新会话） */

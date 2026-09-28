@@ -171,6 +171,23 @@ export const SessionRewindEvent = z.object({
   restoredFiles: z.number().int().nonnegative().optional(),
 });
 
+/**
+ * 宿主租约（N3-1 注 B）：每个宿主接管会话时追加一条——epoch 单调递增（重启即 +1），
+ * 新宿主据此检测悬空租约（前持有者 pid 仍存活 → 拒绝服务，防双活写回；已死 → 接管续写）。
+ * 回放/重建历史时忽略本事件（不产生消息）。
+ */
+export const HostLeaseEvent = z.object({
+  v: v1,
+  type: z.literal("host_lease"),
+  ts,
+  sessionId,
+  hostId: z.string().min(1),
+  pid: z.number().int().positive(),
+  epoch: z.number().int().nonnegative(),
+  /** 接管时的有效前缀长度（kill -9 恢复的审计线索） */
+  keepEvents: z.number().int().nonnegative().optional(),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -185,6 +202,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   LlmErrorEvent,
   RunLimitReachedEvent,
   SessionRewindEvent,
+  HostLeaseEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

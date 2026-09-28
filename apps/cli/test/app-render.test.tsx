@@ -25,6 +25,7 @@ const fakeRuntime = {
   models: { default: "mock/1", providers: {} },
   keychain: { async get() { return null; }, async set() {}, async delete() {}, async list() { return []; } },
   router: {},
+  platform: { secureStorageAvailable: false, async probe() { return false; }, async saveKey() {} },
   kcodeHomeDir: "E:/tmp/.kcode-test",
 } as unknown as Runtime;
 

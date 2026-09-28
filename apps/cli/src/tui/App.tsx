@@ -7,6 +7,7 @@ import type { Runtime } from "../bootstrap.js";
 import { createSession, type SessionHandle } from "../session.js";
 import { appendHistory, saveInputHistory } from "../history-store.js";
 import { ServicesProvider, createUiStore, type Block } from "@kcode/ui";
+import { platformClientAdapter } from "@kcode/contracts";
 import { c } from "./theme/theme.js";
 import { MODE_META } from "./theme/modes.js";
 import { appendInputLog } from "./terminal/input-log.js";
@@ -397,7 +398,8 @@ export function KcodeApp(props: KcodeAppProps) {
   return (
     <ServicesProvider
       services={{
-        platform: props.runtime.platform,
+        // N3-2 注 E：前端只拿 PlatformClientPort（probe/saveKey），完整实现留在宿主侧
+        platform: platformClientAdapter(props.runtime.platform),
         ui,
         getSession: () => sessionRef.current,
         dialogs: {

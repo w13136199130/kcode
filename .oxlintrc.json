@@ -14,7 +14,8 @@
       "files": [
         "packages/shared/src/logger.ts",
         "evals/src/acceptance-cli.ts",
-        "services/server/src/index.ts",
+        "services/server/src/**",
+        "services/server/test/**",
         "apps/cli/scripts/**",
         "apps/cli/bin/**"
       ],

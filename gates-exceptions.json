@@ -22,9 +22,10 @@
     {
       "rule": "no-console",
       "files": [
-        "services/server/src/index.ts"
+        "services/server/src/**",
+        "services/server/test/**"
       ],
-      "reason": "N4 占位进程的启动输出；服务落地时改用 pino 后移除",
+      "reason": "中继服务器进程日志 + E2E 测试调试输出（stdout/stderr 即运维界面）；引入 pino 后移除",
       "expires": "2026-12-27"
     },
     {

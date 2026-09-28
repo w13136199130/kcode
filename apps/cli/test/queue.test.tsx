@@ -67,6 +67,7 @@ async function setup() {
     models: { default: "test", providers: {} },
     keychain: { async get() { return null; }, async set() {}, async delete() {}, async list() { return []; } },
     router: {},
+    platform: { secureStorageAvailable: false, async probe() { return false; }, async saveKey() {} },
     kcodeHomeDir: "E:/tmp/.kcode-test",
   } as unknown as Runtime;
   const ui = render(<KcodeApp runtime={fakeRuntime} model="test" cwd="." />, {

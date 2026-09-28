@@ -108,15 +108,11 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
                       },
                     },
                   });
+                  // N3-2 注 E：key 录入走 PlatformClientPort.saveKey（宿主侧选择存储方式，
+                  // 前端不感知 openPassphraseKeychain/openSecureKeychain——key 明文不出宿主）
+                  await platform.saveKey(keyRef, w.apiKey, [w.baseURL], pass !== "" ? pass : undefined);
                   if (pass !== "") {
-                    // 平台能力经 IPlatformService（N2-1）：UI 不直接 new 平台实现
-                    const kc = platform.openPassphraseKeychain(pass);
-                    await kc.set(keyRef, w.apiKey, [w.baseURL]);
                     process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
-                  } else {
-                    // 口令留空：免口令系统存储（不支持的平台在此抛"口令不能为空"）
-                    const kc = platform.openSecureKeychain();
-                    await kc.set(keyRef, w.apiKey, [w.baseURL]);
                   }
                   dialogs.pushBlock({
                     kind: "info",
