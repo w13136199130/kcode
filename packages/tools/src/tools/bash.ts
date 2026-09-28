@@ -85,6 +85,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
       readOnly: false,
       permission: { default: "ask" },
       timeoutMs: 600_000,
+      resultBudget: 4096,
     },
     async execute(input, ctx) {
       const parsed = BashArgs.safeParse(input);

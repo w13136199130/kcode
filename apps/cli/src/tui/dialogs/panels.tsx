@@ -1,17 +1,24 @@
-import type { PermissionAnswer, PermissionMode } from "@kcode/contracts";
-import type { Block } from "@kcode/ui";
+import type { PermissionAnswer } from "@kcode/contracts";
+import { useServices } from "@kcode/ui";
 import { Box, Text } from "ink";
 import { c } from "../theme/theme.js";
 import { truncateVisual } from "../terminal/width.js";
 import { markdownToLines } from "../transcript/markdown.js";
 import { OptionsMenu, type MenuOption } from "./OptionsMenu.js";
 import { DiffPreview } from "./DiffPreview.js";
-import type { AskState, QuestionState, PlanApprovalState } from "../state/interactions.js";
+import type { CliServices } from "../state/services.js";
+import type { AskState, QuestionState, PlanApprovalState, RewindPoint } from "../state/interactions.js";
 
-export type PushBlock = (block: Block) => void;
+export type { RewindPoint } from "../state/interactions.js";
+
+/** 面板动作捷径（各面板从 ServicesProvider 取，不再经 props 透传） */
+function useDialogs(): CliServices["dialogs"] {
+  return useServices<CliServices>().dialogs;
+}
 
 /** 工具审批面板：允许/本会话/本项目持久/拒绝 四选 */
-export function AskPanel(props: { ask: AskState; setAsk: (a: AskState | null) => void; pushBlock: PushBlock }) {
+export function AskPanel(props: { ask: AskState }) {
+  const dialogs = useDialogs();
   const { ask } = props;
   return (
     <Box flexDirection="column">
@@ -37,8 +44,8 @@ export function AskPanel(props: { ask: AskState; setAsk: (a: AskState | null) =>
                   ? { allowed: true, scope: "project" }
                   : { allowed: false };
           ask.resolve(answer);
-          props.setAsk(null);
-          props.pushBlock({
+          dialogs.setAsk(null);
+          dialogs.pushBlock({
             kind: "info",
             tone: answer.allowed ? "ok" : "deny",
             text: `❯ ${
@@ -54,8 +61,8 @@ export function AskPanel(props: { ask: AskState; setAsk: (a: AskState | null) =>
         }}
         onCancel={() => {
           ask.resolve({ allowed: false });
-          props.setAsk(null);
-          props.pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}` });
+          dialogs.setAsk(null);
+          dialogs.pushBlock({ kind: "info", tone: "deny", text: `❯ 拒绝 · ${ask.call.tool}` });
         }}
       />
     </Box>
@@ -63,13 +70,8 @@ export function AskPanel(props: { ask: AskState; setAsk: (a: AskState | null) =>
 }
 
 /** 计划批准面板（plan_submit）：批准即切执行档，继续研究/放弃留在计划档 */
-export function PlanApprovalPanel(props: {
-  planApproval: PlanApprovalState;
-  setPlanApproval: (p: PlanApprovalState | null) => void;
-  setMode: (m: PermissionMode) => void;
-  setEngineMode: (m: PermissionMode) => void;
-  pushBlock: PushBlock;
-}) {
+export function PlanApprovalPanel(props: { planApproval: PlanApprovalState }) {
+  const dialogs = useDialogs();
   const { planApproval } = props;
   return (
     <Box flexDirection="column">
@@ -102,13 +104,13 @@ export function PlanApprovalPanel(props: {
           const picked = planApproval.question.options[indices[0] ?? 2];
           const approve = picked?.label === "批准并执行";
           planApproval.reply(picked !== undefined ? [picked.label] : []);
-          props.setPlanApproval(null);
+          dialogs.setPlanApproval(null);
           if (approve) {
-            props.setMode("default");
-            props.setEngineMode("default");
-            props.pushBlock({ kind: "info", tone: "ok", text: "✓ 计划已批准——切换到执行模式" });
+            dialogs.setMode("default");
+            dialogs.applyMode("default");
+            dialogs.pushBlock({ kind: "info", tone: "ok", text: "✓ 计划已批准——切换到执行模式" });
           } else {
-            props.pushBlock({
+            dialogs.pushBlock({
               kind: "info",
               tone: "warn",
               text: `❯ ${picked?.label ?? "取消"} · 计划未执行`,
@@ -117,8 +119,8 @@ export function PlanApprovalPanel(props: {
         }}
         onCancel={() => {
           planApproval.reply(["放弃"]);
-          props.setPlanApproval(null);
-          props.pushBlock({ kind: "info", tone: "deny", text: "❯ 放弃 · 计划未执行" });
+          dialogs.setPlanApproval(null);
+          dialogs.pushBlock({ kind: "info", tone: "deny", text: "❯ 放弃 · 计划未执行" });
         }}
       />
     </Box>
@@ -126,19 +128,9 @@ export function PlanApprovalPanel(props: {
 }
 
 /** 回退点选择（/rewind）：恢复文件快照 + 截断对话 */
-export interface RewindPoint {
-  eventIndex: number;
-  preview: string;
-  ts: number;
-  fileChanges: number;
-}
 
-export function RewindPickerPanel(props: {
-  points: RewindPoint[];
-  setRewindPicker: (p: RewindPoint[] | null) => void;
-  rewind: (eventIndex: number) => Promise<string | null>;
-  pushBlock: PushBlock;
-}) {
+export function RewindPickerPanel(props: { points: RewindPoint[] }) {
+  const dialogs = useDialogs();
   return (
     <Box flexDirection="column">
       <Text color={c("accent")} bold>
@@ -155,11 +147,11 @@ export function RewindPickerPanel(props: {
         initialIndex={0}
         onPick={(indices) => {
           const pt = props.points[indices[0] ?? -1];
-          props.setRewindPicker(null);
+          dialogs.setRewindPicker(null);
           if (pt === undefined) return;
           void (async () => {
-            const error = await props.rewind(pt.eventIndex);
-            props.pushBlock({
+            const error = await dialogs.rewind(pt.eventIndex);
+            dialogs.pushBlock({
               kind: "info",
               tone: error === null ? "ok" : "warn",
               text:
@@ -170,7 +162,7 @@ export function RewindPickerPanel(props: {
           })();
         }}
         onCancel={() => {
-          props.setRewindPicker(null);
+          dialogs.setRewindPicker(null);
         }}
       />
     </Box>
@@ -178,12 +170,8 @@ export function RewindPickerPanel(props: {
 }
 
 /** /resume 会话选择 */
-export function ResumePickerPanel(props: {
-  options: MenuOption[];
-  ids: string[];
-  setResumePicker: (p: { options: MenuOption[]; ids: string[] } | null) => void;
-  switchSession: (resumeFrom: string) => void;
-}) {
+export function ResumePickerPanel(props: { options: MenuOption[]; ids: string[] }) {
+  const dialogs = useDialogs();
   return (
     <Box flexDirection="column">
       <Text color={c("accent")} bold>
@@ -194,13 +182,13 @@ export function ResumePickerPanel(props: {
         onPick={(indices) => {
           const idx = indices[0] ?? props.ids.length - 1;
           const resumeId = props.ids[idx];
-          props.setResumePicker(null);
+          dialogs.setResumePicker(null);
           if (resumeId !== undefined && resumeId !== "") {
-            props.switchSession(resumeId);
+            dialogs.switchSession(resumeId);
           }
         }}
         onCancel={() => {
-          props.setResumePicker(null);
+          dialogs.setResumePicker(null);
         }}
       />
     </Box>
@@ -208,12 +196,8 @@ export function ResumePickerPanel(props: {
 }
 
 /** /permissions 持久放行清单与清空 */
-export function PermissionsPanel(props: {
-  grants: string[];
-  setPermissionsPanel: (p: string[] | null) => void;
-  clearPersistentGrants: () => Promise<boolean>;
-  pushBlock: PushBlock;
-}) {
+export function PermissionsPanel(props: { grants: string[] }) {
+  const dialogs = useDialogs();
   return (
     <Box flexDirection="column">
       <Text color={c("accent")} bold>
@@ -230,11 +214,11 @@ export function PermissionsPanel(props: {
         initialIndex={0}
         onPick={(indices) => {
           const grants = props.grants;
-          props.setPermissionsPanel(null);
+          dialogs.setPermissionsPanel(null);
           if ((indices[0] ?? 0) === 1) {
             void (async () => {
-              const ok = await props.clearPersistentGrants().catch(() => false);
-              props.pushBlock({
+              const ok = await dialogs.clearPersistentGrants().catch(() => false);
+              dialogs.pushBlock({
                 kind: "info",
                 tone: ok ? "ok" : "warn",
                 text: ok
@@ -245,7 +229,7 @@ export function PermissionsPanel(props: {
           }
         }}
         onCancel={() => {
-          props.setPermissionsPanel(null);
+          dialogs.setPermissionsPanel(null);
         }}
       />
     </Box>
@@ -253,14 +237,11 @@ export function PermissionsPanel(props: {
 }
 
 /** fullAccess 显式确认（全自动放行高风险） */
-export function FullAccessConfirmPanel(props: {
-  setFullAccessConfirm: (v: boolean) => void;
-  applyMode: (m: PermissionMode) => void;
-  pushBlock: PushBlock;
-}) {
+export function FullAccessConfirmPanel() {
+  const dialogs = useDialogs();
   const cancel = (): void => {
-    props.setFullAccessConfirm(false);
-    props.pushBlock({ kind: "info", text: "❯ 取消 · 未切换完全访问" });
+    dialogs.setFullAccessConfirm(false);
+    dialogs.pushBlock({ kind: "info", text: "❯ 取消 · 未切换完全访问" });
   };
   return (
     <Box flexDirection="column">
@@ -274,9 +255,9 @@ export function FullAccessConfirmPanel(props: {
         ]}
         initialIndex={0}
         onPick={(indices) => {
-          props.setFullAccessConfirm(false);
+          dialogs.setFullAccessConfirm(false);
           if ((indices[0] ?? 0) === 1) {
-            props.applyMode("fullAccess");
+            dialogs.applyMode("fullAccess");
           } else {
             cancel();
           }
@@ -288,13 +269,8 @@ export function FullAccessConfirmPanel(props: {
 }
 
 /** /model 选择菜单 */
-export function ModelPickerPanel(props: {
-  options: MenuOption[];
-  setModelPicker: (p: { options: MenuOption[] } | null) => void;
-  setModelLabel: (label: string) => void;
-  setModel: (ref: string) => Promise<string | null>;
-  pushBlock: PushBlock;
-}) {
+export function ModelPickerPanel(props: { options: MenuOption[] }) {
+  const dialogs = useDialogs();
   return (
     <Box flexDirection="column">
       <Text color={c("accent")} bold>
@@ -304,33 +280,30 @@ export function ModelPickerPanel(props: {
         options={props.options}
         onPick={(indices) => {
           const picked = props.options[indices[0] ?? 0];
-          props.setModelPicker(null);
+          dialogs.setModelPicker(null);
           if (picked === undefined || picked.key === "q") {
             return;
           }
           const ref = picked.label.replace(/（.*$/, "");
           void (async () => {
-            const error = await props.setModel(ref);
+            const error = await dialogs.setModel(ref);
             if (error !== null) {
-              props.pushBlock({ kind: "info", tone: "warn", text: `✗ 模型切换失败：${error}` });
+              dialogs.pushBlock({ kind: "info", tone: "warn", text: `✗ 模型切换失败：${error}` });
               return;
             }
-            props.setModelLabel(ref);
-            props.pushBlock({ kind: "info", tone: "ok", text: `⭄ 模型已切换：${ref}（历史保留）` });
+            dialogs.setModelLabel(ref);
+            dialogs.pushBlock({ kind: "info", tone: "ok", text: `⭄ 模型已切换：${ref}（历史保留）` });
           })();
         }}
-        onCancel={() => props.setModelPicker(null)}
+        onCancel={() => dialogs.setModelPicker(null)}
       />
     </Box>
   );
 }
 
 /** ask_user 结构化提问（多选/单选 + 选中项预览） */
-export function QuestionPanel(props: {
-  question: QuestionState;
-  setQuestion: (q: QuestionState | null) => void;
-  pushBlock: PushBlock;
-}) {
+export function QuestionPanel(props: { question: QuestionState }) {
+  const dialogs = useDialogs();
   const { question } = props;
   return (
     <Box flexDirection="column">
@@ -360,16 +333,16 @@ export function QuestionPanel(props: {
         onPick={(indices) => {
           const labels = indices.map((i) => question.question.options[i]?.label ?? "");
           question.resolve(labels);
-          props.setQuestion(null);
-          props.pushBlock({
+          dialogs.setQuestion(null);
+          dialogs.pushBlock({
             kind: "info",
             text: `→ 已选：${labels.length > 0 ? labels.join("、") : "（未选择）"}`,
           });
         }}
         onCancel={() => {
           question.resolve([]);
-          props.setQuestion(null);
-          props.pushBlock({ kind: "info", text: "→ 已选：（未选择）" });
+          dialogs.setQuestion(null);
+          dialogs.pushBlock({ kind: "info", text: "→ 已选：（未选择）" });
         }}
       />
     </Box>

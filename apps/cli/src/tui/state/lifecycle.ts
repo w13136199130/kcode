@@ -128,6 +128,11 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
       pushBlock({ kind: "info", tone: "warn", text: "运行中不能续接会话（等本轮完成或 Esc 中断）" });
       return;
     }
+    // 换会话语义：旧会话的排队输入不带走（防悬挂；计数经旧队列 onChange 归零）
+    const stale = sessionRef.current?.commandQueue.clear() ?? 0;
+    if (stale > 0) {
+      pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（续接不带旧排队）` });
+    }
     deps.beginWork();
     void (async () => {
       try {

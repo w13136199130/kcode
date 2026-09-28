@@ -21,6 +21,14 @@ export interface QuestionState {
   resolve: (labels: string[]) => void;
 }
 
+/** 回退点（/rewind 面板与 DialogActions 共用形状；放 interactions 破 dialogs↔state 类型环） */
+export interface RewindPoint {
+  eventIndex: number;
+  preview: string;
+  ts: number;
+  fileChanges: number;
+}
+
 /** 计划批准面板载荷（plan_submit 工具推送） */
 export interface PlanApprovalState {
   plan: string;

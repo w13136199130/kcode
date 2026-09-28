@@ -139,6 +139,12 @@ export function InputBox(props: {
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
       }
+      // Shift+Enter 换行（对标 Claude Code）：仅 kitty/modifyOtherKeys 终端可与 Enter 区分，
+      // 普通终端发的是同一个 \r（等价 Enter 提交）——可移植路径仍是 Ctrl+J / 行尾反斜杠
+      if (key.return === true && key.shift === true) {
+        setValue(`${props.value.slice(0, pos)}\n${props.value.slice(pos)}`, pos + 1);
+        return;
+      }
       if (fileMenu !== null) {
         if (key.upArrow) {
           setFileMenu({ ...fileMenu, index: (fileMenu.index - 1 + fileMenu.items.length) % fileMenu.items.length });

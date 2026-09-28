@@ -35,6 +35,7 @@ export const grepTool: Tool = {
     readOnly: true,
     permission: { default: "allow" },
     timeoutMs: 30_000,
+    resultBudget: 4096,
   },
   async execute(input, ctx) {
     const parsed = GrepArgs.safeParse(input);

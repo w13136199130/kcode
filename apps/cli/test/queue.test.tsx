@@ -142,6 +142,29 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     await t.eventually("> █");
   }, T);
 
+  it("排空到 /clear 时换新会话：旧排队清空不悬挂、计数归零（换会话语义）", async () => {
+    const t = await setup();
+    await t.enter("first");
+    await t.eventually("等待模型响应");
+    await t.settle(150);
+    // 斜杠命令先触发补全菜单：第一次回车=补全，第二次回车=提交
+    t.stdin.write("/clear");
+    await t.eventually("/clear█");
+    t.stdin.write("\r");
+    await t.settle(120);
+    t.stdin.write("\r");
+    await t.eventuallySaw("已排队（第 1 位）");
+    await t.enter("after");
+    await t.eventually("排队 2");
+
+    t.finish(0); // first 完成 → 排空执行 /clear → 新会话 → "after" 属旧上下文，被清掉
+    await t.eventuallySaw("已清空 1 条排队输入");
+    await t.eventually("> █");
+    await t.settle(300);
+    expect(t.run).toHaveBeenCalledTimes(1); // "after" 未被续跑（旧队列无人排空会悬挂）
+    expect(t.frame()).not.toContain("排队 1"); // 计数经旧队列 onChange 归零
+  }, T);
+
   it("中断（Esc）清空排队输入：取消当前轮后不自动续跑", async () => {
     const t = await setup();
     await t.enter("first");

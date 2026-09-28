@@ -254,6 +254,12 @@ ${body}
           ctx.pushBlock({ kind: "info", tone: "warn", text: "运行中不能清屏开新会话（等本轮完成或 Esc 中断）" });
           return;
         }
+        // 换会话语义：旧上下文的排队输入不带走——新会话的队列是空的，
+        // 旧队列残留项将无人排空（悬挂）且排队计数停在旧值，必须在此清掉
+        const stale = ctx.sessionRef.current?.commandQueue.clear() ?? 0;
+        if (stale > 0) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（新会话不带旧排队）` });
+        }
         ctx.beginWork();
         try {
           const handle = await ctx.createSession({

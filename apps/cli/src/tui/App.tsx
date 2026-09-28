@@ -395,7 +395,43 @@ export function KcodeApp(props: KcodeAppProps) {
     : runPhase;
 
   return (
-    <ServicesProvider services={{ platform: props.runtime.platform }}>
+    <ServicesProvider
+      services={{
+        platform: props.runtime.platform,
+        ui,
+        getSession: () => sessionRef.current,
+        dialogs: {
+          setMode,
+          applyMode,
+          switchSession,
+          rewind: (eventIndex: number) =>
+            sessionRef.current?.rewind(eventIndex) ?? Promise.resolve("会话未就绪"),
+          setModel: async (ref: string) => {
+            try {
+              await sessionRef.current?.setModel(ref);
+              return null;
+            } catch (err) {
+              return err instanceof Error ? err.message : String(err);
+            }
+          },
+          setModelLabel,
+          clearPersistentGrants: async () => {
+            await sessionRef.current?.clearPersistentGrants();
+            return true;
+          },
+          pushBlock,
+          setAsk,
+          setQuestion,
+          setPlanApproval,
+          setRewindPicker,
+          setResumePicker,
+          setPermissionsPanel,
+          setFullAccessConfirm,
+          setLoginWizard,
+          setModelPicker,
+        },
+      }}
+    >
       <Box flexDirection="column" width="100%">
         <TranscriptView ui={ui} verbose={verbose} tick={tick} />
         {notice !== null && (
@@ -414,44 +450,14 @@ export function KcodeApp(props: KcodeAppProps) {
         )}
         <DialogLayer
           ask={ask}
-          setAsk={setAsk}
           question={question}
-          setQuestion={setQuestion}
           planApproval={planApproval}
-          setPlanApproval={setPlanApproval}
-          setMode={setMode}
-          setEngineMode={(m) => sessionRef.current?.setMode(m)}
           rewindPicker={rewindPicker}
-          setRewindPicker={setRewindPicker}
-          rewind={(eventIndex) =>
-            sessionRef.current?.rewind(eventIndex) ?? Promise.resolve("会话未就绪")
-          }
           resumePicker={resumePicker}
-          setResumePicker={setResumePicker}
-          switchSession={switchSession}
           permissionsPanel={permissionsPanel}
-          setPermissionsPanel={setPermissionsPanel}
-          clearPersistentGrants={async () => {
-            await sessionRef.current?.clearPersistentGrants();
-            return true;
-          }}
           fullAccessConfirm={fullAccessConfirm}
-          setFullAccessConfirm={setFullAccessConfirm}
-          applyMode={applyMode}
           loginWizard={loginWizard}
-          setLoginWizard={setLoginWizard}
           modelPicker={modelPicker}
-          setModelPicker={setModelPicker}
-          setModelLabel={setModelLabel}
-          setModel={async (ref) => {
-            try {
-              await sessionRef.current?.setModel(ref);
-              return null;
-            } catch (err) {
-              return err instanceof Error ? err.message : String(err);
-            }
-          }}
-          pushBlock={pushBlock}
         >
           {ready ? (
             interactive ? (

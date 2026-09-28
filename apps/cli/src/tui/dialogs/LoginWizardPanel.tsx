@@ -1,28 +1,20 @@
-import type { IPlatformService } from "@kcode/contracts";
-import { useServices, type ServiceSet } from "@kcode/ui";
+import { useServices } from "@kcode/ui";
 import { Box, Text } from "ink";
 import { saveUserModelsConfig } from "../../bootstrap.js";
 import { c } from "../theme/theme.js";
-import type { PushBlock } from "./panels.js";
 import { OptionsMenu } from "./OptionsMenu.js";
 import { HiddenInput } from "./HiddenInput.js";
 import { PromptInput } from "./PromptInput.js";
 import { LOGIN_PRESETS, type LoginWizard } from "./wizard-state.js";
-
-/** CLI 侧注入的服务集形状（ServicesProvider 由 App 装配，N2-3） */
-export type CliServices = ServiceSet & { platform: IPlatformService };
+import type { CliServices } from "../state/services.js";
 
 /**
  * /login 向导（N2-3 外迁）：四段式录入厂商/模型/地址/key + 口令或 DPAPI。
- * 平台能力经 useServices 注入（IPlatformService，N2-1）——组件不 import 平台实现。
+ * 平台能力与面板动作经 useServices 注入（N2-1 IPlatformService + N2-3 注入补全）。
  */
-export function LoginWizardPanel(props: {
-  wizard: Exclude<LoginWizard, null>;
-  setLoginWizard: (w: LoginWizard) => void;
-  pushBlock: PushBlock;
-}) {
+export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) {
   const { wizard } = props;
-  const { platform } = useServices<CliServices>();
+  const { platform, dialogs } = useServices<CliServices>();
   return (
     <Box flexDirection="column">
       {wizard.stage === "method" ? (
@@ -35,10 +27,10 @@ export function LoginWizardPanel(props: {
             onPick={(indices) => {
               const preset = LOGIN_PRESETS[indices[0] ?? 0];
               if (preset === undefined) {
-                props.setLoginWizard(null);
+                dialogs.setLoginWizard(null);
                 return;
               }
-              props.setLoginWizard({
+              dialogs.setLoginWizard({
                 stage: "model",
                 providerName: preset.name,
                 presetBaseURL: preset.baseURL,
@@ -48,7 +40,7 @@ export function LoginWizardPanel(props: {
                 model: preset.model,
               });
             }}
-            onCancel={() => props.setLoginWizard(null)}
+            onCancel={() => dialogs.setLoginWizard(null)}
           />
         </>
       ) : wizard.stage === "model" ? (
@@ -59,8 +51,8 @@ export function LoginWizardPanel(props: {
           <PromptInput
             label="模型名: "
             initialValue={wizard.presetModel}
-            onDone={(model) => props.setLoginWizard({ ...wizard, stage: "baseURL", model })}
-            onCancel={() => props.setLoginWizard(null)}
+            onDone={(model) => dialogs.setLoginWizard({ ...wizard, stage: "baseURL", model })}
+            onCancel={() => dialogs.setLoginWizard(null)}
           />
         </>
       ) : wizard.stage === "baseURL" ? (
@@ -72,9 +64,9 @@ export function LoginWizardPanel(props: {
             label="BaseURL: "
             initialValue={wizard.presetBaseURL}
             onDone={(baseURL) =>
-              props.setLoginWizard({ ...wizard, stage: "apikey", baseURL: baseURL.trim() })
+              dialogs.setLoginWizard({ ...wizard, stage: "apikey", baseURL: baseURL.trim() })
             }
-            onCancel={() => props.setLoginWizard(null)}
+            onCancel={() => dialogs.setLoginWizard(null)}
           />
         </>
       ) : wizard.stage === "apikey" ? (
@@ -85,9 +77,9 @@ export function LoginWizardPanel(props: {
           <HiddenInput
             label="API key: "
             onDone={(apiKey) =>
-              props.setLoginWizard({ ...wizard, stage: "passphrase", apiKey: apiKey.trim() })
+              dialogs.setLoginWizard({ ...wizard, stage: "passphrase", apiKey: apiKey.trim() })
             }
-            onCancel={() => props.setLoginWizard(null)}
+            onCancel={() => dialogs.setLoginWizard(null)}
           />
         </>
       ) : (
@@ -102,7 +94,7 @@ export function LoginWizardPanel(props: {
             label="口令: "
             onDone={(pass) => {
               const w = wizard;
-              props.setLoginWizard(null);
+              dialogs.setLoginWizard(null);
               void (async () => {
                 try {
                   const keyRef = `keychain://${w.providerName}`;
@@ -117,6 +109,7 @@ export function LoginWizardPanel(props: {
                     },
                   });
                   if (pass !== "") {
+                    // 平台能力经 IPlatformService（N2-1）：UI 不直接 new 平台实现
                     const kc = platform.openPassphraseKeychain(pass);
                     await kc.set(keyRef, w.apiKey, [w.baseURL]);
                     process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
@@ -125,13 +118,13 @@ export function LoginWizardPanel(props: {
                     const kc = platform.openSecureKeychain();
                     await kc.set(keyRef, w.apiKey, [w.baseURL]);
                   }
-                  props.pushBlock({
+                  dialogs.pushBlock({
                     kind: "info",
                     tone: "ok",
                     text: `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${w.providerName}/${w.model}）——重启 kcode 后以新配置启动`,
                   });
                 } catch (err) {
-                  props.pushBlock({
+                  dialogs.pushBlock({
                     kind: "info",
                     tone: "warn",
                     text: `✗ 保存失败：${err instanceof Error ? err.message : String(err)}（若提示解密失败，说明已有 keys.json 使用其他口令——删除 %USERPROFILE%\\.kcode\\keys.json 后重试 /login）`,
@@ -139,7 +132,7 @@ export function LoginWizardPanel(props: {
                 }
               })();
             }}
-            onCancel={() => props.setLoginWizard(null)}
+            onCancel={() => dialogs.setLoginWizard(null)}
           />
         </>
       )}

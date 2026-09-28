@@ -4,6 +4,7 @@ import type {
   PermissionMode,
   ToolDefinition,
 } from "@kcode/contracts";
+import { safeBashDecision } from "./safe-commands.js";
 
 /**
  * 未声明 permission 的工具（MCP/插件/未知注册物）在各档的回退（N2-3）：
@@ -36,9 +37,9 @@ export class ModePermissionEngine implements PermissionEngine {
       return declared.plan ?? (tool.readOnly ? "allow" : "deny");
     }
     if (this.mode === "acceptEdits") {
-      return declared.acceptEdits ?? declared.default;
+      return safeBashDecision(tool.name, _args, declared.acceptEdits ?? declared.default);
     }
-    return declared.default;
+    return safeBashDecision(tool.name, _args, declared.default);
   }
 }
 
