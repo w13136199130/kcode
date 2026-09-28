@@ -228,6 +228,7 @@ services/
 - `apps/cli`、`packages/ui`、`apps/desktop` 的渲染进程**不得**持有明文 key。
 - 需要"验证 key 是否可用"时，由 host 提供 `probe(keyRef)` 返回布尔，而非返回 key。
 - 每次网络请求的 key 注入发生在 host 的 provider 层。
+- key 录入（写 keychain）同样经 host RPC 落盘——前端侧的 `IPlatformService` 不暴露 `openPassphraseKeychain`/`openSecureKeychain`（按进程拆两半，见 §8.4 N3-2 注 E）。
 - **受众绑定校验（`credentials.ts`）是这条边界上的硬闸门**，任何重构不得绕过。
 
 理由：单进程化后 key 与工具执行同进程（见 threat-model.md 已知边界 3）。引入 host 子进程是**修复这一残余风险的机会**，不应浪费。
@@ -396,11 +397,23 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 说明 |
 |---|---|---|---|
-| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 + `CommandInbox` owner/lease（自 N2-2 挪入：host 进程出现，防幽灵 run 才有舞台） | N1-2/N2-1 | kill -9 host 重启无幽灵 run 写回；Desktop 与 Web 共同前置 |
-| N3-2 | 凭证边界收敛到 host（§3.5） | N3-1 | 与 N3-1 同批；key 只在 host |
+| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 + lease 机制（自 N2-2 挪入：host 进程出现，防幽灵 run 才有舞台；设计注 A–D 见下方） | N1-2/N2-1 | kill -9 host 重启无幽灵 run 写回；Desktop 与 Web 共同前置 |
+| N3-2 | 凭证边界收敛到 host（§3.5；设计注 E 见下方） | N3-1 | 与 N3-1 同批；key 只在 host |
 | N3-3 | Web 客户端（React + Vite，复用 ui+design） | N3-1 | 远程访问：TLS 非可选 + 令牌默认生成 + 权限默认收紧 |
-| N3-4 | Desktop（Electron，可替换） | N3-1 | 复用 ui + host 协议 |
+| N3-4 | Desktop（Electron，可替换；设计注 F 见下方） | N3-1 | 复用 ui + host 协议 |
 | N3-5 | 插件加载期 hash 校验 | 无 | 独立于商店；篡改拒绝加载 |
+
+> **N3-1 注 A（排空权威在 host，N3 设计修订）**：N2-2 的排队/排空（reservation、drain 递归）在单进程下由 CLI App 驱动；进程边界后排空权威**移入 host**——host 收 `session/submit`（含 priority）后自行排队/预约/执行/取下一条，CLI/Web 只投递命令并收 `queue/change` 事件。前端侧以 **SessionProxy** 消费：与 `SessionHandle`/`CliServices` 同形的接口、方法转发 RPC（N2-3 注入缝的价值兑现——组件不改）。断连重连后队列状态不丢失（它在 host）。
+
+> **N3-1 注 B（lease 机制：logEpoch 即租约）**：host 持 `(hostId, pid, startedAt)`，在 session JSONL 写 run 租约标记；**host 重启即 `logEpoch`+1**（`EventCursor` 既有字段），新 host 检测悬空租约（旧 pid 不存活 / 心跳超时）→ 拒接旧 run 上下文、按有效前缀（N0-5 语义）重建；`commandId` 幂等 + `baseRevision` CAS 拦截 stale 命令重放。三者合起来就是"kill -9 无幽灵写回"的机制本体。
+
+> **N3-1 注 C（协议词汇表与流式细节）**：N1-2 冻结的是信封（Hello/CommandEnvelope/EventCursor），N3-1 在其上定义词汇：`session/create`、`session/submit(priority)`、`queue/change`、`delta`、`reasoning_delta`、`ask/request ↔ ask/response`（审批往返）、`plan/approval`、`interrupt`、`sessions/list`。两条硬规则：① 审批跨进程后为关联请求——**断连/超时未决 ask 一律结算 deny（fail-closed）**；② 流式合帧（B3 的 reasoning 250ms 批量）在 host 侧做，避免逐 delta 过线。
+
+> **N3-1 注 D（host 粒度：每会话一进程）**：host = 会话级进程（对标 ZCode 每窗口一个 host）——与 `SessionRunner` 单飞语义、崩溃隔离天然吻合；桌面=每窗口=每会话；Web 多会话 = 多 host + 本地连接注册表；远程注册表（ssh/wsl/docker）随 N4-2。**不做** host 内多会话状态机（不必要的复杂度）。
+
+> **N3-2 注 E（IPlatformService 按进程拆两半）**：host 侧持有完整 keychain 实现（openPassphraseKeychain/openSecureKeychain 等）；**前端侧接口只暴露** `secureStorageAvailable` + `probe(keyRef)` + `saveKey(...)`（经 RPC 落 host）——open*Keychain 不得跨进程暴露。Login 向导的 key 录入改为 RPC 调用（现直调平台实现的路径随 N3-1 切换）。
+
+> **N3-4 注 F（Electron 形态定死）**：每窗口 `utilityProcess.fork` 一个 host + `MessageChannelMain` 传 port；stdout 只跑 RPC、stderr 分离（诊断/日志各走各的）。不用 renderer fork（渲染进程无 node 权限是安全边界，不是实现细节）。自更新数据源复用 N2-4 的 `latest.json`。
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
@@ -469,6 +482,7 @@ export interface IPlatformService {
 - N2-2 落地：`packages/runtime` 新增 `RuntimeCommandQueue`（now/next/later 稳定排序 + `tryReserve` 单 reservation + `clear` 绑定中断语义）；`ComposedSession.commandQueue` 暴露 + `onQueueChange` 镜像；CLI 接线——busy 提交入队（含历史记录与输入清空）、完成即排空（`runOccupied` 四路径统一）、Esc/Ctrl+C 清空排队、busy 行显示排队数、输入区常驻（原"运行中隐藏输入区"的旧契约随排队的引入废除）。
 - N2-3 落地（拆分/立包/注入/门禁；`ToolEntry` 收尾项另计）：`packages/ui` 立包——`services/`（`ServicesProvider`/`useServices` React Context，DOM-free）+ `state/`（zustand 双 slice：run-status + transcript，工厂隔离实例；`Block` 视图模型上升为跨端语义格式）；App.tsx 2078→484 行，拆为 theme/terminal/transcript/input/dialogs/status/state 七目录（dispatch→`input/commands.ts`、面板→`dialogs/DialogLayer.tsx`、按键→`terminal/keybinds.ts`、生命周期/事件/交互→`state/`）；App 状态迁移 zustand（busy/转写/排队镜像，同步判定走 `getState` 替代 busyRef）；LoginWizardPanel 经 `useServices` 取 `IPlatformService`（注入层首个真实消费者）；oxlint `max-lines: error 500` 覆盖 `tui/**`（存量超限 core/loop.ts 581、composition.ts 553 随 N2-5 全仓启用时清零）。
 - N2-5 落地（门禁成真门禁，N2 收官）：① 规则4 `apps-import-packages` 升 error——语义从"warn 监控"改为"app 只准经包的公开入口 `src/index.ts` import，深路径（包内部文件）禁止"，零例外零警告；② `max-lines: error 500` 全仓启用（oxlint 规则层），`core/loop.ts` 581→495（executor 外迁 + 审计翻译器入 pipeline + `runCompaction` 入 compact）、`composition.ts` 553→495（rewind/prompt/user-bash 各自外迁）；③ 例外登记制 `gates-exceptions.json`（5 条 no-console 例外：理由+到期日，期限上限一季度）+ `pnpm gates:check`（schema/过期/漂移三重校验，oxlint overrides 与登记集合强制一致）挂 CI。至此 N2 五项全部落地。
+- N3 设计修订（进 N3 前对照 ZCode/Claude Code 审定的六条，落实为 §8.4 注 A–F + §3.5 补条）：A 排空权威移入 host + 前端 SessionProxy（N2-2/2-3 同步假设在进程边界的修正）；B lease 机制具体化（host 重启即 logEpoch+1 + 悬空租约检测 + commandId 幂等/baseRevision CAS）；C 协议词汇表（method/event 清单、ask 断连 fail-closed deny、reasoning 合帧在 host 侧）；D host 粒度拍板（每会话一进程，不做 host 内多会话）；E IPlatformService 按进程拆两半（host 完整 keychain，前端只剩 probe/saveKey-RPC）；F Electron 形态定死（utilityProcess.fork 每窗口 + MessageChannelMain，stdout 只跑 RPC）。审定结论：骨架不变——Web 安全模型已强于 ZCode（TLS 强制+令牌默认）保持不回撤；事件重放语义与 web-remote-replayable 吻合无需改。
 - N2-4 落地（发行链）：tsup 全量 bundle（esbuild 单文件 kcode.mjs ~7.3MB，workspace 包与 npm 依赖全部打入；例外：canvas 运行时按需、react-devtools-core 桩替换、yoga.wasm 平铺产物旁、@vscode/ripgrep 外部化 + rg 二进制定位与自建最小包随包分发）；`--version` 短出口（构建 define 注入版本）；`pnpm release` = 构建 → tar.gz → sha256 → latest.json（版本 0.1.0 起步；latest.json 记录 platform/arch，rg 为构建机平台——跨平台需在目标平台构建）；install.sh（POSIX）/install.ps1（Windows）双端安装器（本地包或 URL、sha256 校验、解包 ~/.kcode/releases、current 指针 + ~/.kcode/bin 启动器）。验收：干净目录解包独立运行 + key 子命令（DPAPI）+ 一次性提问真实 LLM 任务全通过。教训记录：pnpm 11 的安装脚本白名单键是 `allowBuilds`（pnpm-workspace.yaml）；误改成 `onlyBuiltDependencies` 会引发 ERR_PNPM_IGNORED_BUILDS 连锁失败（verify-deps-before-run 把 install 失败传染给所有脚本）。
 - N2 实现审计修正（对照 ZCode/Claude Code 的偏差清理）：① 修复换会话排队悬挂——/clear、/resume 换建会话前清空旧队列（旧队列残留项无人排空且排队计数停在旧值），测试锁定；② bash 安全命令直跑——`safe-commands.ts` 白名单门（含控制结构/危险旗标/git 子命令收紧），default/acceptEdits 档 `ls/git status/grep` 类免确认、plan 档仍全拒；③ 注入补全——`CliServices`（platform/ui/getSession/dialogs 动作包）经 ServicesProvider 一次注入，DialogLayer 28 props → 10 状态 props，面板组件不再经 props 透传回调；④ Shift+Enter 换行（kitty/modifyOtherKeys 终端可区分，可移植路径仍 Ctrl+J/行尾反斜杠）；⑤ bash/grep 声明 resultBudget 4096（ToolEntry 首批真实数据消费）。
 - ToolEntry 落地（N2-3 收口）：`ToolDefinition` 扩展 `permission`（三档声明：default 必填，plan 缺省按 readOnly 推导，acceptEdits 缺省同 default；fullAccess 恒 allow）+ `timeoutMs`（管线结算护栏，超时按失败结算不挂死会话）+ `resultBudget`（结果回灌历史的按工具 token 预算，JSONL 仍全文）；权限裁决从四份按工具名维护的模式名单改为 `ModePermissionEngine` 声明驱动（未声明的 MCP/插件按 `MODE_FALLBACK` 回退：plan deny / default+acceptEdits ask / fullAccess allow）；14 个内置工具全部声明（读类 allow、write/edit 在 acceptEdits 放行、bash 恒 ask，超时 30s~600s 分级）；会话级放行/项目持久放行经 `MutablePermissionEngine` 叠加不变。
