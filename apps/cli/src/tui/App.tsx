@@ -13,12 +13,11 @@ import type {
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
-import { DpapiKeychain, EncryptedFileKeychain } from "@kcode/platform";
 import { appendFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Runtime } from "../bootstrap.js";
-import { kcodeHome, saveUserModelsConfig } from "../bootstrap.js";
+import { saveUserModelsConfig } from "../bootstrap.js";
 import { createSession } from "../session.js";
 import { BlockView, TodoPanel, formatToolPreview, type Block } from "./Transcript.js";
 import { markdownToLines } from "./markdown.js";
@@ -1897,7 +1896,7 @@ ${servers
               <Text color={c("accent")} bold>
                 Login · 设置 keychain 口令（不回显；解锁本地 key 存储）
               </Text>
-              {DpapiKeychain.available ? (
+              {props.runtime.platform.secureStorageAvailable ? (
                 <Text dimColor>Windows：口令留空回车 = 使用系统 DPAPI 免口令存储</Text>
               ) : null}
               <HiddenInput
@@ -1919,14 +1918,14 @@ ${servers
                         },
                       });
                       if (pass !== "") {
-                        const kc = new EncryptedFileKeychain(join(kcodeHome(), "keys.json"), pass);
+                        // 平台能力经 IPlatformService（N2-1）：UI 不直接 new 平台实现
+                        const kc = props.runtime.platform.openPassphraseKeychain(pass);
                         await kc.set(keyRef, w.apiKey, [w.baseURL]);
                         process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
-                      } else if (DpapiKeychain.available) {
-                        const kc = new DpapiKeychain(join(kcodeHome(), "keys.dpapi.json"));
-                        await kc.set(keyRef, w.apiKey, [w.baseURL]);
                       } else {
-                        throw new Error("口令不能为空（当前平台无 DPAPI，需设置口令）");
+                        // 口令留空：免口令系统存储（不支持的平台在此抛"口令不能为空"）
+                        const kc = props.runtime.platform.openSecureKeychain();
+                        await kc.set(keyRef, w.apiKey, [w.baseURL]);
                       }
                       pushBlock({
                         kind: "info",

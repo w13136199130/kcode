@@ -306,7 +306,8 @@ export interface IPlatformService {
 1. 能力层之间禁止互引（tools 不得 import runtime 等）——**已 error**；
 2. 任何包不得反向依赖引擎层——**已 error**；
 3. 底座（contracts/shared）不得依赖上层——**已 error**；
-4. `no-circular`、`apps-import-packages`、`engine-to-capability`——**当前 warn，N1-1 升 error**。
+4. `no-circular`、`apps-import-packages`、`engine-to-capability`——**当前 warn，N1-1 升 error**；
+5. `ui-no-platform-impl`（N2-1 落地）：`apps/cli/src/(tui|main)` 禁止 import `@kcode/platform`——平台能力只经 `contracts.IPlatformService` 注入，装配点唯一 `bootstrap.ts`——**已 error**。
 
 ### 6.2 治理升级分批（`[ZCode]` 采纳）
 
@@ -379,19 +380,23 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 验收标准 |
 |---|---|---|---|
-| N2-1 | `IPlatformService` + 依赖注入装配 | N1-2 | UI 不碰平台 API |
-| N2-2 | `CommandInbox` + owner/lease | N1-2/N1-3 | 运行中提交 3 条输入按序执行；kill -9 host 重启无幽灵 run 写回 |
-| N2-3 | `App.tsx` 拆为 `theme/ terminal/ state/ transcript/ input/ dialogs/ status/`；`packages/ui` 立包 | N2-1 | 新增文件立即受限（maxFileLines 500） |
+| N2-1 | `IPlatformService` + 依赖注入装配 | N1-2 | UI 不碰平台 API（§6 规则5 机器校验：装配点唯一 bootstrap.ts）——**已落地** |
+| N2-2 | `RuntimeCommandQueue`（priority now/next/later）+ 单 reservation；busy 时入队不抛错 | N1-2/N1-3 | 运行中提交 3 条输入按序执行（简化版，不抄 ZCode 500 行幂等网关；owner/lease 随 host 进程挪至 N3-1） |
+| N2-3 | `App.tsx` 拆为 `theme/ terminal/ state/ transcript/ input/ dialogs/ status/`；`packages/ui` 立包（注入模式见下方注）；工具统一 `ToolEntry` 契约（schema+permission+resultBudget+timeout） | N2-1 | 新增文件立即受限（maxFileLines 500）；Ink 与 DOM 组件均经 `useServices` 取服务，不直接 import runtime/core |
 | N2-4 | 发行链：tar.gz + sha256 + `latest.json` + 安装脚本 | N1 | 干净机器从零安装后首个任务通过 |
-| N2-5 | 例外清零，门禁升 error（§6.2 B4） | N2-3 | 门禁成真门禁 |
+| N2-5 | 例外清零，门禁升 error（§6.2 B4）+ 例外登记制（对标 ZCode expired-exception） | N2-3 | `gates-exceptions.json` 每条例外带理由与到期日，过期即 CI fail；门禁成真门禁 |
+
+> **N2-3 注入模式（对标 ZCode `useServices`/`IServiceAccessor`，先定后拆）**：`packages/ui` 分 DOM-free 内核与 DOM 组件两层——`services/`（`ServiceAccessor` 接口 + `ServicesProvider`/`useServices` React Context）与 `state/`（Zustand slice）不依赖 DOM，Ink（apps/cli）与 DOM（N3 web/desktop）两端同用；组件只经 accessor + store 取数，不直接 import runtime/core。宿主（CLI bootstrap / Web 入口）负责实现并注入 accessor。Ink 即 React，Context 在两端行为一致，无需两套注入。不定此层先拆包，拆出的组件仍是 cli 私有，立包白立。
 
 > N2-4 提前的理由：现状 `bin/kcode.mjs` 用 tsx 加载源码，只有 4 个包有 build。没有"干净机器从零安装"路径，会阻塞一切外部验证与桌面打包。
+
+> **N2-5 例外登记制（对标 ZCode expired-exception）**：清零只解决存量——例外会再长出来，无死期的豁免会重新烂掉。所有 lint/depcruise/knip 豁免集中登记于 `gates-exceptions.json`（规则、文件、理由、到期日；期限上限一个季度，续期须显式改期留痕），`pnpm gates:check` 挂 CI：条目过期即 fail。ZCode 的基线感知（sha256 记存量违规）不引入——kcode 例外量小，清零 + 登记即可；现存 no-console 白名单随 N2-5 一并迁入登记。
 
 ### 8.4 阶段 N3：通道扩展（P2）
 
 | ID | 项 | 依赖 | 说明 |
 |---|---|---|---|
-| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 | N1-2/N2-1 | Desktop 与 Web 共同前置 |
+| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 + `CommandInbox` owner/lease（自 N2-2 挪入：host 进程出现，防幽灵 run 才有舞台） | N1-2/N2-1 | kill -9 host 重启无幽灵 run 写回；Desktop 与 Web 共同前置 |
 | N3-2 | 凭证边界收敛到 host（§3.5） | N3-1 | 与 N3-1 同批；key 只在 host |
 | N3-3 | Web 客户端（React + Vite，复用 ui+design） | N3-1 | 远程访问：TLS 非可选 + 令牌默认生成 + 权限默认收紧 |
 | N3-4 | Desktop（Electron，可替换） | N3-1 | 复用 ui + host 协议 |
@@ -459,6 +464,8 @@ export interface IPlatformService {
 ### v4（2026-09-28）
 
 - N1 收口：knip 挂上 CI（ci.yml）；oxlint 挂 `no-console: error`（§8.2 N1-4 机器化），`main.tsx` 的 console 全部改为显式 `print`/`printErr` 出口；N1-4 logger 落点由 `packages/ui`（N2-3 才立包）改为 `packages/shared`，§8.2 行同步。
+- N2 口径统一与机制补强（对标 ZCode 两处耐久机制）：N2-2 定为简化版 `RuntimeCommandQueue`，owner/lease 随 host 进程挪至 N3-1（kill -9 验收随迁）；N2-3 补服务注入模式（`ServicesProvider`/`useServices` + Zustand slice，先定后拆）并纳入 `ToolEntry` 工具契约；N2-5 补例外登记制 `gates-exceptions.json`（例外带到期日，过期即 CI fail）。
+- N2-1 落地：`contracts.IPlatformService`（keychain 端口 + 平台事实，按实际使用面裁剪）+ `platform.createPlatformService` 工厂；`Runtime.platform` 注入，`main.tsx`/`tui/App.tsx` 去 `@kcode/platform` 直接依赖（login 向导、key 子命令、启动口令校验全走端口）；depcruise 新增规则5 `ui-no-platform-impl` 机器校验。
 
 ### v3（2026-09-24）
 

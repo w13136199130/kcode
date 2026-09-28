@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { UserConfigFile, type UserModelsConfig } from "@kcode/contracts";
+import { UserConfigFile, type IPlatformService, type UserModelsConfig } from "@kcode/contracts";
 import {
-  openKeychain,
+  createPlatformService,
   createProviderRouter,
   type KeychainStore,
   type ProviderRouter,
@@ -17,8 +17,18 @@ export interface Runtime {
   models: UserModelsConfig;
   keychain: KeychainStore;
   router: ProviderRouter;
+  /** 平台服务（N2-1）：UI 经此访问 keychain/平台能力，不直接依赖 platform 包 */
+  platform: IPlatformService;
   /** kcode 主目录（~/.kcode；本地会话组装与 JSONL 落盘的基准） */
   kcodeHomeDir: string;
+}
+
+/** CLI 的平台服务装配（N2-1 唯一 import platform 的 UI 侧入口；key 子命令在 bootstrap 前也用它） */
+export function createCliPlatformService(): IPlatformService {
+  return createPlatformService({
+    keysFile: join(kcodeHome(), "keys.json"),
+    dpapiKeysFile: join(kcodeHome(), "keys.dpapi.json"),
+  });
 }
 
 /** 读用户级配置（providers 只允许在这一层，§5.7 第一层防御） */
@@ -52,10 +62,11 @@ export async function loadUserConfig(
  */
 export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise<Runtime> {
   const models = await loadUserConfig();
+  const platform = createCliPlatformService();
   let keychain: KeychainStore;
   try {
     // 口令 > Windows DPAPI（B5 免口令）；两者皆不可用时惰性降级——无 key 的 provider（Ollama）照常可用
-    keychain = openKeychain(join(kcodeHome(), "keys.json"));
+    keychain = platform.openDefaultKeychain();
   } catch {
     keychain = {
           async get() {
@@ -75,7 +86,7 @@ export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise
         };
   }
   const router = createProviderRouter(models, keychain, options);
-  return { models, keychain, router, kcodeHomeDir: kcodeHome() };
+  return { models, keychain, router, platform, kcodeHomeDir: kcodeHome() };
 }
 
 /** 必须显式设置 default（模型 id 因厂商而异，不猜测） */

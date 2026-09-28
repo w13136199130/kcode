@@ -56,6 +56,14 @@ module.exports = {
       to: { path: "^packages/" },
     },
     {
+      name: "ui-no-platform-impl",
+      comment:
+        "规则5（N2-1）：UI 与入口不直接依赖平台实现——平台能力只经 contracts.IPlatformService 注入；装配点 bootstrap.ts 是唯一豁免",
+      severity: "error",
+      from: { path: "^apps/cli/src/(tui|main)" },
+      to: { path: "^packages/platform" },
+    },
+    {
       name: "no-circular",
       comment: "任何包之间禁止循环依赖",
       severity: "error",

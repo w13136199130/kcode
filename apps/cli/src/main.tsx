@@ -3,14 +3,19 @@ import { homedir } from "node:os";
 import { render } from "ink";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DpapiKeychain, EncryptedFileKeychain, openKeychain } from "@kcode/platform";
 import {
   installPlugin,
   listInstalledPlugins,
   uninstallPlugin,
 } from "@kcode/extensions";
+import type { IPlatformService } from "@kcode/contracts";
 import { bootstrap, type Runtime } from "./bootstrap.js";
-import { loadUserConfig, kcodeHome, requireDefaultModelRef } from "./bootstrap.js";
+import {
+  createCliPlatformService,
+  loadUserConfig,
+  kcodeHome,
+  requireDefaultModelRef,
+} from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
 
 /** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
@@ -21,19 +26,19 @@ const printErr = (s: string): void => {
   process.stderr.write(`${s}\n`);
 };
 
-/** key 录入子命令：直接操作本地加密文件 */
-async function keyCommand(args: string[]): Promise<void> {
+/** key 录入子命令：直接操作本地加密文件（平台能力经 IPlatformService 注入，N2-1） */
+async function keyCommand(platform: IPlatformService, args: string[]): Promise<void> {
   const [op, ref, key, ...audiences] = args;
   // 环境无口令时交互式询问（set 只对当前窗口生效，新开窗口常见此况）
   const legacyKeysFile = join(kcodeHome(), "keys.json");
-  const dpapiEligible = DpapiKeychain.available && !existsSync(legacyKeysFile);
+  const dpapiEligible = platform.secureStorageAvailable && !existsSync(legacyKeysFile);
   if ((process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && !dpapiEligible && process.stdin.isTTY === true) {
     const pass = await promptHidden("未检测到 KCODE_KEYCHAIN_PASSPHRASE，请输入 keychain 口令（不回显，回车确认）：");
     if (pass !== "") {
       process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
     }
   }
-  const keychain = openKeychain(join(kcodeHome(), "keys.json"));
+  const keychain = platform.openDefaultKeychain();
   if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
     await keychain.set(ref, key, audiences);
     print(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
@@ -128,8 +133,9 @@ function promptHidden(label: string): Promise<string> {
 
 async function main(): Promise<void> {
   const [, , ...rest] = process.argv;
+  const platform = createCliPlatformService();
   if (rest[0] === "key") {
-    await keyCommand(rest.slice(1));
+    await keyCommand(platform, rest.slice(1));
     return;
   }
   if (rest[0] === "plugin") {
@@ -181,7 +187,7 @@ async function main(): Promise<void> {
   const needsKey = Object.values(models.providers ?? {}).some(
     (p) => p.type !== "gateway" && p.keyRef !== undefined,
   );
-  if (needsKey && (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && !DpapiKeychain.available) {
+  if (needsKey && (process.env["KCODE_KEYCHAIN_PASSPHRASE"] ?? "") === "" && !platform.secureStorageAvailable) {
     if (process.stdin.isTTY === true) {
       // 交互终端：直接询问口令（不回显）并立即用 keys.json 校验，错了当场重试
       let verified = false;
@@ -194,12 +200,9 @@ async function main(): Promise<void> {
           break;
         }
         process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
-        try {
-          // 本进程直接试解密：口令对不对当场知道，不等会话创建才炸
-          const kc = EncryptedFileKeychain.fromEnv(join(kcodeHome(), "keys.json"));
-          await kc.list();
-          verified = true;
-        } catch {
+        // 本进程直接试解密：口令对不对当场知道，不等会话创建才炸
+        verified = await platform.verifyEnvPassphrase();
+        if (!verified) {
           printErr("✗ 口令校验失败：与 keys.json 的加密口令不一致");
         }
       }

@@ -74,6 +74,13 @@ const runtime: Runtime = {
     async list() { return []; },
   },
   router: { resolve: async () => model } as unknown as Runtime["router"],
+  platform: {
+    secureStorageAvailable: false,
+    openDefaultKeychain: () => { throw new Error("m0 无 key"); },
+    openPassphraseKeychain: () => { throw new Error("m0 无 key"); },
+    openSecureKeychain: () => { throw new Error("m0 无 key"); },
+    verifyEnvPassphrase: async () => false,
+  },
   kcodeHomeDir: home,
 };
 try {
