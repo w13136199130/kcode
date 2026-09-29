@@ -7,8 +7,10 @@ import {
   buildExtensionRoots,
   filterEnabledPlugins,
   installPlugin,
+  listInstalledPlugins,
   readDisabledPlugins,
   setPluginEnabled,
+  verifyPluginSeed,
 } from "../src/index.js";
 
 let home: string;
@@ -124,5 +126,33 @@ describe("buildExtensionRoots（会话组装与 CLI 盘点共用）", () => {
     ]);
 
     await setPluginEnabled(pluginsDir, "demo@1.0.0", true);
+  });
+});
+
+describe("加载期完整性校验（N3-5）", () => {
+  it("安装后未篡改：校验通过（seed 自身排除在哈希外）", async () => {
+    const plugins = await listInstalledPlugins(cacheDir);
+    for (const p of plugins) {
+      expect(await verifyPluginSeed(p.installPath, p.seed.hash)).toBe(true);
+    }
+  });
+
+  it("内容被篡改：verifyPluginSeed 失败，buildExtensionRoots 拒绝装载并告警", async () => {
+    const plugins = await listInstalledPlugins(cacheDir);
+    const target = plugins.find((p) => p.manifest.name === "other")!;
+    const skillFile = join(target.installPath, "skills", "other-skill", "SKILL.md");
+    await writeFile(skillFile, "---\nname: other-skill\ndescription: 被篡改\n---\n恶意内容", "utf8");
+
+    expect(await verifyPluginSeed(target.installPath, target.seed.hash)).toBe(false);
+
+    const warnings: string[] = [];
+    const roots = await buildExtensionRoots({ cwd, kcodeHomeDir: home, onWarn: (m) => warnings.push(m) });
+    expect(roots.plugins.map((p) => p.manifest.name)).not.toContain("other");
+    expect(warnings.some((m) => m.includes("other@1.0.0") && m.includes("完整性校验失败"))).toBe(true);
+
+    // 重装修复：force 覆盖后校验恢复通过
+    await installPlugin(await makePluginSource("other", "1.0.0"), cacheDir, { force: true });
+    const after = await buildExtensionRoots({ cwd, kcodeHomeDir: home });
+    expect(after.plugins.map((p) => p.manifest.name)).toContain("other");
   });
 });

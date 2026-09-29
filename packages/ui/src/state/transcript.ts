@@ -30,6 +30,19 @@ export type Block =
     }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" };
 
+/**
+ * 工具卡片浏览器状态（N3C-4②）：转写区是 Static 架构——已完成块推进 scrollback 后
+ * 不再重绘，"逐卡展开"因此以覆盖层面板实现（从 blocks 数据渲染，不动 Static）。
+ * 状态放共享 slice 而非组件局部：键位在宿主 keybinds 层统一处理，需与渲染解耦。
+ */
+export interface ToolBrowserState {
+  open: boolean;
+  /** 光标在工具块列表（blocks 里 kind==="tool" 的子集）中的下标 */
+  cursor: number;
+  /** 展开详情的工具块 callId；null = 全收起 */
+  expandedCallId: string | null;
+}
+
 export interface TranscriptSlice {
   blocks: Block[];
   /** 流式正文缓冲（渲染为活区一行；flushAssistant 定格为 assistant 块） */
@@ -37,6 +50,7 @@ export interface TranscriptSlice {
   /** 思考摘要的合帧显示（宿主 ref 缓冲的批量搬运结果） */
   reasoningText: string;
   todos: TodoItem[];
+  toolBrowser: ToolBrowserState;
 
   pushBlock(block: Block): void;
   appendStream(delta: string): void;
@@ -47,7 +61,19 @@ export interface TranscriptSlice {
   setTodos(todos: TodoItem[]): void;
   /** 定格某个工具块终态（tool_result 到达时补 summary/output/耗时） */
   settleTool(callId: string, patch: { status: "done" | "failed"; summary?: string; output?: string; durationMs?: number }): void;
+  /** 打开工具浏览器：光标落在最近一个工具块（没有工具块也开——空态提示入口存在） */
+  openToolBrowser(): void;
+  closeToolBrowser(): void;
+  /** 光标相对移动并 clamp 到工具块范围 */
+  moveToolCursor(delta: number): void;
+  /** 展开/收起当前光标工具块的详情 */
+  toggleToolDetail(): void;
   resetTranscript(): void;
+}
+
+/** 工具块子集（浏览器的列表事实源） */
+function toolBlocksOf(blocks: Block[]): Extract<Block, { kind: "tool" }>[] {
+  return blocks.filter((b): b is Extract<Block, { kind: "tool" }> => b.kind === "tool");
 }
 
 export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], TranscriptSlice> = (set, get) => ({
@@ -55,6 +81,7 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   streamText: "",
   reasoningText: "",
   todos: [],
+  toolBrowser: { open: false, cursor: 0, expandedCallId: null },
   pushBlock: (block) => set((state) => ({ blocks: [...state.blocks, block] })),
   appendStream: (delta) => set((state) => ({ streamText: state.streamText + delta })),
   flushAssistant: () => {
@@ -68,5 +95,24 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
     set((state) => ({
       blocks: state.blocks.map((b) => (b.kind === "tool" && b.callId === callId ? { ...b, ...patch } : b)),
     })),
-  resetTranscript: () => set({ blocks: [], streamText: "", reasoningText: "", todos: [] }),
+  openToolBrowser: () =>
+    set(() => ({ toolBrowser: { open: true, cursor: Math.max(0, toolBlocksOf(get().blocks).length - 1), expandedCallId: null } })),
+  closeToolBrowser: () => set((state) => ({ toolBrowser: { ...state.toolBrowser, open: false, expandedCallId: null } })),
+  moveToolCursor: (delta) =>
+    set((state) => {
+      if (!state.toolBrowser.open) return state;
+      const count = toolBlocksOf(state.blocks).length;
+      const cursor = Math.min(Math.max(state.toolBrowser.cursor + delta, 0), Math.max(0, count - 1));
+      return { toolBrowser: { ...state.toolBrowser, cursor } };
+    }),
+  toggleToolDetail: () =>
+    set((state) => {
+      const tools = toolBlocksOf(state.blocks);
+      const current = tools[state.toolBrowser.cursor];
+      if (current === undefined) return state;
+      const expandedCallId = state.toolBrowser.expandedCallId === current.callId ? null : current.callId;
+      return { toolBrowser: { ...state.toolBrowser, expandedCallId } };
+    }),
+  resetTranscript: () =>
+    set({ blocks: [], streamText: "", reasoningText: "", todos: [], toolBrowser: { open: false, cursor: 0, expandedCallId: null } }),
 });

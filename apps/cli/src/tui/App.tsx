@@ -13,7 +13,7 @@ import { MODE_META } from "./theme/modes.js";
 import { appendInputLog } from "./terminal/input-log.js";
 import { useKeybinds } from "./terminal/keybinds.js";
 import { useSessionLifecycle } from "./state/lifecycle.js";
-import { InputBox } from "./input/InputBox.js";
+import { InputArea } from "./input/InputArea.js";
 import { runDispatch } from "./input/commands.js";
 import { DialogLayer } from "./dialogs/DialogLayer.js";
 import type { RewindPoint } from "./dialogs/panels.js";
@@ -246,7 +246,7 @@ export function KcodeApp(props: KcodeAppProps) {
     pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
-  // 全局按键绑定（Esc/Shift+Tab/Ctrl+C，N2-3 外迁 terminal/keybinds.ts）
+  // 全局按键绑定（Esc/Shift+Tab/Ctrl+C/Ctrl+B，N2-3 外迁 terminal/keybinds.ts）
   useKeybinds({
     busy,
     interactive,
@@ -254,6 +254,7 @@ export function KcodeApp(props: KcodeAppProps) {
     inputEmpty: input === "",
     hasSession: sessionRef.current !== null,
     mode,
+    ui,
     interruptRun,
     openRewindPicker,
     applyMode,
@@ -464,24 +465,19 @@ export function KcodeApp(props: KcodeAppProps) {
           loginWizard={loginWizard}
           modelPicker={modelPicker}
         >
-          {ready ? (
-            interactive ? (
-              // N2-2：输入区常驻——busy 中提交进入排队而非丢弃；交互面板经 DialogLayer 顶替
-              <InputBox
-                value={input}
-                onChange={setInput}
-                onSubmit={(v) => void submit(v)}
-                history={inputHistory.current}
-                commands={commands}
-                cwd={props.cwd}
-                onCjkCommit={pingRepaint}
-              />
-            ) : (
-              <Text dimColor>（非交互模式：仅执行一次性提问后退出）</Text>
-            )
-          ) : (
-            <Text dimColor>初始化会话…</Text>
-          )}
+          {/* N2-2：输入区常驻——busy 中提交进入排队而非丢弃；N3C-4②：浏览器打开时被顶替 */}
+          <InputArea
+            ui={ui}
+            ready={ready}
+            interactive={interactive}
+            value={input}
+            onChange={setInput}
+            onSubmit={(v) => void submit(v)}
+            history={inputHistory.current}
+            commands={commands}
+            cwd={props.cwd}
+            onCjkCommit={pingRepaint}
+          />
         </DialogLayer>
         <StatusBar
           modeLabel={meta.label}

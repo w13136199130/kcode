@@ -131,11 +131,10 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
 
 **仍开放**：
 
-1. **插件加载期不重校验 hash**（threat-model B5 的"目标"项，N3-5）。
-2. **技能自动注入不区分来源**：`match()` 只按触发词过滤，第三方技能默认手动策略未落地。
-3. **`contracts/{update,keyhierarchy}.ts` 零消费者**：knip 已挂 CI，待消费或删除。
+1. **技能自动注入不区分来源**：`match()` 只按触发词过滤，第三方技能默认手动策略未落地（含 frontmatter `allowed-tools`/`disable-model-invocation` 两字段，benchmark §1.15）。
+2. **`contracts/{update,keyhierarchy}.ts` 零消费者**：knip 已挂 CI，待消费或删除。
 
-**已收口**（移出缺陷清单，防过时信息误导）：手动 `/compact` 落盘（compactNow 经 sink 写盘，`compact-persistence.test.ts` 锁定）、压缩按完整轮次切片+锚点（`compact.ts` 含 covered/taskAnchor，不再产生孤立 tool result）、检查点持久化（N0-4，`manifest.json`+快照落盘重启可用）、workspace 身份（N0-6/N1-3，`workspaceKey` 贯穿 resume 分组）、治理门禁（N2-5，规则 error + `gates-exceptions.json` 登记）、发行链（N2-4，tsup bundle + 安装器双端）。
+**已收口**（移出缺陷清单，防过时信息误导）：手动 `/compact` 落盘（compactNow 经 sink 写盘，`compact-persistence.test.ts` 锁定）、压缩按完整轮次切片+锚点（`compact.ts` 含 covered/taskAnchor，不再产生孤立 tool result）、插件加载期 hash 校验（N3-5：`verifyPluginSeed` + `buildExtensionRoots` 拒载，seed 排除自身）、检查点持久化（N0-4，`manifest.json`+快照落盘重启可用）、workspace 身份（N0-6/N1-3，`workspaceKey` 贯穿 resume 分组）、治理门禁（N2-5，规则 error + `gates-exceptions.json` 登记）、发行链（N2-4，tsup bundle + 安装器双端）。
 
 ---
 
@@ -342,9 +341,9 @@ export interface IPlatformService {
 | B2 keychain → 进程内存 → 出境 | 明文 key 外发 | AES-256-GCM/DPAPI **已实现**；key 明文与工具同进程 = 残余风险（N3-2 收敛到 host 修复） |
 | B3 不可信内容 → 模型 → 工具 | 提示注入越权 | 规则引擎默认 deny + 权限三态 + 只读档不可穿透 **已实现**；无 OS 沙箱 **目标** |
 | B4 进程 → 命令执行 | 任意命令 | 权限确认 + 超时 + 进程树清理 + /trust 门控 **已实现** |
-| B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash + Sigstore **目标（N3-5/N4-4）** |
+| B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash 校验（N3-5：篡改拒载）**已实现**；Sigstore 签名 **目标（N4-4）** |
 
-**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件加载期完整性未校验；技能自动注入不区分来源；BYOK 远端调用意味着源码会离开本机。
+**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能自动注入不区分来源；BYOK 远端调用意味着源码会离开本机。
 
 ---
 
@@ -402,7 +401,7 @@ export interface IPlatformService {
 | N3-2 | 凭证边界收敛到 host（§3.5；设计注 E 见下方） | N3-1 | 与 N3-1 同批；key 只在 host——**已落地**（`PlatformClientPort` 前端接口 + `platformClientAdapter` 本地适配器；Login 向导改走 `saveKey`；宿主协议新增 `platform/probe + platform/save_key` 方法） |
 | N3-3 | Web 客户端（React + Vite，复用 ui+design） | N3-1 | 远程访问：TLS 非可选 + 令牌默认生成 + 权限默认收紧——**已落地**（中继服务器 + Web 客户端；设计令牌对接 + 审批面板 + Markdown 渲染 + 流式文本 + 暗色自适应） |
 | N3-4 | Desktop（Electron，可替换；设计注 F 见下方） | N3-1 | 复用 ui + host 协议 |
-| N3-5 | 插件加载期 hash 校验 | 无 | 独立于商店；篡改拒绝加载 |
+| N3-5 | 插件加载期 hash 校验 | 无 | 独立于商店；篡改拒绝加载——**已落地**（`verifyPluginSeed` 重算内容哈希与 seed 比对、seed 自身排除；`buildExtensionRoots` 校验失败拒绝装载并 onWarn，会话与 CLI 盘点同点收口；`plugin list` 显示 ⚠ 完整性校验失败） |
 
 > **N3-1 注 A（排空权威在 host，N3 设计修订）**：N2-2 的排队/排空（reservation、drain 递归）在单进程下由 CLI App 驱动；进程边界后排空权威**移入 host**——host 收 `session/submit`（含 priority）后自行排队/预约/执行/取下一条，CLI/Web 只投递命令并收 `queue/change` 事件。前端侧以 **SessionProxy** 消费：与 `SessionHandle`/`CliServices` 同形的接口、方法转发 RPC（N2-3 注入缝的价值兑现——组件不改）。断连重连后队列状态不丢失（它在 host）。
 
@@ -425,7 +424,7 @@ export interface IPlatformService {
 | N3C-1 | headless flag 组（**已落地**）：`-p/--prompt`；`--mode`（四档，headless 语义=ask 即拒，走同一 applyMode 路径）；`--json`（NDJSON 复用 SessionEvent + jsonlLine，末行 CLI 级 result 记录）；`--cwd`（chdir 先于一切 IO）；`--attach`（v1=图片并入 `--image` 管线）；`--disallowed-tools`（组装期过滤全集含 MCP/task/plan_submit，子代理继承，未知名 fail-fast）；`-c` 别名；`--` 分隔。**行为变更**：未知 flag 从静默并入提问改为报错 | 无 TTY 下 `kcode -p "..." --json --mode plan` 全链路可跑且输出可 `jq` 解析；`--disallowed-tools "write edit"` 后该次会话无此二工具 |
 | N3C-2 | `doctor` 子命令（**已落地**）：Node≥22 / 配置与默认模型 / 钥匙串（DPAPI 或口令）/ 默认 key 探测（probe）/ rg 落点 / mcp.json 解析 / 会话目录可写 / 终端能力（⚠ 级） | 异常环境一命令定位；有 ✗ 退出码 1 |
 | N3C-3 | 管理类子命令（**已落地**：`skills list`、`commands list`、`plugins enable/disable` + list 显示 [已停用]；停用状态 `~/.kcode/cli/plugins/state.json` 原子写，`validate/update/marketplace` 后续） | 根构造提取为 `@kcode/extensions.buildExtensionRoots` 单一事实源，会话组装与 CLI 盘点同源 |
-| N3C-4 | TUI 交互补全（**①已落地**，其余后批；差距全景见 §9.2，按性价比排序）：① 状态栏常驻上下文余量/用量/git 分支（事件驱动 busy 收尾沿刷新 + 60s 分支采样，>85% 转警示色，共享 slice 供 Web 同源）；② 工具卡片逐块展开；③ 后台任务浏览面板；④ `$EDITOR` 外部编辑长输入与计划；⑤ 剪贴板图片粘贴（并入 `--image` 管线）；⑥ 跨会话历史搜索；⑦ 空态欢迎与建议提示 | §9.2 标"缺"的行逐项消缺，①② 优先（用户最可感） |
+| N3C-4 | TUI 交互补全（**①②已落地**，其余后批；差距全景见 §9.2，按性价比排序）：① 状态栏常驻上下文余量/用量/git 分支（事件驱动 busy 收尾沿刷新 + 60s 分支采样，>85% 转警示色，共享 slice 供 Web 同源）；② 工具卡片逐块展开（**Ctrl+B 浏览器**：覆盖层面板从 blocks 数据渲染——Static 块不重绘所以不做原地展开；↑↓ 选卡/Enter 展开详情/Ctrl+B/Esc 关闭；键位统一在 keybinds.ts，面板经 InputArea 顶替输入区避免方向键双响应）；③ 后台任务浏览面板；④ `$EDITOR` 外部编辑长输入与计划；⑤ 剪贴板图片粘贴（并入 `--image` 管线）；⑥ 跨会话历史搜索；⑦ 空态欢迎与建议提示 | §9.2 标"缺"的行逐项消缺，①② 优先（用户最可感） |
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
@@ -481,7 +480,7 @@ export interface IPlatformService {
 
 | 交互项 | Claude Code | OpenCode | ZCode | kcode | 动作 |
 |---|---|---|---|---|---|
-| 工具卡片逐块展开/折叠 | ✅ | ✅ | ✅ | ⚠️ 仅全局 Ctrl+O | N3C-4② |
+| 工具卡片逐块展开/折叠 | ✅ | ✅ | ✅ | ✅（N3C-4②：Ctrl+B 浏览器，↑↓/Enter 交互，覆盖层避开 Static 不重绘约束） | 已达标 |
 | 上下文余量/成本常驻状态栏 | ✅（context left） | ✅（status view） | ✅ | ✅（N3C-4①：ctx %·k 值 + ⇅ 双向 token + >85% 警示色） | 已达标 |
 | git 分支/工作区状态注入 | ✅（statusline） | ✅ | ✅（git snapshot） | ✅（N3C-4①：⎇ 分支段，60s 采样） | 已达标 |
 | 可定制 statusline（脚本注入） | ✅（/statusline） | ⚠️ | ✅ tokens | ❌ | 后置评估 |
@@ -519,6 +518,7 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **N3C-4② + N3-5 落地（第二批快赢）**：① 工具卡片逐块展开——覆盖层浏览器形态（Static 架构下已完成的块不再重绘，原地展开不可行）；`packages/ui` transcript slice 增 `ToolBrowserState`（open/cursor/expandedCallId，clamp 与切换语义在 slice）；键位统一 `keybinds.ts`（Ctrl+B 开关、↑↓ 移动、Enter 展开、Esc 关闭并让行其余键位层）；面板 `ToolBrowser.tsx` 纯渲染（10 行窗口 + 40 行详情上限）；`InputArea.tsx` 抽离 App 的输入区三态装配（浏览器打开顶替输入框，方向键无第二消费者——App.tsx 反降至 494 行）；② 插件加载期 hash 校验——`hashDirectory` 支持排除项（seed 自身：安装是"先算哈希后写 seed"，计入则永假）、`verifyPluginSeed` 导出、`buildExtensionRoots` 校验失败拒绝装载 + onWarn（会话组装与 CLI 盘点同点收口）、`plugin list` 显示 ⚠。测试 +9（tool-browser 7：slice 4/渲染 2/键位链路 1；plugins 校验 2）。§2.3 仍开放缺陷收敛为 2 条；§7 B5 与已知边界同步（诚实注记：加载期校验防"装后被改"，不防"装时即恶"——后者属 N4-4 签名）。
 - **N3C 快赢批落地（N3C-1/2/3 + N3C-4①）**：① `apps/cli/src/args.ts` 纯函数解析器（-p/--mode/--json/--cwd/--attach/--disallowed-tools/-c/--，未知 flag 由静默并入提问收紧为报错）+ `headless.ts` 无 TUI 运行路径（NDJSON 复用 SessionEvent+jsonlLine，末行 CLI 级 result 记录，退出码 0/1/130）+ `doctor.ts` 八项自检（✗ 即 exit 1）+ `inspect.ts` 盘点（skills/commands list）+ plugin enable/disable（`state.json` 原子写，list 标注 [已停用]）；② 单一事实源——根构造提取为 `@kcode/extensions.buildExtensionRoots`，`packages/session` 组装与 CLI 盘点共用，停用过滤同点生效；③ `ComposeSessionOptions` 增 `initialMode`（与 /mode 同一 applyMode 路径）与 `disallowedTools`（全集 fail-fast + 子代理继承）；④ TUI 状态栏常驻（`packages/ui` run-status slice 增 `UsageStats`；`tui/state/status-data.ts` busy 收尾沿刷新 + git 分支 60s 采样；StatusBar 三段渲染 >85% 警示色）。测试 +38（args 10/doctor 4/inspect 3/headless 3/statusbar 5/plugins-state+roots 6/session-options 5 全绿，全套 76 文件 369 用例通过）；行数治理：composition.ts 497→473（`resume.ts` 外迁续接/信任工具），App.tsx 498/500 压线（status-data 模块化）。工具名澄清：kcode 工具名为小写（write/edit 非 Write/Edit）。
 - 对标复核与盲区补录：以 zcode CLI 0.16.9 安装版实测 surface（`--help`/`doctor`/官方插件缓存）+ Claude Code / OpenCode 公开文档复核；§1.4 新增补录口径；§9 重构为 9.1 能力对标（刷新 N2/N3 已落地行的过时状态，新增 CLI 入口层、doctor、管理子命令、官方插件内容、长期 Memory、定时调度六行）+ 9.2 TUI 交互对标（20 行全景，kcode 列经代码实测：思考流/Todo 面板/技能触发回显已达标；逐卡展开/外部编辑器/剪贴板粘贴/历史搜索等确认缺失）。
 - 状态修正：头部状态行 v2 滞留修正为 v5；§0 一页总结与路线图示意刷新至 N3 中期实况；§2.3 已知缺陷复核——`/compact` 落盘（compact-persistence.test.ts 锁定）、压缩按完整轮次切片（compact.ts 含 covered/taskAnchor）、检查点持久化（N0-4）、workspace 身份（N0-6/N1-3）、治理门禁（N2-5）、发行链（N2-4）均已收口移出，仍开放项收敛为 3 条（插件加载期 hash、技能来源策略、contracts 零消费者）。

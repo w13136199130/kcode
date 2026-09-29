@@ -9,6 +9,7 @@ import {
   readDisabledPlugins,
   setPluginEnabled,
   uninstallPlugin,
+  verifyPluginSeed,
 } from "@kcode/extensions";
 import type { IPlatformService } from "@kcode/contracts";
 import { bootstrap, type Runtime } from "./bootstrap.js";
@@ -84,11 +85,14 @@ async function pluginCommand(args: string[]): Promise<void> {
       const skills = p.manifest.skills.length > 0 ? ` 技能×${p.manifest.skills.length}` : "";
       const hooks = p.manifest.hooks.length > 0 ? ` hooks×${p.manifest.hooks.length}` : "";
       const mcp = p.manifest.mcp.length > 0 ? ` MCP×${p.manifest.mcp.length}` : "";
-      // 停用判定与 buildExtensionRoots 同规则：无版本条目命中全部版本
+      // 完整性校验（N3-5）：与会话装载同一套判定，让"为什么没生效"在 list 就能看出来
+      const tampered = !(await verifyPluginSeed(p.installPath, p.seed.hash));
       const off =
-        disabled.has(p.manifest.name) || disabled.has(`${p.manifest.name}@${p.manifest.version}`)
-          ? " [已停用]"
-          : "";
+        tampered
+          ? " ⚠ 完整性校验失败（会话拒绝装载）"
+          : disabled.has(p.manifest.name) || disabled.has(`${p.manifest.name}@${p.manifest.version}`)
+            ? " [已停用]"
+            : "";
       print(`${p.manifest.name}@${p.manifest.version}${off}${skills}${hooks}${mcp}`);
     }
     return;

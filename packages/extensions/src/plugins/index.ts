@@ -4,6 +4,7 @@ export {
   installPlugin,
   uninstallPlugin,
   listInstalledPlugins,
+  verifyPluginSeed,
   type PluginInstallResult,
   type InstalledPlugin,
 } from "./install.js";

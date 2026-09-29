@@ -24,9 +24,12 @@ export interface InstalledPlugin {
   seed: { hash: string; version: string };
 }
 
+/** seed 文件名（内容哈希锁定的锚点；加载期校验时排除自身） */
+const SEED_FILE = ".kcode-seed.json";
+
 /** 计算目录内容哈希（文件路径+内容的有序摘要，seed 锁定的基础） */
-async function hashDirectory(dir: string): Promise<string> {
-  const entries = await collectFiles(dir);
+async function hashDirectory(dir: string, exclude: readonly string[] = []): Promise<string> {
+  const entries = (await collectFiles(dir)).filter((rel) => !exclude.includes(rel));
   const hash = createHash("sha256");
   for (const relPath of entries.sort()) {
     const content = await readFile(join(dir, relPath));
@@ -34,6 +37,16 @@ async function hashDirectory(dir: string): Promise<string> {
     hash.update(content);
   }
   return hash.digest("hex");
+}
+
+/**
+ * 加载期完整性校验（N3-5，threat-model B5）：重算内容哈希与安装时 seed 比对。
+ * seed 自身必须排除——安装流程是"先算哈希、后写 seed"，若把 seed 计入，校验永远失败。
+ * 校验范围 = 全部内容文件（技能/命令/清单）；seed 的防伪（签名/CRL）属 N4-4，不在本层。
+ */
+export async function verifyPluginSeed(installPath: string, expectedHash: string): Promise<boolean> {
+  const actual = await hashDirectory(installPath, [SEED_FILE]);
+  return actual === expectedHash;
 }
 
 /** 递归收集目录下全部文件的相对路径 */
@@ -124,7 +137,7 @@ export async function installPlugin(
     version: manifest.version,
     sig: "local-install",
   };
-  await writeFile(join(installPath, ".kcode-seed.json"), `${JSON.stringify(seed, null, 2)}\n`, "utf8");
+  await writeFile(join(installPath, SEED_FILE), `${JSON.stringify(seed, null, 2)}\n`, "utf8");
 
   return {
     name: manifest.name,
@@ -166,7 +179,7 @@ export async function listInstalledPlugins(pluginsCacheDir: string): Promise<Ins
       const installPath = join(pluginDir, version);
       try {
         const manifest = await readPluginManifest(installPath);
-        const seedRaw = await readFile(join(installPath, ".kcode-seed.json"), "utf8");
+        const seedRaw = await readFile(join(installPath, SEED_FILE), "utf8");
         const seed = JSON.parse(seedRaw) as { hash: string; version: string };
         result.push({ manifest, installPath, seed });
       } catch {

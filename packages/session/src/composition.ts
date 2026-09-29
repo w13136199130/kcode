@@ -208,8 +208,13 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
 </env>`;
 
   // 插件装载与技能/命令根构造（N3C-3 单一事实源）：与 skills list / commands list 子命令同源，
-  // 停用（state.json）在此统一过滤——会话组装与 CLI 盘点永远看到同一份生效集
-  const extensionRoots = await buildExtensionRoots({ cwd: opts.cwd, kcodeHomeDir: opts.kcodeHomeDir });
+  // 停用（state.json）与加载期完整性校验（N3-5）在此统一收口——
+  // 会话组装与 CLI 盘点永远看到同一份"已验证且启用"的生效集
+  const extensionRoots = await buildExtensionRoots({
+    cwd: opts.cwd,
+    kcodeHomeDir: opts.kcodeHomeDir,
+    onWarn: opts.onNotice,
+  });
   const plugins = extensionRoots.plugins;
 
   const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
