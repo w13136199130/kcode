@@ -1,4 +1,4 @@
-import { Static, Text } from "ink";
+import { Box, Static, Text } from "ink";
 import { useStore } from "zustand";
 import type { UiStore } from "@kcode/ui";
 import { BlockView, TodoPanel } from "./Transcript.js";
@@ -34,11 +34,17 @@ export function TranscriptView(props: { ui: UiStore; verbose: boolean; tick: num
         <BlockView key={`live-${i}`} block={b} verbose={props.verbose} now={props.tick} />
       ))}
       {reasoningText !== "" && (
-        <Text dimColor italic wrap="truncate-end">
-          ✻ {reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
-        </Text>
+        <Box marginLeft={2}>
+          <Text color="gray" italic wrap="truncate-end">
+            ✻ {reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
+          </Text>
+        </Box>
       )}
-      {streamText !== "" && <Text>{streamText}</Text>}
+      {streamText !== "" && (
+        <Box marginLeft={2}>
+          <Text>{streamText}</Text>
+        </Box>
+      )}
       {todos.length > 0 && <TodoPanel todos={todos} />}
     </>
   );

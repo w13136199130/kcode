@@ -84,52 +84,30 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
   const block = props.block;
   const { stdout } = useStdout();
   if (block.kind === "banner") {
+    // 极简启动横幅（对标 Claude Code：一行标识 + 模型 + 目录 + 提示，不带 ASCII art）
     return (
-      <Box marginBottom={1}>
-        <Box marginRight={2} flexDirection="column">
-          <Text color={c("brand")} bold>
-            {"█   █  █████  █████  █████"}
-          </Text>
-          <Text color={c("brand")} bold>
-            {"█  █  ██     ██     ██"}
-          </Text>
-          <Text color={c("brand")} bold>
-            {"████  ██     ██     ██"}
-          </Text>
-          <Text color={c("brand")} bold>
-            {"█   █  █████  █████  █████"}
-          </Text>
-          <Text dimColor> </Text>
-          <Text>
-            <Text color={c("brand")}>kcode</Text>
-            <Text dimColor> · 本地优先代码助手</Text>
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            {block.model}
-          </Text>
-          <Text dimColor wrap="truncate-end">
-            {block.cwd}
-          </Text>
-        </Box>
-        <Box flexDirection="column" paddingTop={1}>
-          <Text color={c("warning")} bold>
-            Tips for getting started
-          </Text>
-          <Text dimColor>输入 / 弹出命令菜单；/login 配置厂商与 key</Text>
-          <Text dimColor>/mode 权限模式 · /model 换模型 · Ctrl+O 展开思考</Text>
-          <Text dimColor>↑↓ 翻输入历史 · /help 全部命令 · exit 退出</Text>
-        </Box>
+      <Box flexDirection="column" marginBottom={1}>
+        <Text>
+          <Text color={c("brand")} bold>● kcode</Text>
+          <Text dimColor> — 本地优先代码助手</Text>
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          {`${block.model} · ${block.cwd}`}
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          输入 / 弹出命令菜单 · /help 全部命令 · Ctrl+O 展开思考
+        </Text>
       </Box>
     );
   }
   if (block.kind === "user") {
-    // 用户消息：暗色 > 前缀（Claude Code 现行风格；多行折行显示）
+    // 用户消息：> 前缀，颜色对标 Claude Code（不染色，只 dim 一档——干净不花哨）
     void stdout;
-    const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 2);
+    const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 4);
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" marginTop={1} marginBottom={1}>
         {lines.map((l, j) => (
-          <Text key={j} color={c("success")} dimColor wrap="wrap">
+          <Text key={j} bold dimColor wrap="wrap">
             {j === 0 ? "> " : "  "}
             {l}
           </Text>
@@ -138,30 +116,39 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "assistant") {
-    // 落定的助手消息按 Markdown 渲染（KCODE_NO_MD=1 逃生口回退纯文本）；
-    // 流式期间 App 层的 streamText 仍是纯文本——避免未闭合围栏的结构抖动
+    // 助手消息：对标 Claude Code——● 首行前缀 + 全文 2 格缩进
+    // 段落间距由 Markdown 源文本的空行决定（渲染器原样透传，不额外叠加）
     const lines: MdLine[] =
       process.env["KCODE_NO_MD"] === "1"
         ? block.text.split("\n").map((l) => ({ segments: [{ text: l }] }))
         : markdownToLines(block.text);
+    // 找到首个非空行（标 ● 前缀），其余行一律 2 格缩进
+    let firstContentIdx = lines.findIndex((l) => l.segments.map((s) => s.text).join("").trim() !== "");
+    if (firstContentIdx === -1) firstContentIdx = 0;
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" marginBottom={1}>
         {lines.map((line, j) => (
-          <Text key={j}>
-            {j === 0 ? <Text color={c("success")}>⏺ </Text> : null}
-            {line.segments.map((s, k) => (
-              <Text
-                key={k}
-                color={s.color}
-                bold={s.bold}
-                italic={s.italic}
-                dimColor={s.dimColor}
-                strikethrough={s.strikethrough}
-              >
-                {s.text}
-              </Text>
-            ))}
-          </Text>
+          <Box key={j}>
+            {j === firstContentIdx ? (
+              <Text color={c("foregroundSubtle")}>{"● "}</Text>
+            ) : (
+              <Text>{"  "}</Text>
+            )}
+            <Text>
+              {line.segments.map((s, k) => (
+                <Text
+                  key={k}
+                  color={s.color}
+                  bold={s.bold}
+                  italic={s.italic}
+                  dimColor={s.dimColor}
+                  strikethrough={s.strikethrough}
+                >
+                  {s.text}
+                </Text>
+              ))}
+            </Text>
+          </Box>
         ))}
       </Box>
     );
@@ -171,24 +158,27 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     if (props.verbose === true) {
       const lines = block.text.split("\n").slice(0, VERBOSE_REASONING_LINES);
       return (
-        <Box flexDirection="column">
-          <Text dimColor italic>
-            ✻ 思考{timing}（{block.text.length} 字）
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="gray" italic>
+            {"  ✻ Thinking"}
+            {timing}
           </Text>
           {lines.map((line, j) => (
-            <Text key={j} dimColor italic wrap="truncate-end">
-              {"  "}
+            <Text key={j} color="gray" italic wrap="truncate-end">
+              {"    "}
               {truncateVisual(line, 120)}
             </Text>
           ))}
         </Box>
       );
     }
-    // 折叠态只报时长 + 展开提示（预览文本混排观感差，砍掉）
     return (
-      <Text dimColor italic>
-        ✻ 思考{timing}（Ctrl+O 展开）
-      </Text>
+      <Box marginBottom={1}>
+        <Text color="gray" italic>
+          {"  ✻ Thinking"}
+          {timing}
+        </Text>
+      </Box>
     );
   }
   if (block.kind === "info") {
@@ -201,9 +191,11 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             ? c("warning")
             : undefined;
     return (
-      <Text color={color} dimColor={block.tone === undefined}>
-        {block.text}
-      </Text>
+      <Box marginLeft={2} marginBottom={1}>
+        <Text color={color} dimColor={block.tone === undefined}>
+          {block.text}
+        </Text>
+      </Box>
     );
   }
   const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
@@ -215,13 +207,13 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         ? ` (${formatMs(block.durationMs)})`
         : "";
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginLeft={2} marginBottom={1}>
       <Text color={color}>
-        {icon} {block.tool} {block.argsPreview}
+        {icon} {block.tool} <Text dimColor>{block.argsPreview}</Text>
         {timing}
       </Text>
       {props.verbose === true && block.output !== undefined && block.output !== "" ? (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginLeft={2}>
           {block.output
             .split("\n")
             .slice(0, VERBOSE_TOOL_LINES)
@@ -234,7 +226,11 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         </Box>
       ) : (
         block.summary !== undefined &&
-        block.summary !== "" && <Text dimColor>⎿ {block.summary}</Text>
+        block.summary !== "" && (
+          <Box marginLeft={2}>
+            <Text dimColor>⎿ {block.summary}</Text>
+          </Box>
+        )
       )}
     </Box>
   );

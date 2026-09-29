@@ -121,11 +121,11 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     // 运行中连发三条：不丢弃，逐条入队（busy 行排队数 1→2→3；提示块进 Static 滚动区）
     await t.enter("q2");
     await t.eventuallySaw("已排队（第 1 位）");
-    await t.eventually("排队 1");
+    await t.eventually("queued 1");
     await t.enter("q3");
-    await t.eventually("排队 2");
+    await t.eventually("queued 2");
     await t.enter("q4");
-    await t.eventually("排队 3");
+    await t.eventually("queued 3");
     expect(t.run).toHaveBeenCalledTimes(1);
 
     // 放行 first → q2 立即接棒；逐个放行，顺序保持 FIFO
@@ -156,14 +156,14 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     t.stdin.write("\r");
     await t.eventuallySaw("已排队（第 1 位）");
     await t.enter("after");
-    await t.eventually("排队 2");
+    await t.eventually("queued 2");
 
     t.finish(0); // first 完成 → 排空执行 /clear → 新会话 → "after" 属旧上下文，被清掉
     await t.eventuallySaw("已清空 1 条排队输入");
     await t.eventually("> █");
     await t.settle(300);
     expect(t.run).toHaveBeenCalledTimes(1); // "after" 未被续跑（旧队列无人排空会悬挂）
-    expect(t.frame()).not.toContain("排队 1"); // 计数经旧队列 onChange 归零
+    expect(t.frame()).not.toContain("queued 1"); // 计数经旧队列 onChange 归零
   }, T);
 
   it("中断（Esc）清空排队输入：取消当前轮后不自动续跑", async () => {
@@ -174,7 +174,7 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     await t.enter("q2");
     await t.eventuallySaw("已排队（第 1 位）");
     await t.enter("q3");
-    await t.eventually("排队 2");
+    await t.eventually("queued 2");
 
     t.stdin.write("\x1b"); // Esc：中断当前轮
     await t.eventuallySaw("已清空 2 条排队输入");

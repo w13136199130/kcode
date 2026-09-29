@@ -202,9 +202,9 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
     const event = (payload: object) => t.options.onEvent?.({ v: 1, ts: 0, sessionId: "s1", ...payload } as SessionEvent);
     event({ type: "tool_call", callId: "c1", tool: "read", args: {} });
     event({ type: "tool_call", callId: "c2", tool: "grep", args: {} });
-    await t.eventually("处理工具：read、grep");
+    await t.eventually("read, grep");
     event({ type: "tool_result", callId: "c1", ok: true, output: "ok" });
-    await t.eventually("处理工具：grep");
+    await t.eventually("grep");
     event({ type: "tool_result", callId: "c2", ok: true, output: "ok" });
     await t.eventually("等待模型响应");
     event({ type: "session_end", reason: "completed" });

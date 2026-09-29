@@ -5,7 +5,7 @@
 > [docs/threat-model.md](./docs/threat-model.md)（安全边界权威）与
 > [docs/zcode-benchmark.md](./docs/zcode-benchmark.md)（ZCode 全量模块剖析 + 分步落地设计）。
 >
-> 状态：v2 · 2026-09-24
+> 状态：v5 · 2026-09-29
 > 对标对象：**ZCode**（zai-org/ZCode，Apache-2.0，v3.14.3）、Claude Code、Codex CLI、OpenCode
 > 对标方式：只参考公开文档与公开仓库的**设计取舍**，不复制代码；每条结论标注依据 `[ZCode]` / `[kcode 代码]` / `[推断]`。
 > 目标水位：**对标 ZCode 全量能力，并在安全（key 受众绑定、DPAPI、只读档不可穿透、E2E）、评测（可回放 + eval 基准）与本地优先上超过它。**
@@ -14,16 +14,17 @@
 
 ## 0. 一页总结
 
-kcode 的**里子（Agent 引擎）已接近对标 ZCode，壳子（协议、平台抽象、UI、治理、发行）还停留在设计阶段**。差距集中在四处，按依赖顺序推进：
+kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约/治理/身份/日志/令牌、N2 平台抽象/排队/UI 拆包/发行链）与通道前三项（N3-1 host 宿主、N3-2 凭证边界、N3-3 Web+中继）均已落地**（2026-09-29 复核）。剩余主线四处：
 
-1. **会话可靠性未收口（N0，P0）**：手动 `/compact` 不落盘、压缩按固定条数切片会拆开工具调用组、检查点纯内存态——这是**功能正确性问题**，优先于任何新端。
-2. **跨端抽象缺失（N1–N2）**：无跨进程协议、无 `IPlatformService`、无共享 UI/设计令牌、无 workspace 身份。这是"能否长出第二、第三个前端"的前提。
-3. **治理不可执行（N1）**：`no-circular`/`apps-import-packages` 是 `warn`（实测 exit 0），无行数上限、无死代码检测。
-4. **发行链路缺失（N2）**：`bin/kcode.mjs` 用 tsx 加载源码运行，无"干净机器从零安装"路径，阻塞一切外部验证与桌面打包。
+1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
+2. **CLI 入口层与 TUI 交互补全（N3C，P1 快赢批，§8.4b）**：headless flag 组（`-p/--mode/--json` 等）、`doctor`、管理子命令、状态栏常驻信息与逐卡展开等交互件——用户最可感、成本最低、无依赖可插队的一批。
+3. **通道收尾（N3-4/5）**：Desktop 与插件加载期 hash 校验。
+4. **生态与云（N4）**：插件市场、账户 IdP、调度、长期 Memory、遥测。
 
 ```
-N0 会话一致性 → N1 契约/治理/身份/日志/令牌 → N2 平台抽象/排队/UI 拆包/发行链
-             → N3 通道扩展（host 协议 + Web + Desktop）→ N4 生态与云（市场/账户/调度/电脑控制）
+N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台抽象/排队/UI 拆包/发行链 ✅
+             → N3 通道扩展（host ✅ · 凭证边界 ✅ · Web/中继 ✅ · Desktop 待 · 插件 hash 待）→ N4 生态与云（市场/账户/调度/电脑控制）
+             ↘ N3C CLI 入口层/TUI 交互快赢批（P1，无依赖可随时插队）
 ```
 
 **一条重要判断**：单进程 CLI 与桌面/Web 不矛盾。ZCode 用**同一套 stdio 协议同时服务 CLI 与 Electron**，而不是给桌面另起一套。因此 kcode 保留单进程为默认形态，把"进程边界"做成**可选宿主**（§3.3），不为尚未开始的桌面预置常驻进程。
@@ -88,6 +89,7 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 → N2 平台抽象
 ### 1.4 对标口径与分档
 
 - **快照口径**：对标锁定 ZCode 快照（提交 `29628c9`），**不追实时版本**——ZCode 每周发版，3 人规模追实时不现实；上游演进按需复核（见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §6）。
+- **补录口径**：CLI 入口与 TUI 交互的盲区以 zcode CLI 0.16.9 安装版实测 surface + Claude Code / OpenCode 公开文档补录（2026-09-29，见 §8.4b/§9.2）；上游演进仍按快照口径不追。
 - **对标分档**：功能对标（有等价能力，默认档）／体验对标（手感/信息密度到 ZCode 档）／不追（明确不做）。分档与取舍见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §5。
 - **人力量级**：N3/N4 每个动作的"人周"量级估算见 [docs/zcode-benchmark.md](./docs/zcode-benchmark.md) §4——用于排期取舍，非工期承诺。
 - **关键取舍**：桌面/Web 在 kcode 规模下先按**功能对标**落地，体验对标 ZCode 桌面为二期目标。
@@ -125,16 +127,17 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 → N2 平台抽象
 
 **未完成的人工验收**：真实 IME/字体/视觉取消延迟（Windows Terminal + VS Code 集成终端）；macOS 侧待跑。
 
-### 2.3 已知缺陷（进入 N 阶段的直接依据）
+### 2.3 已知缺陷（2026-09-29 复核）
 
-1. **手动 `/compact` 不落盘**：`composeSession.compactNow()`（`packages/session/src/composition.ts`）走 `opts.onEvent`（仅 UI），不写 sink——自动压缩已落盘（loop 走 `emit()`），只差手动这条。
-2. **压缩按固定条数切片**：可能拆开工具调用/结果组，产生孤立 tool result。
-3. **检查点纯内存态**：`CheckpointStore` 关闭即清理，重启后不可用。
-4. **workspace 身份缺失**：`workspaceId` 仅出现在死接口 `packages/runtime/src/scheduler/index.ts`；会话平铺 `~/.kcode/cli/sessions/`，`--resume latest` 取全局最近。
-5. **治理不阻断**：`no-circular`/`apps-import-packages` 为 `warn`；`App.tsx` 1992 行；`contracts/{relay,update,keyhierarchy}.ts` 零消费者。
-6. **无发行链**：`bin/kcode.mjs` 用 tsx 加载 TS 源码。
-7. **插件加载期不重校验 hash**（threat-model B5 的"目标"项）。
-8. **技能自动注入不区分来源**：`match()` 只按触发词过滤，第三方技能默认手动策略未落地。
+**仍开放**：
+
+1. **手动 `/compact` 落盘待复核**：`composeSession.compactNow()`（`packages/session/src/composition.ts`）历史上只走 `opts.onEvent`（仅 UI）不写 sink——自动压缩已落盘（loop 走 `emit()`）；N0-1 是否已收口需以回归测试为准。
+2. **压缩切片粒度待复核**：若仍按固定条数切片，可能拆开工具调用/结果组产生孤立 tool result（N0-2）。
+3. **插件加载期不重校验 hash**（threat-model B5 的"目标"项，N3-5）。
+4. **技能自动注入不区分来源**：`match()` 只按触发词过滤，第三方技能默认手动策略未落地。
+5. **`contracts/{update,keyhierarchy}.ts` 零消费者**：knip 已挂 CI，待消费或删除。
+
+**已收口**（移出缺陷清单，防过时信息误导）：检查点持久化（N0-4，`manifest.json`+快照落盘重启可用）、workspace 身份（N0-6/N1-3，`workspaceKey` 贯穿 resume 分组）、治理门禁（N2-5，规则 error + `gates-exceptions.json` 登记）、发行链（N2-4，tsup bundle + 安装器双端）。
 
 ---
 
@@ -415,6 +418,17 @@ export interface IPlatformService {
 
 > **N3-4 注 F（Electron 形态定死）**：每窗口 `utilityProcess.fork` 一个 host + `MessageChannelMain` 传 port；stdout 只跑 RPC、stderr 分离（诊断/日志各走各的）。不用 renderer fork（渲染进程无 node 权限是安全边界，不是实现细节）。自更新数据源复用 N2-4 的 `latest.json`。
 
+### 8.4b 阶段 N3C：CLI 入口层与 TUI 交互快赢批（P1，无依赖，可随时插队）
+
+> 来源：zcode CLI 0.16.9 安装版实测 surface（2026-09-29，`--help`/`doctor`/官方插件缓存盘点）+ Claude Code / OpenCode 公开文档对标（§9.2）。多数为 CLI/TUI 层小活，不触碰引擎与协议；zcode surface 中 benchmark 快照未覆盖的盲区（`--json`/`--disallowed-tools`/`--target`/`--memory-bench`/`--surface`/`doctor`/`skills|commands list`）在此补录。
+
+| ID | 项 | 验收标准 |
+|---|---|---|
+| N3C-1 | headless flag 组：`-p/--prompt`；`--mode`（对齐现有四档权限）；`--json`（NDJSON 事件流，供脚本/CI 消费）；`--cwd`；`--attach`（与既有 `--image` 合并为通用附件）；`--disallowed-tools`（单次运行剔除工具，走 ToolDefinition 注册表）；`-c`（`--resume latest` 别名）；`--target`（headless 会话目标）评估 | 无 TTY 下 `kcode -p "..." --json --mode plan` 全链路可跑且输出可 `jq` 解析；`--disallowed-tools "Bash Edit"` 后该次会话工具表无此二项 |
+| N3C-2 | `doctor` 子命令：node 版本/终端能力探测/keychain 可用性（DPAPI 或口令）/MCP 配置解析/rg 定位/会话目录可写性 | 异常环境一命令定位；健康项全绿时一行摘要 |
+| N3C-3 | 管理类子命令补齐：`skills list`、`commands list`、`plugins enable/disable/update/validate`（`marketplace` 留 N4-1） | headless 可完成技能/命令盘点与插件启停；与 TUI 内同名命令同源实现 |
+| N3C-4 | TUI 交互补全（差距全景见 §9.2，按性价比排序）：① 状态栏常驻上下文余量/成本/git 分支；② 工具卡片逐块展开（全局 Ctrl+O 之外）；③ 后台任务浏览面板；④ `$EDITOR` 外部编辑长输入与计划；⑤ 剪贴板图片粘贴（并入 `--image` 管线）；⑥ 跨会话历史搜索；⑦ 空态欢迎与建议提示 | §9.2 标"缺"的行逐项消缺，①② 优先（用户最可感） |
+
 ### 8.5 阶段 N4：生态与云（P3+）
 
 | ID | 项 | 说明 |
@@ -434,30 +448,61 @@ export interface IPlatformService {
 
 ---
 
-## 9. 功能对标清单（ZCode 全量 × kcode 状态）
+## 9. 功能对标清单
+
+### 9.1 能力对标（ZCode 全量 × kcode 状态，2026-09-29 复核）
 
 | 域 | ZCode | kcode | 缺口 |
 |---|---|---|---|
 | Agent 循环/流式/并行工具/后台任务 | ✅ | ✅ | 无 |
 | 工具链 read/write/edit/grep/glob/bash | ✅ | ✅ | 无 |
-| 子代理 | ✅ | ✅ | 无 |
+| 子代理 | ✅ | ✅ | 消息互通 SendMessage/RespondToCoordinator（N2 补） |
 | Plan/结构化提问/Todo | ✅ | ✅ | 无 |
 | 上下文压缩/SKILL/AGENTS.md/resume | ✅ | ✅ | 无 |
 | MCP/Hooks/斜杠命令/插件安装 | ✅ | ✅ | 加载期 hash（N3-5） |
-| 插件市场/商店 | ✅ | ⚠️ 装卸 | 高（N4-1） |
+| CLI 入口层（-p/--mode/--json/--cwd/--attach/--disallowed-tools） | ✅ | ⚠️ 仅位置参数 + `--image`/`--resume` | 低-中（N3C-1） |
+| doctor 自检 | ✅ | ❌ | 低（N3C-2） |
+| 管理子命令（skills/commands list、plugins 生命周期） | ✅ | ⚠️ plugin install/list/remove；skills/commands 仅 TUI 内 | 低（N3C-3；marketplace 属 N4-1） |
+| 官方插件内容（文档四件套/诊断/创建器系列） | ✅ | ❌ README 占位 | 内容生产（随 N4-1） |
+| 跨进程协议/RPC | ✅ | ✅（N3-1 host stdio + lease） | 无 |
+| 平台抽象 | ✅ | ✅（N2-1） | 无 |
+| 共享 UI + 设计令牌 | ✅ | ✅（N1-5/N2-3） | 低（终端亮度探测待） |
+| workspace 身份 | ✅ | ✅（N0-6/N1-3） | 无 |
+| 架构治理（policy + knip） | ✅ | ✅（N2-5 收口 + 例外登记） | 无 |
+| 发行链 | ✅ | ✅（N2-4） | 无 |
+| Web 端 + 远程访问 | ✅ | ⚠️ Web + 中继已落地（N3-3） | 远程 E2E 消费者（N4-2） |
 | 桌面端 | ✅ | ❌ | 高（N3-4） |
-| Web 端 + 远程访问 | ✅ | ❌ | 高（N3-3） |
-| 跨进程协议/RPC | ✅ | ❌ | 高（N1-2/N3-1） |
-| 平台抽象 | ✅ | ❌ | 高（N2-1） |
-| 共享 UI + 设计令牌 | ✅ | ❌ | 高（N1-5/N2-3） |
-| workspace 身份 | ✅ | ❌ | 高（N0-6） |
-| 架构治理（policy + knip） | ✅ | ⚠️ warn | 高（N1-1） |
-| 发行链 | ✅ | ❌ | 高（N2-4） |
-| i18n | ✅ | ❌ | 中（N4-7） |
-| 电脑控制 | ✅ | ❌ | 中（N4-6） |
-| 浏览器控制 | ✅ | ❌ | 中（N4-6） |
-| 动态工作流 | ✅ | ❌ | 中（N4-8） |
-| 遥测 | ✅ | ⚠️ 本地 | 低（N4-3） |
+| 插件市场/商店 | ✅ | ⚠️ 装卸 | 高（N4-1） |
+| 长期 Memory（zcode `--memory-bench` 自动抽取） | ✅ | ⚠️ 接口 only | 中（N4） |
+| 定时调度（cron/off-peak 工具） | ✅ | ❌ 接口 only | 中（N4-5） |
+| i18n / 遥测 / 电脑控制 / 浏览器控制 / 动态工作流 | ✅ | ❌/⚠️ 本地遥测 | 中（N4-3/6/7/8） |
+
+### 9.2 CLI/TUI 交互对标（Claude Code / OpenCode / ZCode × kcode，2026-09-29）
+
+> 依据：Claude Code 官方文档与 changelog（Esc Esc 回退菜单分"代码/对话/两者"、Tab 补全、Ctrl+R 跨项目历史搜索、`/statusline`、context left 指示等）、opencode.ai/docs/keybinds（leader/which-key、会话侧栏与 timeline、share、消息级 undo/redo、外部编辑器、emacs 全键位输入区）、ZCode benchmark §1.7/§2；kcode 列为代码实测。本表即 N3C-4 的差距全景。
+
+| 交互项 | Claude Code | OpenCode | ZCode | kcode | 动作 |
+|---|---|---|---|---|---|
+| 工具卡片逐块展开/折叠 | ✅ | ✅ | ✅ | ⚠️ 仅全局 Ctrl+O | N3C-4② |
+| 上下文余量/成本常驻状态栏 | ✅（context left） | ✅（status view） | ✅ | ❌ 仅 /context /cost 命令态 | N3C-4① |
+| git 分支/工作区状态注入 | ✅（statusline） | ✅ | ✅（git snapshot） | ❌ | N3C-4① |
+| 可定制 statusline（脚本注入） | ✅（/statusline） | ⚠️ | ✅ tokens | ❌ | 后置评估 |
+| 外部编辑器（$EDITOR 长输入/计划） | ✅（Ctrl+G 计划） | ✅（leader+e） | ✅ | ❌ | N3C-4④ |
+| 剪贴板图片粘贴 | ✅ | ✅ | ✅ | ⚠️ 仅 `--image` flag | N3C-4⑤ |
+| Tab 路径/斜杠参数补全 | ✅ | ✅ | ✅ | ⚠️ @ 补全有；Tab 路径与命令参数提示无 | 小项 |
+| 跨会话历史搜索 | ✅（Ctrl+R） | ⚠️ | ✅ | ❌（历史已持久化，缺搜索 UI） | N3C-4⑥ |
+| Esc Esc 回退（代码/对话/两者分粒度） | ✅ | ✅（revert/fork 消息级） | ✅ | ⚠️ rewind picker 有；粒度未分 | 小项 |
+| 后台任务浏览面板 | ✅ | ⚠️ | ✅ | ⚠️ 有完成通知，无浏览面板 | N3C-4③ |
+| 子代理进度卡（代理名/活动态/层级导航） | ✅ | ✅（parent/child 导航） | ✅ | ⚠️ 仅工具状态行 | 随消息互通一起做 |
+| 会话侧栏/timeline/分享链接 | ⚠️（/resume picker） | ✅（sidebar+timeline+share） | ✅ | ⚠️ resume picker；share 无 | share 属 N4-2 |
+| 消息/输入级 undo-redo | ⚠️ | ✅（leader+u/r + 输入 undo） | ✅ | ❌ | 小项 |
+| leader/命令面板（动作可发现性） | ⚠️（IDE 侧） | ✅（leader+ctrl+p） | ✅ | ⚠️ OptionsMenu 有；无统一面板 | 后置评估 |
+| 空态欢迎/建议/提示 | ✅ | ✅ | ✅ | ⚠️ 输入提示行 | N3C-4⑦ |
+| 技能触发透明（回显加载来源） | ✅ | ✅ | ✅ | ✅（skill_used 回显"自动/手动"） | 已达标 |
+| 思考流独立层 | ✅ | ✅ | ✅ | ✅（思考行 + Ctrl+O 展开） | 已达标 |
+| Todo 实时面板 | ✅ | ✅ | ✅ | ✅ | 已达标 |
+| 技能 frontmatter `allowed-tools`/`disable-model-invocation` | ✅ | — | ✅ | ❌ | benchmark §1.15 既列，N2 补 |
+| `#` 快捷追加记忆文件 | ✅ | ⚠️ | ✅ | ❌（AGENTS.md 已加载，无快捷追加入口） | 小项 |
 
 ---
 
@@ -473,6 +518,12 @@ export interface IPlatformService {
 ---
 
 ## 11. 变更记录
+
+### v5（2026-09-29）
+
+- 对标复核与盲区补录：以 zcode CLI 0.16.9 安装版实测 surface（`--help`/`doctor`/官方插件缓存）+ Claude Code / OpenCode 公开文档复核；§1.4 新增补录口径；§9 重构为 9.1 能力对标（刷新 N2/N3 已落地行的过时状态，新增 CLI 入口层、doctor、管理子命令、官方插件内容、长期 Memory、定时调度六行）+ 9.2 TUI 交互对标（20 行全景，kcode 列经代码实测：思考流/Todo 面板/技能触发回显已达标；逐卡展开/状态栏常驻/外部编辑器/剪贴板粘贴/历史搜索等确认缺失）。
+- 新增 §8.4b 快赢批 N3C-1~4（headless flag 组 / doctor / 管理子命令补齐 / TUI 交互七小项）：P1、无依赖、可随时插队；补录 benchmark 快照未覆盖的 0.16.9 盲区（`--json`/`--disallowed-tools`/`--target`/`--memory-bench`/`--surface`/`doctor`/`skills|commands list`）。
+- 状态修正：头部状态行 v2 滞留修正为 v5；§0 一页总结与路线图示意刷新至 N3 中期实况；§2.3 已知缺陷复核——检查点持久化（N0-4）、workspace 身份（N0-6/N1-3）、治理门禁（N2-5）、发行链（N2-4）已收口移出并留"防过时"注记，仍开放项改为 5 条（/compact 落盘与压缩切片降级为"待复核"，以回归测试为准）。
 
 ### v4（2026-09-28）
 

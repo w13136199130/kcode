@@ -445,9 +445,9 @@ export function KcodeApp(props: KcodeAppProps) {
           <StatusLine
             label={activityLabel}
             elapsed={busyElapsed}
-            menuOccupied={menuOccupied}
             verbose={verbose}
             queuedCount={queuedCount}
+            toolNames={Object.values(pendingTools)}
           />
         )}
         <DialogLayer
@@ -485,6 +485,7 @@ export function KcodeApp(props: KcodeAppProps) {
           modelLabel={modelLabel}
           verbose={verbose}
           repaintTick={repaintTick}
+          busy={busy}
         />
       </Box>
     </ServicesProvider>
