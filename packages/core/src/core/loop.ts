@@ -16,8 +16,11 @@ import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
 import { capToolResult, contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
 import { runCompaction, type CompactionResult } from "../context/compact.js";
+import type { Tool } from "@kcode/contracts";
 import { ToolPipeline, type AuditSink, auditWithPermissionEvents } from "./pipeline.js";
 import { TurnExecutor, type PendingCall } from "./executor.js";
+import { TurnMachine, TurnPhase } from "./turn-state.js";
+import { consumeStream } from "./consume-stream.js";
 
 export interface AgentLoopPorts {
   llm: LLMProvider;
@@ -36,6 +39,8 @@ export interface AgentLoopPorts {
   skills?: SkillPort;
   /** 历史摘要器：上下文超预算时生成结构化摘要；缺省时退化为占位压缩 */
   summarizer?: SummarizerPort;
+  /** TurnPhase 观察缝（N3D-2）：迁移序列断言（测试）/未来 steer 判定用；机器对非法迁移抛错 */
+  onPhase?: (from: TurnPhase, to: TurnPhase) => void;
 }
 
 export interface AgentLoopOptions {
@@ -92,6 +97,8 @@ export class AgentLoop {
   private contextWindow: number;
   /** B3：跨压缩保真锚点（已批准的执行计划） */
   private pinnedAnchor?: ChatMessage;
+  /** 单轮显式状态机（N3D-2 前置）：run() 内推进，非法迁移即刻抛错 */
+  private readonly machine: TurnMachine;
 
   constructor(
     private readonly ports: AgentLoopPorts,
@@ -116,6 +123,7 @@ export class AgentLoop {
       opts.workspaceKey,
     );
     this.executor = new TurnExecutor(this.pipeline, this.now);
+    this.machine = new TurnMachine(ports.onPhase);
   }
 
   /** 会话累计用量（含 resume 种子）；/cost 经本地会话读取 */
@@ -210,6 +218,7 @@ export class AgentLoop {
       });
       await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
     }
+    this.machine.transition(TurnPhase.ProcessingInput);
     // 否决必须先于用户消息和技能注入，避免下一轮重新发送被拒绝内容。
     const promptGate = await this.gateHook((h) =>
       h.onUserPromptSubmit?.({ sessionId: this.sessionId, prompt: userInput }),
@@ -219,6 +228,8 @@ export class AgentLoop {
       await this.emit({ v: 1, type: "session_end", ts: ts(), sessionId: this.sessionId,
         reason: status, ...(promptGate.reason !== undefined ? { detail: promptGate.reason } : {}) });
       await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
+      this.machine.transition(TurnPhase.Completing);
+      this.machine.transition(TurnPhase.Idle);
       return { sessionId: this.sessionId, turns: 0, toolCalls: 0, status };
     }
     await this.emit({
@@ -289,58 +300,22 @@ export class AgentLoop {
           history: this.history,
         });
 
-        let text = "";
-        let reasoning = "";
-        let streamError: string | undefined;
-        const calls: PendingCall[] = [];
-        try {
-          runUsage.calls++;
-          for await (const chunk of this.llm.stream({
-            model: this.model,
-            messages,
-            tools: tools.map((t) => ({
-              name: t.definition.name,
-              description: t.definition.description,
-              parameters: t.definition.parameters,
-            })),
-            signal,
-          })) {
-            if (chunk.type === "reasoning") {
-              reasoning += chunk.text;
-              this.ports.onReasoning?.(chunk.text);
-            } else if (chunk.type === "text") {
-              text += chunk.text;
-              this.ports.onDelta?.(chunk.text);
-            } else if (chunk.type === "tool_call") {
-              calls.push({ callId: chunk.callId, tool: chunk.tool, args: chunk.args });
-              await this.emit({
-                v: 1,
-                type: "tool_call",
-                ts: ts(),
-                sessionId: this.sessionId,
-                callId: chunk.callId,
-                tool: chunk.tool,
-                args: chunk.args,
-              });
-            } else if (chunk.type === "end") {
-              if (chunk.reason === "error") {
-                // LLM 调用失败必须可见（鉴权错/模型不存在/网络断）——静默吞掉等于界面假死
-                streamError = chunk.error ?? "未知错误";
-              }
-              if (chunk.usage !== undefined) {
-                runUsage.inputTokens += chunk.usage.inputTokens;
-                runUsage.outputTokens += chunk.usage.outputTokens;
-              }
-            }
-          }
-        } catch (err) {
-          if (signal?.aborted) {
-            // 用户中断：流被掐断是预期行为，不作为错误
-          } else {
-            throw err;
-          }
-        }
+        this.machine.transition(TurnPhase.Streaming);
+        const { text, reasoning, streamError, calls } = await consumeStream({
+          llm: this.llm,
+          model: this.model,
+          sessionId: this.sessionId,
+          onDelta: this.ports.onDelta,
+          onReasoning: this.ports.onReasoning,
+          emit: (event) => this.emit(event),
+          messages,
+          tools,
+          signal,
+          runUsage,
+          ts,
+        });
         if (signal?.aborted) {
+          this.machine.transition(TurnPhase.AggregatingResults);
           if (text !== "" || reasoning !== "") {
             await this.emit({
               v: 1,
@@ -357,6 +332,7 @@ export class AgentLoop {
           break;
         }
         if (streamError !== undefined) {
+          this.machine.transition(TurnPhase.Error);
           status = "failed";
           if (text !== "" || reasoning !== "") {
             await this.emit({
@@ -391,18 +367,22 @@ export class AgentLoop {
           });
         }
         if (calls.length === 0) {
+          this.machine.transition(TurnPhase.AggregatingResults);
           status = "completed";
           if (text !== "") {
             this.history.push({ role: "assistant", content: text });
           }
           break;
         }
+        this.machine.transition(TurnPhase.SchedulingTools);
+        this.machine.transition(TurnPhase.ExecutingTools);
         toolCalls += calls.length;
         // 记录含 toolCalls 的 assistant 轮次：OpenAI 兼容端点要求 tool 结果前有对应 tool_calls
         this.history.push({ role: "assistant", content: text, toolCalls: calls });
 
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
         const results = await this.executor.executeCalls(calls, tools, signal);
+        this.machine.transition(TurnPhase.AggregatingResults);
         const defByName = new Map(tools.map((t) => [t.definition.name, t.definition] as const));
         for (let i = 0; i < calls.length; i++) {
           const call = calls[i]!;
@@ -440,9 +420,13 @@ export class AgentLoop {
         }
       }
     } catch (err) {
+      if (this.machine.phase !== TurnPhase.Error) {
+        this.machine.transition(TurnPhase.Error);
+      }
       status = "failed";
       throw err;
     } finally {
+      this.machine.finish();
       if (signal?.aborted) status = "aborted";
       if (status === "limit_reached") {
         // 防失控上限到顶：明确告知（历史保留，用户可输入「继续」接着做）
