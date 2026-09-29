@@ -43,6 +43,28 @@ export interface ToolBrowserState {
   expandedCallId: string | null;
 }
 
+/**
+ * 后台任务视图快照（N3C-4③）：结构化镜像 bash 工具注册表的任务条目——
+ * ui 不依赖 tools 包（分层约束），故在此定义形状兼容的视图类型。
+ * 面板打开期间低频轮询刷新（任务完成无事件，轮询是最简正确解）。
+ */
+export interface BgTaskView {
+  id: string;
+  command: string;
+  status: "running" | "done" | "failed";
+  exitCode?: number;
+  logPath: string;
+  startedAt: number;
+}
+
+/** 后台任务浏览器状态（与 ToolBrowserState 同一交互模式：↑↓ 选、Enter 展开） */
+export interface TaskBrowserState {
+  open: boolean;
+  cursor: number;
+  /** 展开日志尾部的任务 id；null = 全收起 */
+  expandedId: string | null;
+}
+
 export interface TranscriptSlice {
   blocks: Block[];
   /** 流式正文缓冲（渲染为活区一行；flushAssistant 定格为 assistant 块） */
@@ -51,6 +73,8 @@ export interface TranscriptSlice {
   reasoningText: string;
   todos: TodoItem[];
   toolBrowser: ToolBrowserState;
+  backgroundTasks: BgTaskView[];
+  taskBrowser: TaskBrowserState;
 
   pushBlock(block: Block): void;
   appendStream(delta: string): void;
@@ -61,13 +85,19 @@ export interface TranscriptSlice {
   setTodos(todos: TodoItem[]): void;
   /** 定格某个工具块终态（tool_result 到达时补 summary/output/耗时） */
   settleTool(callId: string, patch: { status: "done" | "failed"; summary?: string; output?: string; durationMs?: number }): void;
-  /** 打开工具浏览器：光标落在最近一个工具块（没有工具块也开——空态提示入口存在） */
+  /** 打开工具浏览器：光标落在最近一个工具块（没有工具块也开——空态提示入口存在）；互斥关闭任务浏览器 */
   openToolBrowser(): void;
   closeToolBrowser(): void;
   /** 光标相对移动并 clamp 到工具块范围 */
   moveToolCursor(delta: number): void;
   /** 展开/收起当前光标工具块的详情 */
   toggleToolDetail(): void;
+  /** 后台任务快照与任务浏览器（键位与工具浏览器同层） */
+  setBackgroundTasks(tasks: BgTaskView[]): void;
+  openTaskBrowser(): void;
+  closeTaskBrowser(): void;
+  moveTaskCursor(delta: number): void;
+  toggleTaskDetail(): void;
   resetTranscript(): void;
 }
 
@@ -76,12 +106,22 @@ function toolBlocksOf(blocks: Block[]): Extract<Block, { kind: "tool" }>[] {
   return blocks.filter((b): b is Extract<Block, { kind: "tool" }> => b.kind === "tool");
 }
 
+/** 两个浏览器互斥：同一时刻只有一个覆盖层（键位层与输入区顶替都按单一态设计） */
+function closeBothBrowser(state: TranscriptSlice): { toolBrowser: ToolBrowserState; taskBrowser: TaskBrowserState } {
+  return {
+    toolBrowser: { ...state.toolBrowser, open: false, expandedCallId: null },
+    taskBrowser: { ...state.taskBrowser, open: false, expandedId: null },
+  };
+}
+
 export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], TranscriptSlice> = (set, get) => ({
   blocks: [],
   streamText: "",
   reasoningText: "",
   todos: [],
   toolBrowser: { open: false, cursor: 0, expandedCallId: null },
+  backgroundTasks: [],
+  taskBrowser: { open: false, cursor: 0, expandedId: null },
   pushBlock: (block) => set((state) => ({ blocks: [...state.blocks, block] })),
   appendStream: (delta) => set((state) => ({ streamText: state.streamText + delta })),
   flushAssistant: () => {
@@ -96,7 +136,10 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       blocks: state.blocks.map((b) => (b.kind === "tool" && b.callId === callId ? { ...b, ...patch } : b)),
     })),
   openToolBrowser: () =>
-    set(() => ({ toolBrowser: { open: true, cursor: Math.max(0, toolBlocksOf(get().blocks).length - 1), expandedCallId: null } })),
+    set((state) => ({
+      ...closeBothBrowser(state),
+      toolBrowser: { open: true, cursor: Math.max(0, toolBlocksOf(state.blocks).length - 1), expandedCallId: null },
+    })),
   closeToolBrowser: () => set((state) => ({ toolBrowser: { ...state.toolBrowser, open: false, expandedCallId: null } })),
   moveToolCursor: (delta) =>
     set((state) => {
@@ -113,6 +156,34 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       const expandedCallId = state.toolBrowser.expandedCallId === current.callId ? null : current.callId;
       return { toolBrowser: { ...state.toolBrowser, expandedCallId } };
     }),
+  setBackgroundTasks: (tasks) => set({ backgroundTasks: tasks }),
+  openTaskBrowser: () =>
+    set((state) => ({
+      ...closeBothBrowser(state),
+      taskBrowser: { open: true, cursor: Math.max(0, state.backgroundTasks.length - 1), expandedId: null },
+    })),
+  closeTaskBrowser: () => set((state) => ({ taskBrowser: { ...state.taskBrowser, open: false, expandedId: null } })),
+  moveTaskCursor: (delta) =>
+    set((state) => {
+      if (!state.taskBrowser.open) return state;
+      const cursor = Math.min(Math.max(state.taskBrowser.cursor + delta, 0), Math.max(0, state.backgroundTasks.length - 1));
+      return { taskBrowser: { ...state.taskBrowser, cursor } };
+    }),
+  toggleTaskDetail: () =>
+    set((state) => {
+      const current = state.backgroundTasks[state.taskBrowser.cursor];
+      if (current === undefined) return state;
+      const expandedId = state.taskBrowser.expandedId === current.id ? null : current.id;
+      return { taskBrowser: { ...state.taskBrowser, expandedId } };
+    }),
   resetTranscript: () =>
-    set({ blocks: [], streamText: "", reasoningText: "", todos: [], toolBrowser: { open: false, cursor: 0, expandedCallId: null } }),
+    set({
+      blocks: [],
+      streamText: "",
+      reasoningText: "",
+      todos: [],
+      toolBrowser: { open: false, cursor: 0, expandedCallId: null },
+      backgroundTasks: [],
+      taskBrowser: { open: false, cursor: 0, expandedId: null },
+    }),
 });

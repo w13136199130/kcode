@@ -57,6 +57,8 @@ export interface SessionHandle {
   compact(): Promise<{ dropped: number; summaryChars: number } | string>;
   /** !命令 用户直执行（不经 LLM；结果仅显示） */
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number } | null>;
+  /** 后台任务清单（N3C-4③ 任务面板轮询源）；无会话返回空数组 */
+  backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number }[];
   /** 结束会话：关闭 MCP 子进程等资源（headless 运行完毕后调用；TUI 随进程退出自然回收） */
   close(): Promise<void>;
   /** /mcp：MCP 服务器接入状态 */
@@ -241,6 +243,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     context: async () => composed.contextStats(),
     runBash: (command, timeoutMs) => composed.runBash(command, timeoutMs),
     mcpStatus: async () => composed.mcpInfo().servers,
+    backgroundTasks: () => composed.backgroundTasks(),
     close: () => composed.close(),
   };
 }

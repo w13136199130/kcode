@@ -27,7 +27,7 @@ import {
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId, workspaceKey } from "@kcode/shared";
-import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx, BackgroundTaskRegistry } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
@@ -68,6 +68,8 @@ export interface ComposedSession {
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }>;
   /** /mcp：接入状态（含失败项） */
   mcpInfo(): { servers: { name: string; transport: string; tools: number; ok: boolean }[] };
+  /** 后台任务清单（N3C-4③）：bash 工具注册表的会话级视图（任务面板轮询源） */
+  backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number }[];
   /** /context 上下文占用 */
   contextStats(): {
     model: string;
@@ -249,6 +251,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   let sessionMode: PermissionMode = "default";
   let applyMode: (mode: PermissionMode) => void = () => {};
   // B1 子代理：会话工具全集先成数组（task 不在其中——子代理不嵌套派生），再挂 task 工具
+  // 后台任务注册表在会话级创建并注入 bash 工具（N3C-4③）：句柄/面板与工具共享同一份事实
+  const bashTasks = new BackgroundTaskRegistry();
   const baseTools = [
     ...createSessionTools({
       sessionId,
@@ -256,6 +260,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       onNotice: opts.onNotice,
       sink,
       prompt: opts.askUser,
+      registry: bashTasks,
     }),
     createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
     ...createWebTools(),
@@ -447,6 +452,7 @@ ${plan}`);
         cwd: opts.cwd,
         onNotice: opts.onNotice,
       }),
+    backgroundTasks: () => bashTasks.list().map((t) => ({ ...t })),
     contextStats: () => loop.contextStats(),
     close: async () => {
       runner.abort();

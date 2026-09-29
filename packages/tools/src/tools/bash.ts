@@ -22,6 +22,11 @@ export interface BashToolOptions {
   artifactsDir?: string;
   /** 后台任务完成通知（§5.1：任务表 + 完成通知） */
   onNotice?: (message: string) => void;
+  /**
+   * 外部注入的后台任务注册表（N3C-4③）：注入后会话层持有同一实例，
+   * 句柄/面板经它查询任务清单；缺省时工具自建（行为不变）。
+   */
+  registry?: BackgroundTaskRegistry;
 }
 
 export interface BackgroundTask {
@@ -62,7 +67,8 @@ export class BackgroundTaskRegistry {
  * 工作目录，下次调用以该目录启动——cd 跨调用保留；环境变量/函数不保留。
  */
 export function createBashTool(opts: BashToolOptions): Tool {
-  const registry = new BackgroundTaskRegistry();
+  // 注册表优先用注入实例：会话层（句柄/面板）与工具共享同一份任务事实
+  const registry = opts.registry ?? new BackgroundTaskRegistry();
   // 会话级持久工作目录：上次前台命令结束时的 $PWD；显式 cwd 参数 > 持久目录 > 会话 cwd
   let lastCwd: string | undefined;
   // 预热 shell 探测（记忆化，后续 execute 即时可用）

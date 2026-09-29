@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  BackgroundTaskRegistry,
   createBashTool,
   currentShellInfo,
   extractShellSnapshot,
@@ -72,6 +73,27 @@ describe("bash 工具", () => {
     expect(notices[0]).toContain("完成");
     const log = await readFile(logPath, "utf8");
     expect(log).toContain("bg-done-42");
+  });
+
+  it("外部注入注册表：会话层与工具共享同一份任务事实（N3C-4③）", async () => {
+    const registry = new BackgroundTaskRegistry();
+    const notices: string[] = [];
+    const bash = createBashTool({
+      sessionId: "s",
+      artifactsDir: join(root, "art-inject"),
+      registry,
+      onNotice: (m) => {
+        notices.push(m);
+      },
+    });
+    const r = await bash.execute({ command: "echo bg-inject-ok", runInBackground: true }, ctx());
+    expect(r.ok).toBe(true);
+    await waitFor(() => notices.length > 0);
+    // 注入的注册表能看到任务从 running 翻转到 done（面板/句柄依赖这一事实）
+    const tasks = registry.list();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.status).toBe("done");
+    expect(tasks[0]?.logPath).toContain("art-inject");
   });
 
   it("中断信号杀掉运行中的命令（不再等超时）", async () => {
