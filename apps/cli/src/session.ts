@@ -57,6 +57,8 @@ export interface SessionHandle {
   compact(): Promise<{ dropped: number; summaryChars: number } | string>;
   /** !命令 用户直执行（不经 LLM；结果仅显示） */
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number } | null>;
+  /** 结束会话：关闭 MCP 子进程等资源（headless 运行完毕后调用；TUI 随进程退出自然回收） */
+  close(): Promise<void>;
   /** /mcp：MCP 服务器接入状态 */
   mcpStatus(): Promise<{ name: string; transport: string; tools: number; ok: boolean }[] | null>;
   /** /context 上下文占用 */
@@ -99,6 +101,10 @@ export interface LocalSessionOptions {
   }) => void;
   /** 排队变化（N2-2）：入队/出队/清空回调，界面镜像排队数 */
   onQueueChange?: (items: readonly QueuedCommand[]) => void;
+  /** 初始权限档（--mode）：省略即 default；引擎与界面从同一起点出发 */
+  initialMode?: PermissionMode;
+  /** 组装期剔除的工具名（--disallowed-tools）：未知名在组装期抛错 */
+  disallowedTools?: string[];
 }
 
 /** 计划批准三选项 */
@@ -152,6 +158,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
           },
     askUser: opts.askUser,
     onQueueChange: opts.onQueueChange,
+    initialMode: opts.initialMode,
+    disallowedTools: opts.disallowedTools,
     planAsker:
       opts.onPlanApproval === undefined
         ? undefined
@@ -233,5 +241,6 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     context: async () => composed.contextStats(),
     runBash: (command, timeoutMs) => composed.runBash(command, timeoutMs),
     mcpStatus: async () => composed.mcpInfo().servers,
+    close: () => composed.close(),
   };
 }

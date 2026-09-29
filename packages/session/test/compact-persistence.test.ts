@@ -4,7 +4,8 @@ import { basename, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ScriptedLLM } from "@kcode/core";
 import { loadSessionEvents } from "@kcode/runtime";
-import { composeSession, resolveResumeHistory } from "../src/composition.js";
+import { composeSession } from "../src/composition.js";
+import { resolveResumeHistory } from "../src/resume.js";
 
 let home: string;
 let workspace: string;

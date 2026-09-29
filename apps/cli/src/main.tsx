@@ -6,6 +6,8 @@ import { join } from "node:path";
 import {
   installPlugin,
   listInstalledPlugins,
+  readDisabledPlugins,
+  setPluginEnabled,
   uninstallPlugin,
 } from "@kcode/extensions";
 import type { IPlatformService } from "@kcode/contracts";
@@ -17,6 +19,10 @@ import {
   requireDefaultModelRef,
 } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
+import { parseCliArgs, usageText } from "./args.js";
+import { doctorCommand } from "./doctor.js";
+import { runHeadless } from "./headless.js";
+import { commandsListCommand, skillsListCommand } from "./inspect.js";
 
 /** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
 const print = (s: string): void => {
@@ -54,9 +60,10 @@ async function keyCommand(platform: IPlatformService, args: string[]): Promise<v
   throw new Error("用法：kcode key add <ref> <key> <audience...> ｜ kcode key list");
 }
 
-/** 插件管理子命令：install/list/remove（本地目录安装，市场在后续版本接入） */
+/** 插件管理子命令：install/list/remove/enable/disable（本地目录安装，市场在后续版本接入） */
 async function pluginCommand(args: string[]): Promise<void> {
-  const cacheDir = join(kcodeHome(), "cli", "plugins", "cache");
+  const pluginsDir = join(kcodeHome(), "cli", "plugins");
+  const cacheDir = join(pluginsDir, "cache");
   const [op, ...rest] = args;
 
   if (op === "install" && rest[0] !== undefined) {
@@ -72,11 +79,17 @@ async function pluginCommand(args: string[]): Promise<void> {
       print("（暂无已安装插件）");
       return;
     }
+    const disabled = new Set(await readDisabledPlugins(pluginsDir));
     for (const p of plugins) {
       const skills = p.manifest.skills.length > 0 ? ` 技能×${p.manifest.skills.length}` : "";
       const hooks = p.manifest.hooks.length > 0 ? ` hooks×${p.manifest.hooks.length}` : "";
       const mcp = p.manifest.mcp.length > 0 ? ` MCP×${p.manifest.mcp.length}` : "";
-      print(`${p.manifest.name}@${p.manifest.version}${skills}${hooks}${mcp}`);
+      // 停用判定与 buildExtensionRoots 同规则：无版本条目命中全部版本
+      const off =
+        disabled.has(p.manifest.name) || disabled.has(`${p.manifest.name}@${p.manifest.version}`)
+          ? " [已停用]"
+          : "";
+      print(`${p.manifest.name}@${p.manifest.version}${off}${skills}${hooks}${mcp}`);
     }
     return;
   }
@@ -88,7 +101,15 @@ async function pluginCommand(args: string[]): Promise<void> {
     print(await uninstallPlugin(cacheDir, name, version));
     return;
   }
-  throw new Error("用法：kcode plugin install <目录> [--force] ｜ list ｜ remove <name>[@version]");
+  if ((op === "enable" || op === "disable") && rest[0] !== undefined) {
+    // 停用只影响新会话的装载（本会话若在跑不受影响）
+    await setPluginEnabled(pluginsDir, rest[0], op === "enable");
+    print(op === "enable" ? `已启用 ${rest[0]}（新会话生效）` : `已停用 ${rest[0]}（新会话生效）`);
+    return;
+  }
+  throw new Error(
+    "用法：kcode plugin install <目录> [--force] ｜ list ｜ remove <name>[@version] ｜ enable|disable <name>[@version]",
+  );
 }
 
 /** 隐藏回显的口令输入（raw mode 逐字符收集，回车结束；Ctrl+C 退出） */
@@ -139,47 +160,49 @@ async function main(): Promise<void> {
     return;
   }
   const platform = createCliPlatformService();
-  if (rest[0] === "key") {
-    await keyCommand(platform, rest.slice(1));
-    return;
-  }
-  if (rest[0] === "plugin") {
-    await pluginCommand(rest.slice(1));
+  const args = parseCliArgs(rest);
+  if (args.command !== undefined) {
+    const { kind, args: sub } = args.command;
+    if (kind === "key") {
+      await keyCommand(platform, sub);
+      return;
+    }
+    if (kind === "plugin") {
+      await pluginCommand(sub);
+      return;
+    }
+    if (kind === "doctor") {
+      process.exit((await doctorCommand(platform, print)) ? 0 : 1);
+    }
+    if (kind === "skills") {
+      if (sub[0] !== "list") {
+        throw new Error("用法：kcode skills list");
+      }
+      await skillsListCommand(process.cwd(), kcodeHome(), print);
+      return;
+    }
+    if (sub[0] !== "list") {
+      throw new Error("用法：kcode commands list");
+    }
+    await commandsListCommand(process.cwd(), kcodeHome(), print);
     return;
   }
 
-  // 参数解析：--image/-i <path> 可多次；--resume/-r <sessionId|latest>；剩余非-flag 词拼为一次性提问
-  const images: string[] = [];
-  const words: string[] = [];
-  let resumeArg: string | undefined;
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i] ?? "";
-    if (arg === "--image" || arg === "-i") {
-      const p = rest[i + 1];
-      if (p !== undefined) {
-        images.push(p);
-        i += 1;
-      }
-    } else if (arg === "--resume" || arg === "-r") {
-      const p = rest[i + 1];
-      if (p !== undefined) {
-        resumeArg = p;
-        i += 1;
-      }
-    } else {
-      words.push(arg);
+  // --cwd 先于一切 IO：后续 resume 作用域、trust、AGENTS/技能根都读 process.cwd()
+  if (args.cwd !== undefined) {
+    if (!existsSync(args.cwd)) {
+      throw new Error(`--cwd 目录不存在：${args.cwd}`);
     }
+    process.chdir(args.cwd);
   }
-  const oneShot = words.length > 0 ? words.join(" ") : undefined;
+  const oneShot = args.prompt ?? args.positionalPrompt;
+  if (args.json && oneShot === undefined) {
+    throw new Error(`--json 需要配合提问使用（-p "..." 或位置参数）\n${usageText()}`);
+  }
 
   if (process.stdin.isTTY !== true && oneShot === undefined) {
     // 无 TTY 且无提问：打印用法退出，而不是挂着等不可能到来的输入
-    print(
-      "kcode —— 本地优先代码助手\n" +
-        "用法：kcode [一次性提问] [--image <路径>]... [--resume <会话id|latest>]\n" +
-        "子命令：kcode key add/list ｜ kcode plugin install/list/remove\n" +
-        "交互界面需要终端（TTY）；脚本/管道模式请附带一次性提问。",
-    );
+    print(`kcode —— 本地优先代码助手\n${usageText()}\n交互界面需要终端（TTY）；脚本/管道模式请附带提问或 -p。`);
     process.exit(0);
   }
 
@@ -232,6 +255,28 @@ async function main(): Promise<void> {
   // 单进程：引擎内嵌本进程组装（bootstrap → router/keychain），无守护进程
   const runtime: Runtime = await bootstrap();
 
+  // headless（N3C-1）：--json 或"非 TTY 且带提问"——不渲染 Ink，stdout 走 NDJSON/单行摘要
+  if (args.json || (oneShot !== undefined && process.stdin.isTTY !== true)) {
+    const code = await runHeadless(
+      runtime,
+      modelRef,
+      {
+        prompt: oneShot!,
+        ...(args.images.length > 0 ? { images: args.images } : {}),
+        ...(args.mode !== undefined ? { mode: args.mode } : {}),
+        ...(args.disallowedTools !== undefined ? { disallowedTools: args.disallowedTools } : {}),
+        ...(args.resume !== undefined ? { resumeFrom: args.resume } : {}),
+        json: args.json,
+      },
+      print,
+    );
+    process.exit(code);
+  }
+  if (args.mode !== undefined) {
+    // --mode 语义依赖 headless 的"ask 即拒"降级；TUI 内档位切换走 /mode（含 fullAccess 确认闸）
+    throw new Error("--mode 用于 headless（--json 或非 TTY 提问）；交互界面内请用 /mode 切换档位");
+  }
+
   if (process.stdout.isTTY !== true) {
     // 输出经管道（如 pnpm --filter 转发）时 Ink 无法局部刷新，帧会逐行堆积刷屏
     printErr(
@@ -276,8 +321,8 @@ async function main(): Promise<void> {
       model={modelRef}
       cwd={process.cwd()}
       oneShot={oneShot}
-      images={images.length > 0 ? images : undefined}
-      resumeFrom={resumeArg}
+      images={args.images.length > 0 ? args.images : undefined}
+      resumeFrom={args.resume}
     />,
     { exitOnCtrlC: false },
   );

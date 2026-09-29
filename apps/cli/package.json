@@ -15,6 +15,7 @@
     "@kcode/platform": "workspace:*",
     "@kcode/runtime": "workspace:*",
     "@kcode/session": "workspace:*",
+    "@kcode/shared": "workspace:*",
     "@kcode/tools": "workspace:*",
     "@kcode/ui": "workspace:*",
     "highlight.js": "^11.12.0",
@@ -26,6 +27,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@kcode/core": "workspace:*",
     "@types/react": "^18.3.3",
     "ink-testing-library": "^3.0.0",
     "react-test-renderer": "^18.3.1",

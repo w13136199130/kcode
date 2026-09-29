@@ -11,7 +11,8 @@ import {
   loadSessionEvents,
   rebuildHistory,
 } from "@kcode/runtime";
-import { composeSession, resolveResumeHistory } from "../src/composition.js";
+import { composeSession } from "../src/composition.js";
+import { resolveResumeHistory } from "../src/resume.js";
 
 /**
  * M1-02 回归：/rewind 必须**可回放**。

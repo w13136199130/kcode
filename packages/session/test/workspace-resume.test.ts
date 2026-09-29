@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { JsonlSessionSink } from "@kcode/runtime";
 import { workspaceKey } from "@kcode/shared";
-import { resolveResumeHistory } from "../src/composition.js";
+import { resolveResumeHistory } from "../src/resume.js";
 
 let root: string;
 

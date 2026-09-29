@@ -21,6 +21,7 @@ import { StatusLine, StatusBar } from "./status/StatusLine.js";
 import { TranscriptView } from "./transcript/TranscriptView.js";
 import { createStreamController } from "./state/stream.js";
 import { makeEventHandler } from "./state/events.js";
+import { useStatusStats } from "./state/status-data.js";
 import { makeInteractions, type AskState, type QuestionState, type PlanApprovalState } from "./state/interactions.js";
 import { BUILTIN_COMMANDS, type CommandInfo } from "./input/builtin-commands.js";
 import type { MenuOption } from "./dialogs/OptionsMenu.js";
@@ -110,6 +111,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const { stdin } = useStdin();
   const interactive = stdin.isTTY === true;
   const stream = useRef(createStreamController(ui)).current;
+  // 状态栏常驻数据（N3C-4①）：用量订阅 + busy 收尾沿刷新 + git 分支低频采样
+  const { usage, branch } = useStatusStats(ui, sessionRef, busy, ready, props.cwd);
 
   // 时钟只在有动态内容时运行（busy/运行中工具/流式文本）——
   // 空闲时持续重渲染会在部分终端（conhost/管道输出）造成帧堆积刷屏
@@ -486,6 +489,8 @@ export function KcodeApp(props: KcodeAppProps) {
           verbose={verbose}
           repaintTick={repaintTick}
           busy={busy}
+          usage={usage}
+          branch={branch}
         />
       </Box>
     </ServicesProvider>

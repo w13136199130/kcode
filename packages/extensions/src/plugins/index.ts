@@ -7,3 +7,8 @@ export {
   type PluginInstallResult,
   type InstalledPlugin,
 } from "./install.js";
+export {
+  readDisabledPlugins,
+  setPluginEnabled,
+  filterEnabledPlugins,
+} from "./state.js";

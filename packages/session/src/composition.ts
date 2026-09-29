@@ -7,6 +7,7 @@ import type {
   PermissionMode,
   SessionEvent,
   SessionSink,
+  Tool,
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
@@ -20,11 +21,10 @@ import {
   MutablePermissionEngine,
   ProcessHookRunner,
   ProjectGrantStore,
-  listInstalledPlugins,
+  buildExtensionRoots,
   loadHookConfigs,
-  trustProject as trustProjectOnFile,
 } from "@kcode/extensions";
-import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, listSessions, loadSessionEvents, rebuildHistory, effectiveEvents } from "@kcode/runtime";
+import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
 import { newId, workspaceKey } from "@kcode/shared";
 import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx } from "@kcode/tools";
@@ -102,6 +102,10 @@ export interface ComposeSessionOptions {
   planAsker?: { ask(plan: string): Promise<PlanVerdict> };
   /** 排队变化通知（N2-2）：入队/出队/清空时回调快照，界面镜像排队状态 */
   onQueueChange?: (items: readonly QueuedCommand[]) => void;
+  /** 初始权限档（--mode）：省略即 default；与运行中 /mode 切换走同一条 applyMode 路径 */
+  initialMode?: PermissionMode;
+  /** 组装期剔除的工具名（--disallowed-tools）：作用于含 MCP/插件/task/plan_submit 的全集；未知名抛错 */
+  disallowedTools?: string[];
 }
 
 /** 读取用户级 MCP 配置；缺失或非法按空处理 */
@@ -203,25 +207,12 @@ ${subagentLine}
 OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
 </env>`;
 
-  // 已安装插件：技能/命令/MCP 追加装载（skills 与 commands 以插件目录为额外根）
-  const plugins = await listInstalledPlugins(join(opts.kcodeHomeDir, "cli", "plugins", "cache"));
-  const pluginSkillRoots = plugins.map((p) => ({
-    dir: join(p.installPath, "skills"),
-    source: "plugin" as const,
-  }));
-  const pluginCommandRoots = plugins.map((p) => ({
-    dir: join(p.installPath, "commands"),
-    source: "project" as const,
-  }));
+  // 插件装载与技能/命令根构造（N3C-3 单一事实源）：与 skills list / commands list 子命令同源，
+  // 停用（state.json）在此统一过滤——会话组装与 CLI 盘点永远看到同一份生效集
+  const extensionRoots = await buildExtensionRoots({ cwd: opts.cwd, kcodeHomeDir: opts.kcodeHomeDir });
+  const plugins = extensionRoots.plugins;
 
-  const skills = await FsSkillLibrary.open(
-    [
-      { dir: join(opts.cwd, ".kcode", "skills"), source: "project" },
-      { dir: join(opts.kcodeHomeDir, "skills"), source: "user" },
-      ...pluginSkillRoots,
-    ],
-    opts.onNotice,
-  );
+  const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
   const hookConfigs = await loadHookConfigs({
     userDir: opts.kcodeHomeDir,
     projectDir: opts.cwd,
@@ -229,14 +220,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     onWarn: opts.onNotice,
   });
   const hooks = new ProcessHookRunner(hookConfigs, { sessionId, onWarn: opts.onNotice });
-  const commands = await CommandLibrary.open(
-    [
-      { dir: join(opts.cwd, ".kcode", "commands"), source: "project" },
-      { dir: join(opts.kcodeHomeDir, "commands"), source: "user" },
-      ...pluginCommandRoots,
-    ],
-    opts.onNotice,
-  );
+  const commands = await CommandLibrary.open(extensionRoots.commandRoots, opts.onNotice);
   const mcpConfigs = await loadMcpConfigs(opts.kcodeHomeDir);
   const mcpSessions = await connectMcpServers(mcpConfigs, {
     onWarn: opts.onNotice,
@@ -276,12 +260,17 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   // B2 /rewind：写类工具执行前快照目标文件（bash 造成的改动无法快照——与 CC 检查点同边界）
   const checkpoints = await CheckpointStore.open(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
   const guardedTools = baseTools.map((t) => withFileCheckpoints(t, checkpoints, resolveInCtx));
+  // 组装期剔除（--disallowed-tools）：归一化一次，子代理与主注册表共用同一剔除集
+  const disallowedSet = normalizeDisallowedTools(opts.disallowedTools);
+  // 子代理继承剔除：被点名剔除的工具在 task 派生的隔离上下文里同样不可见
+  const subagentBaseTools =
+    disallowedSet === undefined ? guardedTools : guardedTools.filter((t) => !disallowedSet.has(t.definition.name));
   const taskTool = buildTaskTool({
     llmFactory: opts.llmFactory,
     currentModel: () => currentModel,
     cwd: opts.cwd,
     kcodeHomeDir: opts.kcodeHomeDir,
-    baseTools: guardedTools,
+    baseTools: subagentBaseTools,
     hooks,
     // 只读子代理走 plan 档语义（声明驱动的只读放行面）；其余同默认档
     permissionFor: (kind) => new ModePermissionEngine(kind === "readonly" ? "plan" : "default"),
@@ -305,7 +294,11 @@ ${plan}`);
   const loop = new AgentLoop(
     {
       llm: initialLlm,
-      tools: new InMemoryToolRegistry([...guardedTools, taskTool, planSubmitTool]),
+      // 未知名校验对**全集**（guardedTools 含 write/edit 等）而非剔除后的子代理视图，
+      // 否则被点名剔除的工具自身会被误报为"未知"
+      tools: new InMemoryToolRegistry(
+        applyDisallowedTools([...guardedTools, taskTool, planSubmitTool], disallowedSet),
+      ),
       permissions,
       hooks,
       sink,
@@ -348,6 +341,10 @@ ${plan}`);
     permissions.set(new ModePermissionEngine(mode));
     loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
   };
+  // 初始权限档（--mode）：走与运行中切换完全相同的路径，杜绝"开局档位语义不同"的分叉
+  if (opts.initialMode !== undefined) {
+    applyMode(opts.initialMode);
+  }
   return {
     loop,
     runner,
@@ -454,43 +451,25 @@ ${plan}`);
   };
 }
 
-/** 解析续接来源（latest / id 前缀 / 精确 id），返回种子历史与历史累计用量；找不到返回 null */
-export async function resolveResumeHistory(
-  kcodeHomeDir: string,
-  resumeFrom: string,
-  workspacePath?: string,
-): Promise<{ messages: ChatMessage[]; usage: SessionUsage } | null> {
-  const sessionsDir = join(kcodeHomeDir, "cli", "sessions");
-  const summaries = await listSessions(sessionsDir);
-  if (summaries.length === 0) {
-    return null;
+/** 归一化 --disallowed-tools 输入（逗号/空白分隔可混用）；空输入返回 undefined（零成本直通） */
+function normalizeDisallowedTools(names: string[] | undefined): Set<string> | undefined {
+  if (names === undefined) {
+    return undefined;
   }
-  // "latest" 只在当前工作区内取最近：listSessions 已按 (workspaceKey, mtime) 排序，
-  // 取首个匹配当前工作区的即为该工作区最近会话；未指定工作区时退化为全局最近。
-  const scopeKey = workspacePath !== undefined ? workspaceKey(workspacePath) : undefined;
-  const target =
-    resumeFrom === "latest"
-      ? scopeKey === undefined
-        ? summaries[0]
-        : summaries.find((s) => s.workspaceKey === scopeKey)
-      : summaries.find((s) => s.sessionId === resumeFrom || s.sessionId.startsWith(resumeFrom));
-  if (target === undefined) {
-    return null;
-  }
-  const all = await loadSessionEvents(target.filePath);
-  // 用量只累计**有效前缀**：已回退轮次的用量不应继续计入 /cost（否则回退后费用偏高）
-  const events = effectiveEvents(all);
-  const usage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
-  for (const event of events) {
-    if (event.type === "session_end" && event.usage !== undefined) {
-      usage.inputTokens += event.usage.inputTokens;
-      usage.outputTokens += event.usage.outputTokens;
-      usage.calls += event.usage.calls;
-    }
-  }
-  return { messages: rebuildHistory(events), usage };
+  const set = new Set(names.flatMap((s) => s.split(/[\s,]+/)).filter((s) => s !== ""));
+  return set.size > 0 ? set : undefined;
 }
-/** 把项目写入受信任清单（幂等） */
-export function trustProject(cwd: string, kcodeHomeDir: string): Promise<void> {
-  return trustProjectOnFile(cwd, join(kcodeHomeDir, "trusted-projects.json"));
+
+/** 组装期剔除工具：未知名抛错并列出全集——拼错名导致"以为剔除了"比当场报错更糟 */
+function applyDisallowedTools(tools: Tool[], disallowed: Set<string> | undefined): Tool[] {
+  if (disallowed === undefined) {
+    return tools;
+  }
+  const unknown = [...disallowed].filter((n) => !tools.some((t) => t.definition.name === n));
+  if (unknown.length > 0) {
+    throw new Error(
+      `disallowed-tools 含未知工具：${unknown.join("、")}；可用：${tools.map((t) => t.definition.name).join("、")}`,
+    );
+  }
+  return tools.filter((t) => !disallowed.has(t.definition.name));
 }
