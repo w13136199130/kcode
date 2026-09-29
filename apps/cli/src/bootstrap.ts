@@ -32,9 +32,16 @@ export function createCliPlatformService(): IPlatformService {
 }
 
 /** 读用户级配置（providers 只允许在这一层，§5.7 第一层防御） */
+/**
+ * 配置覆盖层（N3E-3，三层浅合并——对标 zcode 五级裁剪）：
+ * 用户级（providers 唯一来源，安全边界不动）→ Project `.kcode/config.json`（仅 default 模型）
+ * → Env 白名单 KCODE_DEFAULT_MODEL。深合并不做（zcode 实测也仅一层浅 spread）。
+ */
 export async function loadUserConfig(
   path = join(kcodeHome(), "config.json"),
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<UserModelsConfig> {
+  const env = opts.env ?? process.env;
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -53,7 +60,27 @@ export async function loadUserConfig(
   if (!parsed.success) {
     throw new Error(`配置不合法: ${parsed.error.message}`);
   }
-  return parsed.data.models ?? { providers: {} };
+  const models = parsed.data.models ?? { providers: {} };
+  // Project 层：仅接受 default 覆盖；providers/密钥字段一律忽略（防项目投毒端点）
+  if (opts.cwd !== undefined) {
+    try {
+      const projectRaw = JSON.parse(await readFile(join(opts.cwd, ".kcode", "config.json"), "utf8")) as {
+        models?: { default?: unknown };
+      };
+      const projectDefault = projectRaw.models?.default;
+      if (typeof projectDefault === "string" && projectDefault !== "") {
+        models.default = projectDefault;
+      }
+    } catch {
+      // 项目级配置缺失/损坏按无覆盖处理
+    }
+  }
+  // Env 白名单（逐项硬编码，不开放通用语法——对标 zcode env-config.adapter 的收窄原则）
+  const envModel = env["KCODE_DEFAULT_MODEL"];
+  if (envModel !== undefined && envModel !== "") {
+    models.default = envModel;
+  }
+  return models;
 }
 
 /**

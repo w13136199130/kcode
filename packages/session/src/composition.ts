@@ -108,6 +108,8 @@ export interface ComposeSessionOptions {
   onQueueChange?: (items: readonly QueuedCommand[]) => void;
   /** 初始权限档（--mode）：省略即 default；与运行中 /mode 切换走同一条 applyMode 路径 */
   initialMode?: PermissionMode;
+  /** 空闲压缩阈值毫秒（N3E-6，测试注入用）；默认 60min */
+  idleCompactMs?: number;
   /** 组装期剔除的工具名（--disallowed-tools）：作用于含 MCP/插件/task/plan_submit 的全集；未知名抛错 */
   disallowedTools?: string[];
 }
@@ -126,6 +128,14 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     append: async (event) => {
       opts.onEvent?.(event);
       await disk.append(event);
+    },
+  };
+  // 空闲计时锚点（N3E-6）：任一事件活动即刷新；下一次输入距此超阈值先压缩
+  let lastEventAt = Date.now();
+  const sinkWithIdle: SessionSink = {
+    append: async (event) => {
+      lastEventAt = Date.now();
+      await sink.append(event);
     },
   };
   const permissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
@@ -307,7 +317,7 @@ ${plan}`);
       ),
       permissions,
       hooks,
-      sink,
+      sink: sinkWithIdle,
       audit: new MemoryAudit().sink,
       asker,
       onDelta: opts.onDelta,
@@ -330,7 +340,33 @@ ${plan}`);
   const runner = new SessionRunner();
   const commandQueue = new RuntimeCommandQueue(opts.onQueueChange);
   const rawLoopRun = loop.run.bind(loop);
-  loop.run = (input, runOpts = {}) => {
+  /** 手动/空闲压缩共用落盘路径：原始 compactNow + compaction_summary 经 sink 写 JSONL（N0-1） */
+  const persistedCompact = async (): Promise<{ dropped: number; summaryChars: number } | null> => {
+    if (runner.busy) {
+      throw new Error("运行中不能压缩（等待本轮完成或 Esc 中断）");
+    }
+    const result = await loop.compactNow();
+    if (result === null) {
+      return null;
+    }
+    await sinkWithIdle.append({
+      v: 1,
+      type: "compaction_summary",
+      ts: Date.now(),
+      sessionId,
+      summary: result.summary,
+      dropped: result.dropped,
+      covered: result.covered,
+    });
+    return { dropped: result.dropped, summaryChars: result.summary.length };
+  };
+  const idleCompactMs = opts.idleCompactMs ?? 60 * 60_000;
+  loop.run = async (input, runOpts = {}) => {
+    // N3E-6：挂机超阈值（默认 60min）后，下一次输入先压缩——旧上下文大概率已冷，
+    // 与 zcode 的 idle 微压缩同语义（kcode 用已有 compactNow 路径，落盘/回放语义不变）
+    if (Date.now() - lastEventAt > idleCompactMs) {
+      await persistedCompact().catch(() => null);
+    }
     try {
       return runner.start((signal) => rawLoopRun(input, {
         ...runOpts, signal: runOpts.signal === undefined ? signal : AbortSignal.any([signal, runOpts.signal]),
@@ -412,26 +448,7 @@ ${plan}`);
         loop,
         onNotice: opts.onNotice,
       }),
-    compactNow: async () => {
-      if (runner.busy) {
-        throw new Error("运行中不能压缩（等待本轮完成或 Esc 中断）");
-      }
-      const result = await loop.compactNow();
-      if (result === null) {
-        return null;
-      }
-      // 手动压缩与自动压缩走同一条落盘路径：经 sink 写 JSONL，重启后可回放，避免摘要只留在界面
-      await sink.append({
-        v: 1,
-        type: "compaction_summary",
-        ts: Date.now(),
-        sessionId,
-        summary: result.summary,
-        dropped: result.dropped,
-        covered: result.covered,
-      });
-      return { dropped: result.dropped, summaryChars: result.summary.length };
-    },
+    compactNow: persistedCompact,
     mcpInfo: () => {
       const all = [...mcpConfigs, ...pluginMcpConfigs];
       const connected = new Map([...mcpSessions, ...pluginMcpSessions].map((x) => [x.name, x]));

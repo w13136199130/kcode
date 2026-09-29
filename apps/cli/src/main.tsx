@@ -215,7 +215,7 @@ async function main(): Promise<void> {
   }
 
   // 模型引用仅作显示与传递，实际供给由 providers 路由解析（含受众绑定校验）
-  const models = await loadUserConfig();
+  const models = await loadUserConfig(undefined, { cwd: process.cwd() });
   const modelRef = requireDefaultModelRef(models);
 
   // 提前预警：配置了需要 key 的 provider 但当前终端没设口令——
