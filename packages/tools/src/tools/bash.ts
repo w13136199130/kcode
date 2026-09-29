@@ -36,6 +36,11 @@ export interface BackgroundTask {
   exitCode?: number;
   logPath: string;
   startedAt: number;
+  /**
+   * 完成通知已送达（N3D-1 幂等，对标 zcode runner.ts:1847）：
+   * 后台子代理的终态经 task_output 读取即认领，防止"工具结果+通知"双送达。
+   */
+  notified?: boolean;
 }
 
 export class BackgroundTaskRegistry {

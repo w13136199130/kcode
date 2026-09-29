@@ -111,7 +111,7 @@ React + **OpenTUI**（`@mbears/opentui-core`）自研渲染器。`app.tsx` 聚�
 - **context**：git snapshot 只读 git 命令（branch/status/log），限 2k 字符、3s 超时。
 - **device**：跨平台进程树采样，1s 超时、连续 3 次失败停用。
 
-**kcode 决策**：**采纳 OutputCollector 三段预算 + `pwd -P` cwd 持久**（Bash 长输出与 cwd 是最常见痛点）；**采纳五级配置合并 + 深合并 + MCP 特例**；git snapshot 可作 `<env>` 注入的增强（kcode 已注入 OS/shell/cwd，可加 git 分支）。凭证加密 kcode 的 DPAPI 方案已更强，不降级。
+**kcode 决策**：**采纳 OutputCollector 三段预算 + `pwd -P` cwd 持久**（Bash 长输出与 cwd 是最常见痛点）——2026-09-29 排期 N3E-1/N3E-2 落地（DESIGN §8.4d），并新采纳 **cwd 项目边界**（decideBashCwdPolicy 同款：越界重置回 workspace root，kcode 原实现缺此守卫）；**采纳五级合并**但裁剪为三层（User → Project 非 provider 字段 → Env 白名单 → CLI 已有；providers 锁死用户级——kcode 比 zcode 更强的边界，不为对齐放弃；合并用一层浅 spread，zcode 实测也非递归深合并，`config-merger.ts:48`）；git snapshot 可作 `<env>` 注入的增强。凭证加密 kcode 的 DPAPI 方案已更强；非 Windows 补机器指纹回退（N3E-5，`credential-cipher.ts:87` 同款）。
 
 ### 1.9 业务服务与存储（packages/services）
 

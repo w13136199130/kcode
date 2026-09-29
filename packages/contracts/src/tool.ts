@@ -25,6 +25,12 @@ export const ToolDefinition = z.object({
   description: z.string(),
   parameters: z.record(z.string(), z.unknown()), // JSON Schema
   readOnly: z.boolean().default(false),
+  /**
+   * 同批可并行声明（N3D-1 执行器并行组）：显式声明覆盖 readOnly 推导——
+   * task（子代理派生）等"有副作用但批内并发安全"的工具靠它进并行组；
+   * 缺省按 readOnly 推导（只读=可并行）。非并行工具独占单例组，不拖累整批。
+   */
+  concurrentSafe: z.boolean().optional(),
   /** 工具自带权限声明（N2-3 ToolEntry）：四档语义单点维护；fullAccess 恒 allow，不入声明 */
   permission: ToolPermission.optional(),
   /** 单次调用超时毫秒（N2-3 ToolEntry）：管线结算护栏——超时按失败结算，不保证强杀（工具内部可有更细超时） */

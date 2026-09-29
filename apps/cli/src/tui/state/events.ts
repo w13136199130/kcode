@@ -1,6 +1,7 @@
 import type { MutableRefObject } from "react";
 import type { SessionEvent } from "@kcode/contracts";
 import type { UiStore } from "@kcode/ui";
+import { SUBAGENT_NOTIFICATION_HEADER } from "@kcode/session";
 import { formatToolPreview } from "../transcript/Transcript.js";
 import type { StreamController } from "./stream.js";
 
@@ -19,6 +20,11 @@ export function makeEventHandler(deps: {
     switch (event.type) {
       case "user_message":
         ui.getState().setPhase("等待模型响应");
+        // 后台子代理完成通知（N3D-1）：内容带防伪头，渲染为系统通知而非用户消息
+        if (event.content.startsWith(SUBAGENT_NOTIFICATION_HEADER)) {
+          pushBlock({ kind: "info", text: `📩 ${event.content.split("\n").slice(1).join("\n")}` });
+          break;
+        }
         if (suppressNextUserBlock.current) {
           suppressNextUserBlock.current = false;
           break;
@@ -91,6 +97,23 @@ export function makeEventHandler(deps: {
           text: `📖 技能 ${event.skill} 已加载（${
             event.trigger === "auto" ? "自动触发" : event.trigger === "tool" ? "模型调用" : "手动"
           }）`,
+        });
+        break;
+      case "subagent_spawned":
+        pushBlock({
+          kind: "info",
+          text: `🤖 子代理 ${event.agentType} 开始：${event.description}${event.background ? "（后台，task_output 查进度）" : ""}`,
+        });
+        break;
+      case "subagent_stopped":
+        pushBlock({
+          kind: "info",
+          tone: event.status === "completed" ? "ok" : "warn",
+          text: `🤖 子代理 ${event.agentType} ${
+            event.status === "completed" ? "完成" : event.status === "stopped" ? "被中断" : "失败"
+          }：${event.description}（${event.turns} 轮 · ${event.toolCalls} 次工具 · ${
+            event.usage.inputTokens + event.usage.outputTokens
+          } tok）`,
         });
         break;
       default:

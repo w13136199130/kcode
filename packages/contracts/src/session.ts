@@ -189,6 +189,35 @@ export const HostLeaseEvent = z.object({
   keepEvents: z.number().int().nonnegative().optional(),
 });
 
+/** 子代理派生（N3D-1）：父会话时间线的进度事实源（TUI 进度卡/审计） */
+export const SubagentSpawnedEvent = z.object({
+  v: v1,
+  type: z.literal("subagent_spawned"),
+  ts,
+  sessionId,
+  agentId: z.string().min(1),
+  agentType: z.string().min(1),
+  description: z.string().min(1),
+  /** 子会话 id（sub_ 前缀；落盘 sessions/subagents/） */
+  childSessionId: z.string().min(1),
+  background: z.boolean(),
+});
+
+/** 子代理结束（N3D-1）：终态与用量（completed=正常出结论/failed=失败/stopped=父中断连杀） */
+export const SubagentStoppedEvent = z.object({
+  v: v1,
+  type: z.literal("subagent_stopped"),
+  ts,
+  sessionId,
+  agentId: z.string().min(1),
+  agentType: z.string().min(1),
+  description: z.string().min(1),
+  status: z.enum(["completed", "failed", "stopped"]),
+  turns: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  usage: z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() }),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -204,6 +233,8 @@ export const SessionEvent = z.discriminatedUnion("type", [
   RunLimitReachedEvent,
   SessionRewindEvent,
   HostLeaseEvent,
+  SubagentSpawnedEvent,
+  SubagentStoppedEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

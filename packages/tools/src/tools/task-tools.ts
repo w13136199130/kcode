@@ -21,7 +21,7 @@ const TaskStopArgs = z.object({
 });
 
 /** 运行中任务的日志尾部（运行中日志是追加流，读到的是当时的快照） */
-async function tailOf(logPath: string, lines: number): Promise<string> {
+async function tailOf(taskId: string, logPath: string, lines: number): Promise<string> {
   let text: string;
   try {
     text = await readFile(logPath, "utf8");
@@ -30,6 +30,26 @@ async function tailOf(logPath: string, lines: number): Promise<string> {
   }
   if (text === "") {
     return "（日志为空——命令可能还没产生输出）";
+  }
+  // 子代理（N3D-1）的"日志"是其会话 JSONL：逐行解析成人类可读活动摘要
+  if (taskId.startsWith("sub_")) {
+    const rendered = text
+      .split("\n")
+      .filter((l) => l.trim() !== "")
+      .slice(-lines)
+      .map((line) => {
+        try {
+          const e = JSON.parse(line) as { type?: string; content?: string; tool?: string; reason?: string };
+          if (e.type === "assistant_message") return `🤖 ${(e.content ?? "").split("\n")[0]?.slice(0, 80) ?? ""}`;
+          if (e.type === "tool_call") return `⚡ ${e.tool ?? ""}`;
+          if (e.type === "user_message") return `👤 ${(e.content ?? "").split("\n")[0]?.slice(0, 60) ?? ""}`;
+          if (e.type === "session_end") return `· 本轮结束（${e.reason ?? ""}）`;
+          return `· ${e.type ?? "事件"}`;
+        } catch {
+          return "·（不可解析行）";
+        }
+      });
+    return rendered.join("\n");
   }
   return text.split("\n").slice(-lines).join("\n");
 }
@@ -62,7 +82,11 @@ export function createTaskTools(registry: BackgroundTaskRegistry): [Tool, Tool] 
       if (task === undefined) {
         return { ok: false, output: "", error: `未知任务 ${parsed.data.taskId}（本会话的后台任务才有记录）` };
       }
-      const tail = await tailOf(task.logPath, parsed.data.tailLines ?? 40);
+      const tail = await tailOf(task.id, task.logPath, parsed.data.tailLines ?? 40);
+      // 终态读取即认领送达（N3D-1 幂等）：模型已看到结果，后台子代理完成时不再重复通知
+      if (task.status !== "running") {
+        registry.update(task.id, { notified: true });
+      }
       const state =
         task.status === "running"
           ? "运行中"

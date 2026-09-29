@@ -31,6 +31,7 @@ import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { buildSkillTool } from "./skill-tool.js";
+import { loadMcpConfigs, loadAgentsMd, normalizeDisallowedTools, applyDisallowedTools } from "./composition-helpers.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
 import { runUserBash } from "./user-bash.js";
@@ -70,7 +71,7 @@ export interface ComposedSession {
   /** /mcp：接入状态（含失败项） */
   mcpInfo(): { servers: { name: string; transport: string; tools: number; ok: boolean }[] };
   /** 后台任务清单（N3C-4③）：bash 工具注册表的会话级视图（任务面板轮询源） */
-  backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number }[];
+  backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number; notified?: boolean }[];
   /** /context 上下文占用 */
   contextStats(): {
     model: string;
@@ -111,35 +112,7 @@ export interface ComposeSessionOptions {
   disallowedTools?: string[];
 }
 
-/** 读取用户级 MCP 配置；缺失或非法按空处理 */
-async function loadMcpConfigs(kcodeHomeDir: string) {
-  try {
-    const { McpServersFile } = await import("@kcode/contracts");
-    const parsed = McpServersFile.safeParse(JSON.parse(await readFile(join(kcodeHomeDir, "mcp.json"), "utf8")));
-    return parsed.success ? parsed.data.servers : [];
-  } catch {
-    return [];
-  }
-}
 
-/** 读取并合并项目级/用户级 AGENTS.md 记忆 */
-async function loadAgentsMd(cwd: string, kcodeHomeDir: string): Promise<string | undefined> {
-  const sections: string[] = [];
-  for (const [label, path] of [
-    ["项目", join(cwd, "AGENTS.md")],
-    ["用户", join(kcodeHomeDir, "AGENTS.md")],
-  ] as const) {
-    try {
-      const text = await readFile(path, "utf8");
-      if (text.trim() !== "") {
-        sections.push(`## ${label}级（${path}）\n${text.trim()}`);
-      }
-    } catch {
-      // 文件不存在即跳过
-    }
-  }
-  return sections.length > 0 ? sections.join("\n\n") : undefined;
-}
 
 /**
  * 会话组装（单进程唯一组装点）：工具、权限、钩子、技能、命令、
@@ -254,6 +227,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   // B1 子代理：会话工具全集先成数组（task 不在其中——子代理不嵌套派生），再挂 task 工具
   // 后台任务注册表在会话级创建并注入 bash 工具（N3C-4③）：句柄/面板与工具共享同一份事实
   const bashTasks = new BackgroundTaskRegistry();
+  // 后台子代理连杀登记（N3D-1）：Esc 中断父时一并终止后台子代理（单进程语义，不抄 detachParent）
+  const backgroundKills = new Set<() => void>();
   const baseTools = [
     ...createSessionTools({
       sessionId,
@@ -293,6 +268,24 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
 OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
 </env>`,
     onNotice: opts.onNotice,
+    /* N3D-1 异步子代理接线 */
+    parentSessionId: sessionId,
+    registry: bashTasks,
+    parentSink: sink,
+    askUser: opts.askUser,
+    // 完成通知注入：父忙=入队（既有 drain 语义），父空闲=直接开新 turn（notify 只在完成后调用，
+    // 此时 loop/runner 均已初始化——闭包捕获后置绑定的 const）
+    notify: (text) => {
+      if (runner.busy) {
+        commandQueue.enqueue(text);
+      } else {
+        void loop.run(text).catch(() => undefined);
+      }
+    },
+    trackBackground: (kill) => {
+      backgroundKills.add(kill);
+      return () => backgroundKills.delete(kill);
+    },
   });
   const planSubmitTool = buildPlanSubmitTool({
     currentMode: () => sessionMode,
@@ -364,7 +357,13 @@ ${plan}`);
     commandQueue,
     sessionId,
     jsonlPath,
-    abort: (runId) => runner.abort(runId),
+    abort: (runId) => {
+      // N3D-1：中断连杀后台子代理（与父同生共死——单进程语义）
+      for (const kill of [...backgroundKills]) {
+        kill();
+      }
+      return runner.abort(runId);
+    },
     setMode: applyMode,
     setModel: async (model) => {
       const llm = await opts.llmFactory(model);
@@ -465,25 +464,4 @@ ${plan}`);
   };
 }
 
-/** 归一化 --disallowed-tools 输入（逗号/空白分隔可混用）；空输入返回 undefined（零成本直通） */
-function normalizeDisallowedTools(names: string[] | undefined): Set<string> | undefined {
-  if (names === undefined) {
-    return undefined;
-  }
-  const set = new Set(names.flatMap((s) => s.split(/[\s,]+/)).filter((s) => s !== ""));
-  return set.size > 0 ? set : undefined;
-}
 
-/** 组装期剔除工具：未知名抛错并列出全集——拼错名导致"以为剔除了"比当场报错更糟 */
-function applyDisallowedTools(tools: Tool[], disallowed: Set<string> | undefined): Tool[] {
-  if (disallowed === undefined) {
-    return tools;
-  }
-  const unknown = [...disallowed].filter((n) => !tools.some((t) => t.definition.name === n));
-  if (unknown.length > 0) {
-    throw new Error(
-      `disallowed-tools 含未知工具：${unknown.join("、")}；可用：${tools.map((t) => t.definition.name).join("、")}`,
-    );
-  }
-  return tools.filter((t) => !disallowed.has(t.definition.name));
-}

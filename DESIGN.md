@@ -25,7 +25,8 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台抽象/排队/UI 拆包/发行链 ✅
              → N3 通道扩展（host ✅ · 凭证边界 ✅ · Web/中继 ✅ · Desktop 待 · 插件 hash ✅）→ N4 生态与云（市场/账户/调度/电脑控制）
              ↘ N3C CLI 入口层/TUI 交互快赢批 ✅（①–⑦ 全落地）
-             ↘ N3D 子代理异步化与消息互通（两期，§8.4c：一期后台+通知+落盘 ~1 周；二期 steer+SendMessage 1–2 周）
+             ↘ N3D 子代理异步化与消息互通（两期，§8.4c：一期后台+通知+落盘+并行组 ~1.5 周；二期 TurnPhase 前置+steer+SendMessage 1.5-2.5 周）
+             ↘ N3E 执行层体验批（§8.4d：bash 三段预算/cd 项目边界/配置覆盖层/kcode update/凭证指纹回退/idle 微压缩，~1.5 周）
 ```
 
 **一条重要判断**：单进程 CLI 与桌面/Web 不矛盾。ZCode 用**同一套 stdio 协议同时服务 CLI 与 Electron**，而不是给桌面另起一套。因此 kcode 保留单进程为默认形态，把"进程边界"做成**可选宿主**（§3.3），不为尚未开始的桌面预置常驻进程。
@@ -286,7 +287,7 @@ export interface IPlatformService {
 | ADR-8 | 多设备单活跃设备约束 | 避免 CRDT 合并复杂度（N4 前不做同步） |
 | ADR-9 | 身份与模型来源解耦（登录/BYOK/OpenAI 兼容三模式） | 零门槛获客 + 订阅留路径 |
 | ADR-10 | host 通道优先 stdio；远程走 WSS E2E | 访问控制即进程边界 |
-| ADR-11 | 更新链 TUF 角色分离；插件签名 Sigstore keyless | CI 钥匙泄露可轮换无需发版 |
+| ADR-11 | 更新链完整性：**sha256+https 为基线（zcode 实测同级，其并无 TUF——`releaseDownload.ts:137` 仅哈希+尺寸校验）**；插件签名 Sigstore keyless（N4-4）；TUF 角色分离降为自设可选增强 | 基线即可防传输损坏与配置错；CI 钥匙泄露的轮换诉求由 N4-4 签名解决 |
 | ADR-12 | E2E 会话密钥 epoch + HKDF 逐消息 ratchet | 撤销即时生效（N4 落地） |
 | ADR-13 | 产品名 kcode（快码） | npm 实测占用数据 + 品牌锁定 |
 
@@ -344,7 +345,7 @@ export interface IPlatformService {
 | B4 进程 → 命令执行 | 任意命令 | 权限确认 + 超时 + 进程树清理 + /trust 门控 **已实现** |
 | B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash 校验（N3-5：篡改拒载）**已实现**；Sigstore 签名 **目标（N4-4）** |
 
-**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能自动注入不区分来源；BYOK 远端调用意味着源码会离开本机。
+**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能自动注入不区分来源；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块推进 scrollback 后不再重绘——原地编辑消息/内联进度卡类交互永远只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。
 
 ---
 
@@ -435,10 +436,23 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 设计要点（zcode 机制 → kcode 落点） | 量级 |
 |---|---|---|---|---|
-| N3D-1 | 后台子代理 + 完成通知 + 子会话落盘 + ask_user 透传 | N3C-4③ | ① `task` 增 `wait: "sync"\|"background"`（默认 sync 行为不变）；background 立即返回 agentId + childSessionId + 通知承诺（对标 `runner.ts:1476` createAgentBackgroundedOutput）② 子代理注册进 `BackgroundTaskRegistry`——task_output/task_stop **直接复用**（"日志尾部"= 子事件流的活动摘要，不必另造 outputFile）③ 完成通知 = RuntimeCommandQueue 的 `next` 优先级命令，父空闲 drain 成 **model-only synthetic turn**（父忙时排队等 drain——v1 不做中途注入）；通知文本带防伪头 `[SYSTEM NOTIFICATION - NOT USER INPUT]`（对标 `incoming-message.ts:9`，防提示注入冒充用户输入）④ 幂等：注册表 `notified` 标志——tool_result 已回灌则不再通知，反之亦然（对标 `runner.ts:1847`）⑤ 子 sink 从 MemorySink 换 `JsonlSessionSink` 落盘 `sub_<id>.jsonl`（回放/审计闭环 + 二期复活的基础）⑥ `ask_user` 经父端口透传（子代理遇到真分叉可问用户，替代"按最合理假设执行"）⑦ contracts 增 `subagent_spawned`/`subagent_stopped` 两个事件（TUI 进度卡与 §9.2 行的数据源）⑧ Esc 中断**连杀**后台子代理（**不抄 detachParent**——kcode 单进程，本地直觉优先；桌面/远程形态再评估） | ~1 周 |
-| N3D-2 | SendMessage 三态投递 + RespondToCoordinator + steer | N3D-1 | ① AgentLoop 增**步边界 drain 钩子**（pendingInputs 概念入 core；对标 `turn-guide-drain.ts:13-66`）——收件人运行中 → steer 拼进当前请求 ② 收件人空闲 → 注册表 `pendingMessages` 排队、下次运行时冲刷（对标 `registry.ts:168`）③ 收件人终态 → 消息作为新 prompt 经 resume 复活（对标 `runner.ts:955`；依赖 N3D-1 落盘 + 既有 `resolveResumeHistory`）④ RespondToCoordinator **无条件注入**子代理工具面、异步单向入队（子不等待回复；对标 `subagent.ts:541`）⑤ 入站消息统一 system-reminder 包装 + 防伪头；⑥ SendMessage 非阻塞、只回投递回执（queued/steered/resumed 三态回执） | 1–2 周 |
+| N3D-1 | 后台子代理 + 完成通知 + 子会话落盘 + ask_user 透传（**已落地**，含增补⑨并行组/⑩看门狗） | N3C-4③ | 验收：`task wait:"background"` 立即回执 → task_output 查活动/task_stop 终止 → 完成通知注入父上下文（防伪头 + 幂等 + Esc 连杀）；子会话落 `sessions/subagents/`；同批多 task fan-out 并发 | ✅ 测试锁定（subagent-background/executor-groups） |
+| N3D-2 | SendMessage 三态投递 + RespondToCoordinator + steer | N3D-1 + **前置：TurnPhase 显式化** | **前置任务**（2026-09-29 升格，原 benchmark §3"微调"定级错误）：AgentLoop 引入 TurnPhase 显式状态机 + `canTransitionTo` 迁移表断言（对标 `turn-state.ts:230`；steer 注入点=模型步边界，与状态机边界重合）；**steer 状态独立成层**不塞进 phase（zcode 教训：drain 合法性是独立六条件判定，不读 TurnPhase，`steering.ts:457`）。主体：① 收件人运行中 → steer 拼进当前请求 ② 收件人空闲 → 注册表 `pendingMessages` 排队冲刷 ③ 收件人终态 → 消息作为新 prompt 经 resume 复活（依赖 N3D-1 落盘 + 既有 `resolveResumeHistory`）④ RespondToCoordinator **无条件注入**子代理工具面、异步单向入队（子不等待回复）⑤ 入站消息统一 system-reminder 包装 + 防伪头；⑥ SendMessage 非阻塞、只回 queued/steered/resumed 三态回执 | 1.5–2.5 周 |
 
 **明确不抄**（zcode 为多端平台付的税，与"子代理最小集"原则一致）：profile 系统（351 行）、持久通知账本（kcode 的 JSONL append-only 本身就是账本）、`branchGeneration` 回退代际、闲时轮拒发、镜像 toolCallId 重写（v1 用 spawned/stopped 事件 + task_output 查详情替代）。
+
+### 8.4d 阶段 N3E：执行层体验批（P1–P2，2026-09-29 审计产出；对标 zcode adapters/exec + config + 更新链）
+
+> 来源：全量对标审计发现的"无票遗漏"（benchmark 承诺过采纳但未排期，或审计新发现）。zcode 引用（file:line）指向其本地克隆。
+
+| ID | 项 | zcode 机制（file:line） | kcode 落点 | 量级 |
+|---|---|---|---|---|
+| N3E-1 | bash 三段预算输出 | OutputCollector 三预算（bash 内联 30k 字节/落盘/4KB tail；on_truncate 激活时**回放已缓存内联块**保证落盘完整；`output-collector.ts:51-138`） | `bash.ts` 的 64k 一刀切改为：内联 30k 字符 + 溢出全文落 `<artifactsDir>/<callId>.log` + 尾部 2k 与 artifact 路径随结果返回；与 loop 层 `capToolResult` 职责分离（bash 层保全文不丢，loop 层管回灌预算） | 2 天 |
+| N3E-2 | cd 持久的项目边界 | `decideBashCwdPolicy`：持久目录仅项目内保留，越界重置回 workspace root（`bash-cwd-policy.ts:36`） | `bash.ts` 的 `lastCwd` 加边界判定（必须在 ctx.cwd 子树内）——修复"cd 出项目后持久滞留" | 0.5 天 |
+| N3E-3 | 配置 Env/Project 覆盖层 | 五级优先级数值 + **一层浅 spread 非递归深合并** + Env 白名单逐项硬编码（`config-merger.ts:26`、`env-config.adapter.ts:14`） | 补 Env 白名单（KCODE_TIMEOUT_MS/KCODE_MAX_TOOL_CONCURRENCY/代理类）与 Project 层 `.kcode/config.json`（**仅非 provider 字段**：defaultModel 覆盖、features 开关）；providers 锁死用户级不动（kcode 比 zcode 更强的安全边界，不为对齐放弃）；CLI 层（--mode/--disallowed-tools）已有 | 2–3 天 |
+| N3E-4 | `kcode update` 自更新 | zcode 实测**无 TUF**——catalog+semver+SHA-256/尺寸校验+part 临时文件原子落位+pending/current 指针（`releaseDownload.ts:137`），~1,300 行 | kcode 发行链（N2-4）已有 tar.gz+sha256+latest.json+releases+current 指针，只差消费方：`kcode update` 子命令复用安装器逻辑下载校验翻指针，~300 行；sha256+https 即 zcode 同级 | 2 天 |
+| N3E-5 | 凭证机器指纹回退 | `ZCODE_CREDENTIAL_SECRET` 未设时回退指纹 `盐:platform:homedir:username`→sha256→AES-GCM（`credential-cipher.ts:87-101`） | 非 Windows 且未设口令时同款指纹回退（Windows 已有 DPAPI）；威胁模型写入 threat-model：指纹是"防误提交"级（同机可推导），非防本地恶意用户——与 zcode 同级诚实 | 1 天 |
+| N3E-6 | idle 微压缩 | 挂机 >60min 触发微压缩（zcode 后台定时） | kcode 单进程不必后台定时：**下一次用户输入时**检查距上次活动超 60min 即触发压缩——语义等价成本更低 | 0.5 天 |
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
@@ -467,7 +481,7 @@ export interface IPlatformService {
 |---|---|---|---|
 | Agent 循环/流式/并行工具/后台任务 | ✅ | ✅ | 无 |
 | 工具链 read/write/edit/grep/glob/bash | ✅ | ✅ | 无 |
-| 子代理 | ✅ | ✅（同步阻塞模型） | 异步化与消息互通（N3D 两期，§8.4c：对标 zcode 后台运行+命令队列通知+三态投递） |
+| 子代理 | ✅ | ✅（双模：sync 阻塞 / background 异步 + 通知注入 + 子会话落盘 + fan-out 并行） | steer 三态投递与复活（N3D-2，前置 TurnPhase 显式化） |
 | Plan/结构化提问/Todo | ✅ | ✅ | 无 |
 | 上下文压缩/SKILL/AGENTS.md/resume | ✅ | ✅ | 无 |
 | 后台任务显式控制（task_output/task_stop） | ✅ | ✅（工具面补全落地：注册表挂子进程，stop 发信号、状态由 close 回调单一回写） | 无 |
@@ -535,6 +549,8 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **N3D-1 落地（子代理异步化一期，含审计增补三项）**：① `task` 增 `wait:"sync"|"background"`——background 立即回执（agentId + childSessionId），子代理注册进 `BackgroundTaskRegistry`（task_output/task_stop/任务面板直接复用；task_output 对 `sub_` 任务把子会话 JSONL 逐行解析成活动摘要）；② 完成通知经 `notify` 注入（父忙=入队 next 命令走既有 drain，父空闲=直接开新 turn），通知文本带 `[SYSTEM NOTIFICATION - NOT USER INPUT]` 防伪头（TUI 渲染为 📩 系统通知而非用户消息）；③ 幂等 `notified`：sync 的 tool_result 送达即认领、task_output 终态读取即认领，防双送达；④ 子会话双写落盘 `sessions/subagents/sub_<id>.jsonl`（独立子目录不污染 /sessions 清单；回放/审计/二期复活基础）；⑤ `ask_user` 经父端口透传（子代理 base prompt 同步改写）；⑥ contracts 增 `subagent_spawned`/`subagent_stopped` 事件（TUI 🤖 进度行）；⑦ Esc 连杀：composition `abort()` 先杀后台子代理再中断父（挂起工具经 ctx.signal 确定性收敛，中断归一 stopped 态——工具 abort 走抛错路径的也归一）；⑧ **执行器并行组**：`ToolDefinition.concurrentSafe` 声明 + 连续并行工具成组（组内 ≤10 并发）、写类单例组、组间顺序、失败不截断后续组、结果保持原序——修复"混入一个写调用全批串行"，task 声明 concurrentSafe 支撑多子代理 fan-out；⑨ **不活动看门狗（120s）替换 600s 墙钟**（task 移除 timeoutMs，子事件流活动即重置）。测试 +8（executor-groups 5：分组重叠时序/fan-out/串行/失败不截断/预中断；subagent-background 3：组合级全链路含通知注入与子会话落盘/sync 行为不变/连杀归一）。调试教训记录：ScriptedLLM 脚本是扁平 ScriptedTurn[]（嵌套数组会静默空转）；测试桩 hooks 必须返回 `{veto:false}` 形状（pipeline 直读 verdict.veto）。
+- **全量对标审计落地（差异×问题×优化设计）**：① N3D-1 增补两项（执行器并行组 fan-out——`concurrentSafe` 声明+分组执行，修复"混入一个写调用全批串行"；task 不活动看门狗替换 600s 墙钟）；N3D-2 增前置任务（TurnPhase 显式化——原 benchmark §3"微调"定级升格；steer 状态独立成层的 zcode 教训）；② 新增 §8.4d N3E 执行层体验批六项（bash 三段预算/cd 项目边界/配置 Env+Project 覆盖层/kcode update 自更新/凭证机器指纹回退/idle 微压缩）；③ **ADR-11 修正**：zcode 实测**无 TUF**（仅 SHA-256+尺寸校验，`releaseDownload.ts:137`），kcode 基线改为 sha256+https 同级、TUF 降为可选增强；④ §7 诚实边界增两条（Static 转写不可逆约束；子代理结论信任链）。依据：zcode 六子系统源码解剖（OutputCollector/五级合并/TurnPhase/更新链/凭证指纹/调度器）。
 - **N3D 设计定稿（子代理异步化与消息互通，采纳 zcode 模式）**：新增 §8.4c 两期设计——一期 N3D-1（后台子代理 + 完成通知经 RuntimeCommandQueue 注入 + 子会话 JsonlSessionSink 落盘 + ask_user 透传 + spawned/stopped 事件 + notified 幂等 + 防伪头，~1 周，全部复用既有积木）；二期 N3D-2（AgentLoop 步边界 drain 钩子 + SendMessage 三态投递 steer/排队/复活 + RespondToCoordinator 异步单向，1-2 周）。依据：对 zcode 本地克隆（`29628c9`）的源码解剖（SendMessage 三态投递 `runner.ts:900-1062`、通知=命令队列 `runtime-command-queue.ts:317`、detach/幂等/账本等机制，详见 benchmark §1.5 修订）。明确不抄：profile 系统、持久通知账本、branchGeneration、闲时轮拒发、toolCallId 镜像重写。§0 路线图、§9.1 子代理行、§9.2 进度卡行同步。
 - **工具面补全落地（第五批）**：① `task_output`/`task_stop`（对标 zcode TaskOutput/TaskStop）——`BackgroundTaskRegistry` 增子进程引用（`attach` 挂 track 后的 child、close 自摘、`stop` 发终止信号；Windows 不追杀孙进程——与前台超时同边界）；状态翻转仍由 close 回调单一回写（stop 只发信号，无双写）；权限：task_output 只读放行，task_stop 默认询问/plan 档拒绝。② `skill` 显式工具——技能正文第三条加载通道（自动触发 / 手动 /skill 之外，模型按名读取）；描述内联当前可用技能名；`skill_used` 契约 trigger 扩 `"tool"`（读旧文件兼容），TUI 回显"模型调用"。③ sessions read 增 `detail=full`（ReadSessionContext 语义）——从最近往前全文装填、8000 字符预算、超限标注省略条数（续接场景要的是会话末端完整状态）；summary 浓缩模式保持默认。**SendMessage 评估结论**：需要异步子代理运行时（子代理后台化 + task-notification 事件 + 消息路由），是架构级改动而非工具增补——独立批落地，不塞进工具面小步节奏。测试 +9（task-tools 3 含真实启动/终止链路；skill-tool 2；sessions-read 4 含超预算截断）。
 - **N3C-4⑤⑥⑦ 落地（第四批快赢，N3C-4 全部收尾）**：⑤ Ctrl+V 剪贴板贴图——终端不传图片数据，`clipboard-image.ts` 经 PowerShell WinForms（-STA）读剪贴板位图落盘 PNG（v1 仅 Windows，其他平台提示走 `--image`）；`pendingImages` 入共享 slice（去重增删清），输入区上方指示器；空闲提交随消息发送（`runDispatch` 增 images 参数、普通提问路径消费、斜杠路径不消费），排队不消费附件、清空时机在 App.submit 守卫之后（exit/空输入不丢已贴图）。⑥ Ctrl+R 历史搜索覆盖层——`HistorySearch.tsx` 自持键位（字符/退障编辑查询、↑↓ 选择、Enter 回填 App setInput、Esc 关闭），跨会话输入历史（~/.kcode/cli/history.json 最近 50 条）子串过滤最近优先；keybinds 层让行守卫覆盖三种覆盖层。⑦ 欢迎横幅键位发现性两行（Ctrl+O/B/T/E/V/R + /help 全览）。测试 +6（input-extras：slice 1/贴图与随行 1/历史搜索 1/横幅 1/Windows 真实剪贴板往返 1（WinForms 置图→读 PNG 魔数，无剪贴板服务环境自动跳过）/非 Windows 降级 1）。
