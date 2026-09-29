@@ -75,6 +75,10 @@ export interface TranscriptSlice {
   toolBrowser: ToolBrowserState;
   backgroundTasks: BgTaskView[];
   taskBrowser: TaskBrowserState;
+  /** 待随下一条消息发送的图片附件（N3C-4⑤ Ctrl+V 贴图）；提交或会话重置时清空 */
+  pendingImages: string[];
+  /** 历史搜索覆盖层开关（N3C-4⑥ Ctrl+R）；query/cursor 是覆盖层局部态 */
+  historySearchOpen: boolean;
 
   pushBlock(block: Block): void;
   appendStream(delta: string): void;
@@ -98,6 +102,13 @@ export interface TranscriptSlice {
   closeTaskBrowser(): void;
   moveTaskCursor(delta: number): void;
   toggleTaskDetail(): void;
+  /** 图片附件（Ctrl+V 贴图 / --image 同管线） */
+  addPendingImage(path: string): void;
+  removePendingImage(path: string): void;
+  clearPendingImages(): void;
+  /** 历史搜索覆盖层 */
+  openHistorySearch(): void;
+  closeHistorySearch(): void;
   resetTranscript(): void;
 }
 
@@ -122,6 +133,8 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   toolBrowser: { open: false, cursor: 0, expandedCallId: null },
   backgroundTasks: [],
   taskBrowser: { open: false, cursor: 0, expandedId: null },
+  pendingImages: [],
+  historySearchOpen: false,
   pushBlock: (block) => set((state) => ({ blocks: [...state.blocks, block] })),
   appendStream: (delta) => set((state) => ({ streamText: state.streamText + delta })),
   flushAssistant: () => {
@@ -176,6 +189,12 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       const expandedId = state.taskBrowser.expandedId === current.id ? null : current.id;
       return { taskBrowser: { ...state.taskBrowser, expandedId } };
     }),
+  addPendingImage: (path) =>
+    set((state) => (state.pendingImages.includes(path) ? state : { pendingImages: [...state.pendingImages, path] })),
+  removePendingImage: (path) => set((state) => ({ pendingImages: state.pendingImages.filter((p) => p !== path) })),
+  clearPendingImages: () => set({ pendingImages: [] }),
+  openHistorySearch: () => set({ historySearchOpen: true }),
+  closeHistorySearch: () => set({ historySearchOpen: false }),
   resetTranscript: () =>
     set({
       blocks: [],
@@ -185,5 +204,7 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       toolBrowser: { open: false, cursor: 0, expandedCallId: null },
       backgroundTasks: [],
       taskBrowser: { open: false, cursor: 0, expandedId: null },
+      pendingImages: [],
+      historySearchOpen: false,
     }),
 });

@@ -95,7 +95,10 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           {`${block.model} · ${block.cwd}`}
         </Text>
         <Text dimColor wrap="truncate-end">
-          输入 / 弹出命令菜单 · /help 全部命令 · Ctrl+O 展开思考 · Ctrl+B 工具卡片浏览
+          输入 / 弹出命令菜单 · Ctrl+O 展开思考 · Ctrl+B 工具卡 · Ctrl+T 后台任务
+        </Text>
+        <Text dimColor wrap="truncate-end">
+          Ctrl+E 编辑器写长输入 · Ctrl+V 贴图 · Ctrl+R 搜历史 · /help 全部命令
         </Text>
       </Box>
     );

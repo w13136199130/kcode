@@ -57,7 +57,7 @@ export interface DispatchContext {
   onQueueChange(items: readonly QueuedCommand[]): void;
 }
 
-export async function runDispatch(ctx: DispatchContext, text: string): Promise<void> {
+export async function runDispatch(ctx: DispatchContext, text: string, images?: string[]): Promise<void> {
   /** 分发一条输入（submit 直达或排空递归）：解析 !/斜杠命令与纯文本 */
     // ! 前缀：用户直执行 shell（不经 LLM、不问权限；结果仅显示）
     if (text.startsWith("!") && text.slice(1).trim() !== "") {
@@ -432,6 +432,9 @@ ${servers
     ctx.setInput("");
     ctx.saveHistory(text);
     ctx.resetAbortSent();
-    await ctx.runOccupied(ctx.session, text, () => ctx.session.loop.run(text));
-  
+    // 图片附件（N3C-4⑤）只随普通提问发送；斜杠/自定义命令路径不消费 images
+    await ctx.runOccupied(ctx.session, text, () =>
+      ctx.session.loop.run(text, images !== undefined && images.length > 0 ? { images } : {}),
+    );
+
 }

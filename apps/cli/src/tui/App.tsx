@@ -313,8 +313,8 @@ export function KcodeApp(props: KcodeAppProps) {
     }
   };
 
-  /** 输入提交：运行中入队（N2-2），空闲直接分发 */
-  const submit = async (value: string): Promise<void> => {
+  /** 输入提交：运行中入队（N2-2，不带附件），空闲直接分发（携带图片附件 N3C-4⑤） */
+  const submit = async (value: string, images?: string[]): Promise<void> => {
     const text = value.trim();
     if (text === "" || sessionRef.current === null) return;
     if (text === "exit" || text === "quit") {
@@ -330,7 +330,9 @@ export function KcodeApp(props: KcodeAppProps) {
       pushBlock({ kind: "info", text: `⧗ 本轮运行中，已排队（第 ${session.commandQueue.size} 位）：${preview}——Esc/Ctrl+C 中断将清空排队` });
       return;
     }
-    await dispatch(text);
+    // 守卫全部通过才清附件：exit/空输入不应丢掉已贴的图
+    ui.getState().clearPendingImages();
+    await dispatch(text, images);
   };
 
   /** 记录输入历史（截断 50 条并持久化） */
@@ -340,7 +342,7 @@ export function KcodeApp(props: KcodeAppProps) {
   };
 
   /** 分发一条输入（submit 直达或排空递归）：解析与执行在 input/commands.ts（N2-3 外迁） */
-  const dispatch = async (text: string): Promise<void> => {
+  const dispatch = async (text: string, images?: string[]): Promise<void> => {
     const session = sessionRef.current;
     if (session === null) return;
     await runDispatch(
@@ -378,6 +380,7 @@ export function KcodeApp(props: KcodeAppProps) {
         onQueueChange: (items) => ui.getState().setQueuedCount(items.length),
       },
       text,
+      images,
     );
   };
 

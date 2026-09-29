@@ -25,13 +25,13 @@ export function useKeybinds(deps: {
 }): void {
   const lastIdleEscAt = useRef(0);
   const lastCtrlCAt = useRef(0);
-  // 任一浏览器打开时其余键位让行（同一时刻只有一个键位层生效；两浏览器互斥由 slice 保证）
+  // 任一覆盖层打开时其余键位让行（同一时刻只有一个键位层生效；两浏览器互斥由 slice 保证）
   const overlayActive = (): boolean => {
-    const { toolBrowser, taskBrowser } = deps.ui.getState();
-    return toolBrowser.open || taskBrowser.open;
+    const { toolBrowser, taskBrowser, historySearchOpen } = deps.ui.getState();
+    return toolBrowser.open || taskBrowser.open || historySearchOpen;
   };
 
-  // Esc：浏览器打开时仅关闭浏览器；busy 时中断（菜单占用时 Esc 归菜单）；空闲双击 → /rewind
+  // Esc：浏览器打开时仅关闭浏览器；历史搜索自己处理 Esc（这里只让行）；busy 时中断（菜单占用时 Esc 归菜单）；空闲双击 → /rewind
   useInput(
     (_ch, key) => {
       if (!key.escape) return;
@@ -43,6 +43,9 @@ export function useKeybinds(deps: {
       if (state.taskBrowser.open) {
         state.closeTaskBrowser();
         return;
+      }
+      if (state.historySearchOpen) {
+        return; // HistorySearch 组件自己消费 Esc（关闭并回填输入）
       }
       if (deps.busy) {
         deps.interruptRun();

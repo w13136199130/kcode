@@ -424,7 +424,7 @@ export interface IPlatformService {
 | N3C-1 | headless flag 组（**已落地**）：`-p/--prompt`；`--mode`（四档，headless 语义=ask 即拒，走同一 applyMode 路径）；`--json`（NDJSON 复用 SessionEvent + jsonlLine，末行 CLI 级 result 记录）；`--cwd`（chdir 先于一切 IO）；`--attach`（v1=图片并入 `--image` 管线）；`--disallowed-tools`（组装期过滤全集含 MCP/task/plan_submit，子代理继承，未知名 fail-fast）；`-c` 别名；`--` 分隔。**行为变更**：未知 flag 从静默并入提问改为报错 | 无 TTY 下 `kcode -p "..." --json --mode plan` 全链路可跑且输出可 `jq` 解析；`--disallowed-tools "write edit"` 后该次会话无此二工具 |
 | N3C-2 | `doctor` 子命令（**已落地**）：Node≥22 / 配置与默认模型 / 钥匙串（DPAPI 或口令）/ 默认 key 探测（probe）/ rg 落点 / mcp.json 解析 / 会话目录可写 / 终端能力（⚠ 级） | 异常环境一命令定位；有 ✗ 退出码 1 |
 | N3C-3 | 管理类子命令（**已落地**：`skills list`、`commands list`、`plugins enable/disable` + list 显示 [已停用]；停用状态 `~/.kcode/cli/plugins/state.json` 原子写，`validate/update/marketplace` 后续） | 根构造提取为 `@kcode/extensions.buildExtensionRoots` 单一事实源，会话组装与 CLI 盘点同源 |
-| N3C-4 | TUI 交互补全（**①②③④已落地**，其余后批；差距全景见 §9.2，按性价比排序）：① 状态栏常驻上下文余量/用量/git 分支（事件驱动 busy 收尾沿刷新 + 60s 分支采样，>85% 转警示色，共享 slice 供 Web 同源）；② 工具卡片逐块展开（**Ctrl+B 浏览器**：覆盖层面板从 blocks 数据渲染——Static 块不重绘所以不做原地展开；↑↓ 选卡/Enter 展开详情/Ctrl+B/Esc 关闭；键位统一在 keybinds.ts，面板经 InputArea 顶替输入区避免方向键双响应）；③ 后台任务面板（**Ctrl+T**：bash 注册表在 composition 创建并注入工具（会话级单一事实），面板打开期间 1s 轮询快照 + 日志尾部按需读取，与工具浏览器互斥/同键位模式）；④ Ctrl+E 外部编辑长输入（$EDITOR 临时文件回填，仅空闲可用——spawnSync 阻塞事件循环；平台兜底 notepad/vi）；⑤ 剪贴板图片粘贴（并入 `--image` 管线）；⑥ 跨会话历史搜索；⑦ 空态欢迎与建议提示 | §9.2 标"缺"的行逐项消缺 |
+| N3C-4 | TUI 交互补全（**①—⑦全部落地，本批收尾**）：① 状态栏常驻上下文余量/用量/git 分支；② 工具卡片逐块展开（Ctrl+B 覆盖层浏览器）；③ 后台任务面板（Ctrl+T，注册表会话级注入 + 1s 轮询 + 日志尾部）；④ Ctrl+E 外部编辑长输入（$EDITOR 回填，仅空闲）；⑤ Ctrl+V 剪贴板贴图（Windows 经 WinForms 读位图落盘 PNG，v1 仅 Windows、其他平台提示走 --image；pendingImages 状态 + 指示器，空闲提交随行、排队不消费避免静默丢失，清空在 App 守卫之后防 exit 丢图）；⑥ Ctrl+R 历史搜索覆盖层（跨会话输入历史子串过滤、Enter 回填输入框）；⑦ 欢迎横幅键位发现性两行（全部快赢键位一览） | §9.2 对应行全部达标 |
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
@@ -485,16 +485,16 @@ export interface IPlatformService {
 | git 分支/工作区状态注入 | ✅（statusline） | ✅ | ✅（git snapshot） | ✅（N3C-4①：⎇ 分支段，60s 采样） | 已达标 |
 | 可定制 statusline（脚本注入） | ✅（/statusline） | ⚠️ | ✅ tokens | ❌ | 后置评估 |
 | 外部编辑器（$EDITOR 长输入/计划） | ✅（Ctrl+G 计划） | ✅（leader+e） | ✅ | ✅（N3C-4④：Ctrl+E，空闲态编辑当前输入并回填） | 计划编辑后批 |
-| 剪贴板图片粘贴 | ✅ | ✅ | ✅ | ⚠️ 仅 `--image` flag | N3C-4⑤ |
+| 剪贴板图片粘贴 | ✅ | ✅ | ✅ | ✅（N3C-4⑤：Ctrl+V 贴图为附件随消息发送；v1 仅 Windows） | 已达标（平台覆盖后续） |
 | Tab 路径/斜杠参数补全 | ✅ | ✅ | ✅ | ⚠️ @ 补全有；Tab 路径与命令参数提示无 | 小项 |
-| 跨会话历史搜索 | ✅（Ctrl+R） | ⚠️ | ✅ | ❌（历史已持久化，缺搜索 UI） | N3C-4⑥ |
+| 跨会话历史搜索 | ✅（Ctrl+R） | ⚠️ | ✅ | ✅（N3C-4⑥：Ctrl+R 覆盖层，子串过滤 + Enter 回填） | 已达标 |
 | Esc Esc 回退（代码/对话/两者分粒度） | ✅ | ✅（revert/fork 消息级） | ✅ | ⚠️ rewind picker 有；粒度未分 | 小项 |
 | 后台任务浏览面板 | ✅ | ⚠️ | ✅ | ✅（N3C-4③：Ctrl+T 面板，1s 轮询 + 日志尾部） | 已达标 |
 | 子代理进度卡（代理名/活动态/层级导航） | ✅ | ✅（parent/child 导航） | ✅ | ⚠️ 仅工具状态行 | 随消息互通一起做 |
 | 会话侧栏/timeline/分享链接 | ⚠️（/resume picker） | ✅（sidebar+timeline+share） | ✅ | ⚠️ resume picker；share 无 | share 属 N4-2 |
 | 消息/输入级 undo-redo | ⚠️ | ✅（leader+u/r + 输入 undo） | ✅ | ❌ | 小项 |
 | leader/命令面板（动作可发现性） | ⚠️（IDE 侧） | ✅（leader+ctrl+p） | ✅ | ⚠️ OptionsMenu 有；无统一面板 | 后置评估 |
-| 空态欢迎/建议/提示 | ✅ | ✅ | ✅ | ⚠️ 输入提示行 | N3C-4⑦ |
+| 空态欢迎/建议/提示 | ✅ | ✅ | ✅ | ✅（N3C-4⑦：横幅两行键位一览；建议提示词后续可加） | 已达标 |
 | 技能触发透明（回显加载来源） | ✅ | ✅ | ✅ | ✅（skill_used 回显"自动/手动"） | 已达标 |
 | 思考流独立层 | ✅ | ✅ | ✅ | ✅（思考行 + Ctrl+O 展开） | 已达标 |
 | Todo 实时面板 | ✅ | ✅ | ✅ | ✅ | 已达标 |
@@ -518,6 +518,7 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **N3C-4⑤⑥⑦ 落地（第四批快赢，N3C-4 全部收尾）**：⑤ Ctrl+V 剪贴板贴图——终端不传图片数据，`clipboard-image.ts` 经 PowerShell WinForms（-STA）读剪贴板位图落盘 PNG（v1 仅 Windows，其他平台提示走 `--image`）；`pendingImages` 入共享 slice（去重增删清），输入区上方指示器；空闲提交随消息发送（`runDispatch` 增 images 参数、普通提问路径消费、斜杠路径不消费），排队不消费附件、清空时机在 App.submit 守卫之后（exit/空输入不丢已贴图）。⑥ Ctrl+R 历史搜索覆盖层——`HistorySearch.tsx` 自持键位（字符/退障编辑查询、↑↓ 选择、Enter 回填 App setInput、Esc 关闭），跨会话输入历史（~/.kcode/cli/history.json 最近 50 条）子串过滤最近优先；keybinds 层让行守卫覆盖三种覆盖层。⑦ 欢迎横幅键位发现性两行（Ctrl+O/B/T/E/V/R + /help 全览）。测试 +6（input-extras：slice 1/贴图与随行 1/历史搜索 1/横幅 1/Windows 真实剪贴板往返 1（WinForms 置图→读 PNG 魔数，无剪贴板服务环境自动跳过）/非 Windows 降级 1）。
 - **N3C-4③④ 落地（第三批快赢）**：③ 后台任务面板——`BackgroundTaskRegistry` 从 `createBashTool` 内部提升为 composition 创建并经 `BashToolOptions.registry` 注入（会话级单一事实，`ComposedSession/SessionHandle.backgroundTasks()` 透出）；`Ctrl+T` 覆层面板（打开期间 1s 轮询快照 + 展开时异步读日志尾部 40 行），与工具浏览器互斥、同一键位模式（↑↓/Enter/Esc，Ctrl+B/Ctrl+T 互为切换）；ui 层新增 `BgTaskView` 视图类型（不引 tools 包，守住分层）。④ Ctrl+E 外部编辑长输入——`external-editor.ts`（$EDITOR 临时文件回填，未设时 notepad/vi 兜底，空文件=放弃保持原输入）；键位放 InputArea（需要输入值与回填通道），仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染——代码注释已注明约束）；失败路径保证 raw mode 恢复。测试 +8（bash 注册表注入 1；task-browser 7：slice 2/渲染 2/键位互斥 1/编辑器 2 含真实 Ctrl+E→假编辑器→回填链路）。
 - **N3C-4② + N3-5 落地（第二批快赢）**：① 工具卡片逐块展开——覆盖层浏览器形态（Static 架构下已完成的块不再重绘，原地展开不可行）；`packages/ui` transcript slice 增 `ToolBrowserState`（open/cursor/expandedCallId，clamp 与切换语义在 slice）；键位统一 `keybinds.ts`（Ctrl+B 开关、↑↓ 移动、Enter 展开、Esc 关闭并让行其余键位层）；面板 `ToolBrowser.tsx` 纯渲染（10 行窗口 + 40 行详情上限）；`InputArea.tsx` 抽离 App 的输入区三态装配（浏览器打开顶替输入框，方向键无第二消费者——App.tsx 反降至 494 行）；② 插件加载期 hash 校验——`hashDirectory` 支持排除项（seed 自身：安装是"先算哈希后写 seed"，计入则永假）、`verifyPluginSeed` 导出、`buildExtensionRoots` 校验失败拒绝装载 + onWarn（会话组装与 CLI 盘点同点收口）、`plugin list` 显示 ⚠。测试 +9（tool-browser 7：slice 4/渲染 2/键位链路 1；plugins 校验 2）。§2.3 仍开放缺陷收敛为 2 条；§7 B5 与已知边界同步（诚实注记：加载期校验防"装后被改"，不防"装时即恶"——后者属 N4-4 签名）。
 - **N3C 快赢批落地（N3C-1/2/3 + N3C-4①）**：① `apps/cli/src/args.ts` 纯函数解析器（-p/--mode/--json/--cwd/--attach/--disallowed-tools/-c/--，未知 flag 由静默并入提问收紧为报错）+ `headless.ts` 无 TUI 运行路径（NDJSON 复用 SessionEvent+jsonlLine，末行 CLI 级 result 记录，退出码 0/1/130）+ `doctor.ts` 八项自检（✗ 即 exit 1）+ `inspect.ts` 盘点（skills/commands list）+ plugin enable/disable（`state.json` 原子写，list 标注 [已停用]）；② 单一事实源——根构造提取为 `@kcode/extensions.buildExtensionRoots`，`packages/session` 组装与 CLI 盘点共用，停用过滤同点生效；③ `ComposeSessionOptions` 增 `initialMode`（与 /mode 同一 applyMode 路径）与 `disallowedTools`（全集 fail-fast + 子代理继承）；④ TUI 状态栏常驻（`packages/ui` run-status slice 增 `UsageStats`；`tui/state/status-data.ts` busy 收尾沿刷新 + git 分支 60s 采样；StatusBar 三段渲染 >85% 警示色）。测试 +38（args 10/doctor 4/inspect 3/headless 3/statusbar 5/plugins-state+roots 6/session-options 5 全绿，全套 76 文件 369 用例通过）；行数治理：composition.ts 497→473（`resume.ts` 外迁续接/信任工具），App.tsx 498/500 压线（status-data 模块化）。工具名澄清：kcode 工具名为小写（write/edit 非 Write/Edit）。
