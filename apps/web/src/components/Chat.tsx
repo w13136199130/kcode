@@ -22,11 +22,17 @@ export function Chat({ conn }: { conn: HostConnection }) {
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 已处理事件偏移——events 是累积数组，effect 每次只处理新增部分（否则旧事件重复渲染）
+  const processedRef = useRef(0);
+  // streamText 的同步镜像（在 useEffect 里读 state 会拿到旧值）
+  const streamTextRef = useRef("");
+  streamTextRef.current = streamText;
 
-  // 事件流 → 块列表
+  // 事件流 → 块列表（增量处理：只消费 slice(processedRef.current) 的新事件）
   useEffect(() => {
-    const unhandled: HostEvent[] = [];
-    for (const ev of conn.events) {
+    const newEvents = conn.events.slice(processedRef.current);
+    processedRef.current = conn.events.length;
+    for (const ev of newEvents) {
       switch (ev.type) {
         case "session/created":
           setSessionId(ev.sessionId);
@@ -42,12 +48,14 @@ export function Chat({ conn }: { conn: HostConnection }) {
           } else if (se.type === "tool_call") {
             setBlocks((b) => [...b, { kind: "tool", text: `⚙ ${se.tool ?? "unknown"}…` }]);
           } else if (se.type === "tool_result") {
-            const last = blocks.at(-1);
-            if (last !== undefined && last.kind === "tool") {
-              setBlocks((b) => [...b.slice(0, -1), { kind: "tool", text: `⚙ ${last.text} ${se.output?.slice(0, 200) ?? ""}` }]);
-            } else {
-              setBlocks((b) => [...b, { kind: "info", text: se.output?.slice(0, 200) ?? "" }]);
-            }
+            // 用函数式更新读最新 blocks，避免闭包里的旧值
+            setBlocks((b) => {
+              const last = b.at(-1);
+              if (last !== undefined && last.kind === "tool") {
+                return [...b.slice(0, -1), { kind: "tool", text: `${last.text} ${se.output?.slice(0, 200) ?? ""}` }];
+              }
+              return [...b, { kind: "info", text: se.output?.slice(0, 200) ?? "" }];
+            });
           } else if (se.type === "llm_error") {
             setBlocks((b) => [...b, { kind: "info", text: `✗ 模型调用失败：${se.text ?? ""}`, tone: "warn" }]);
           } else if (se.type === "session_end") {
@@ -59,13 +67,12 @@ export function Chat({ conn }: { conn: HostConnection }) {
           setStreamText((prev) => prev + ev.text);
           break;
         case "session/summary":
-          // 一轮完成：流式缓冲定格为 assistant 块
-          setStreamText((prev) => {
-            if (prev !== "") {
-              setBlocks((b) => [...b, { kind: "assistant", text: prev }]);
-            }
-            return "";
+          // 一轮完成：流式缓冲定格为 assistant 块（不在 setState 回调里做副作用）
+          setBlocks((b) => {
+            const current = streamTextRef.current;
+            return current !== "" ? [...b, { kind: "assistant", text: current }] : b;
           });
+          setStreamText("");
           setBusy(false);
           break;
         case "notice":
@@ -75,10 +82,9 @@ export function Chat({ conn }: { conn: HostConnection }) {
           setBlocks((b) => [...b, { kind: "info", text: `⚠ ${ev.reason}`, tone: "warn" }]);
           break;
         default:
-          unhandled.push(ev);
+          break;
       }
     }
-    void unhandled;
   }, [conn.events]);
 
   // 自动滚动到底
