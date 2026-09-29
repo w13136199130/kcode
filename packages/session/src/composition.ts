@@ -30,6 +30,7 @@ import { newId, workspaceKey } from "@kcode/shared";
 import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx, BackgroundTaskRegistry } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
+import { buildSkillTool } from "./skill-tool.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
 import { runUserBash } from "./user-bash.js";
@@ -263,6 +264,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       registry: bashTasks,
     }),
     createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
+    // Skill 显式工具：模型按名读技能正文（渐进加载的显式通道，与自动触发/手动 /skill 共存）
+    buildSkillTool({ skills, sink, sessionId }),
     ...createWebTools(),
     ...mcpSessions.flatMap((s) => s.tools),
     ...pluginMcpSessions.flatMap((s) => s.tools),

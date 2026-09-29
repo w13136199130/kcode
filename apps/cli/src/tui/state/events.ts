@@ -88,7 +88,9 @@ export function makeEventHandler(deps: {
       case "skill_used":
         pushBlock({
           kind: "info",
-          text: `📖 技能 ${event.skill} 已加载（${event.trigger === "auto" ? "自动触发" : "手动"}）`,
+          text: `📖 技能 ${event.skill} 已加载（${
+            event.trigger === "auto" ? "自动触发" : event.trigger === "tool" ? "模型调用" : "手动"
+          }）`,
         });
         break;
       default:

@@ -92,7 +92,8 @@ export const SkillUsedEvent = z.object({
   ts,
   sessionId,
   skill: z.string().min(1),
-  trigger: z.enum(["auto", "manual"]),
+  /** auto=触发词自动注入 / manual=用户 /skill 命令 / tool=模型经 skill 工具显式加载 */
+  trigger: z.enum(["auto", "manual", "tool"]),
 });
 
 export const RunStatus = z.enum(["completed", "failed", "aborted", "limit_reached", "rejected"]);

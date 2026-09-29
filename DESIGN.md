@@ -453,9 +453,12 @@ export interface IPlatformService {
 |---|---|---|---|
 | Agent 循环/流式/并行工具/后台任务 | ✅ | ✅ | 无 |
 | 工具链 read/write/edit/grep/glob/bash | ✅ | ✅ | 无 |
-| 子代理 | ✅ | ✅ | 消息互通 SendMessage/RespondToCoordinator（N2 补） |
+| 子代理 | ✅ | ✅ | 消息互通 SendMessage/RespondToCoordinator（需异步子代理运行时，独立批落地） |
 | Plan/结构化提问/Todo | ✅ | ✅ | 无 |
 | 上下文压缩/SKILL/AGENTS.md/resume | ✅ | ✅ | 无 |
+| 后台任务显式控制（task_output/task_stop） | ✅ | ✅（工具面补全落地：注册表挂子进程，stop 发信号、状态由 close 回调单一回写） | 无 |
+| Skill 显式工具 | ✅ | ✅（模型按名读正文；skill_used 契约扩 trigger=tool） | 无 |
+| 会话上下文回读（ReadSessionContext） | ✅ | ✅（sessions read 增 detail=full：从最近往前全文装填，8000 字符预算） | 无 |
 | MCP/Hooks/斜杠命令/插件安装 | ✅ | ✅ | 加载期 hash（N3-5） |
 | CLI 入口层（-p/--mode/--json/--cwd/--attach/--disallowed-tools） | ✅ | ✅（N3C-1 落地：`apps/cli/src/args.ts` + `headless.ts`） | 无 |
 | doctor 自检 | ✅ | ✅（N3C-2 落地：`apps/cli/src/doctor.ts`） | 无 |
@@ -518,6 +521,7 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **工具面补全落地（第五批）**：① `task_output`/`task_stop`（对标 zcode TaskOutput/TaskStop）——`BackgroundTaskRegistry` 增子进程引用（`attach` 挂 track 后的 child、close 自摘、`stop` 发终止信号；Windows 不追杀孙进程——与前台超时同边界）；状态翻转仍由 close 回调单一回写（stop 只发信号，无双写）；权限：task_output 只读放行，task_stop 默认询问/plan 档拒绝。② `skill` 显式工具——技能正文第三条加载通道（自动触发 / 手动 /skill 之外，模型按名读取）；描述内联当前可用技能名；`skill_used` 契约 trigger 扩 `"tool"`（读旧文件兼容），TUI 回显"模型调用"。③ sessions read 增 `detail=full`（ReadSessionContext 语义）——从最近往前全文装填、8000 字符预算、超限标注省略条数（续接场景要的是会话末端完整状态）；summary 浓缩模式保持默认。**SendMessage 评估结论**：需要异步子代理运行时（子代理后台化 + task-notification 事件 + 消息路由），是架构级改动而非工具增补——独立批落地，不塞进工具面小步节奏。测试 +9（task-tools 3 含真实启动/终止链路；skill-tool 2；sessions-read 4 含超预算截断）。
 - **N3C-4⑤⑥⑦ 落地（第四批快赢，N3C-4 全部收尾）**：⑤ Ctrl+V 剪贴板贴图——终端不传图片数据，`clipboard-image.ts` 经 PowerShell WinForms（-STA）读剪贴板位图落盘 PNG（v1 仅 Windows，其他平台提示走 `--image`）；`pendingImages` 入共享 slice（去重增删清），输入区上方指示器；空闲提交随消息发送（`runDispatch` 增 images 参数、普通提问路径消费、斜杠路径不消费），排队不消费附件、清空时机在 App.submit 守卫之后（exit/空输入不丢已贴图）。⑥ Ctrl+R 历史搜索覆盖层——`HistorySearch.tsx` 自持键位（字符/退障编辑查询、↑↓ 选择、Enter 回填 App setInput、Esc 关闭），跨会话输入历史（~/.kcode/cli/history.json 最近 50 条）子串过滤最近优先；keybinds 层让行守卫覆盖三种覆盖层。⑦ 欢迎横幅键位发现性两行（Ctrl+O/B/T/E/V/R + /help 全览）。测试 +6（input-extras：slice 1/贴图与随行 1/历史搜索 1/横幅 1/Windows 真实剪贴板往返 1（WinForms 置图→读 PNG 魔数，无剪贴板服务环境自动跳过）/非 Windows 降级 1）。
 - **N3C-4③④ 落地（第三批快赢）**：③ 后台任务面板——`BackgroundTaskRegistry` 从 `createBashTool` 内部提升为 composition 创建并经 `BashToolOptions.registry` 注入（会话级单一事实，`ComposedSession/SessionHandle.backgroundTasks()` 透出）；`Ctrl+T` 覆层面板（打开期间 1s 轮询快照 + 展开时异步读日志尾部 40 行），与工具浏览器互斥、同一键位模式（↑↓/Enter/Esc，Ctrl+B/Ctrl+T 互为切换）；ui 层新增 `BgTaskView` 视图类型（不引 tools 包，守住分层）。④ Ctrl+E 外部编辑长输入——`external-editor.ts`（$EDITOR 临时文件回填，未设时 notepad/vi 兜底，空文件=放弃保持原输入）；键位放 InputArea（需要输入值与回填通道），仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染——代码注释已注明约束）；失败路径保证 raw mode 恢复。测试 +8（bash 注册表注入 1；task-browser 7：slice 2/渲染 2/键位互斥 1/编辑器 2 含真实 Ctrl+E→假编辑器→回填链路）。
 - **N3C-4② + N3-5 落地（第二批快赢）**：① 工具卡片逐块展开——覆盖层浏览器形态（Static 架构下已完成的块不再重绘，原地展开不可行）；`packages/ui` transcript slice 增 `ToolBrowserState`（open/cursor/expandedCallId，clamp 与切换语义在 slice）；键位统一 `keybinds.ts`（Ctrl+B 开关、↑↓ 移动、Enter 展开、Esc 关闭并让行其余键位层）；面板 `ToolBrowser.tsx` 纯渲染（10 行窗口 + 40 行详情上限）；`InputArea.tsx` 抽离 App 的输入区三态装配（浏览器打开顶替输入框，方向键无第二消费者——App.tsx 反降至 494 行）；② 插件加载期 hash 校验——`hashDirectory` 支持排除项（seed 自身：安装是"先算哈希后写 seed"，计入则永假）、`verifyPluginSeed` 导出、`buildExtensionRoots` 校验失败拒绝装载 + onWarn（会话组装与 CLI 盘点同点收口）、`plugin list` 显示 ⚠。测试 +9（tool-browser 7：slice 4/渲染 2/键位链路 1；plugins 校验 2）。§2.3 仍开放缺陷收敛为 2 条；§7 B5 与已知边界同步（诚实注记：加载期校验防"装后被改"，不防"装时即恶"——后者属 N4-4 签名）。

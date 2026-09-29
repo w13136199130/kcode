@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
@@ -40,6 +40,8 @@ export interface BackgroundTask {
 
 export class BackgroundTaskRegistry {
   readonly #tasks = new Map<string, BackgroundTask>();
+  /** 运行中任务的子进程引用（task_stop 终止用）；进程退出即清理 */
+  readonly #children = new Map<string, ChildProcess>();
 
   list(): BackgroundTask[] {
     return [...this.#tasks.values()];
@@ -58,6 +60,25 @@ export class BackgroundTaskRegistry {
     if (task !== undefined) {
       Object.assign(task, patch);
     }
+  }
+
+  /** 挂子进程引用（track 之后调用）；close 后自动摘除 */
+  attach(id: string, child: ChildProcess): void {
+    this.#children.set(id, child);
+    child.on("close", () => this.#children.delete(id));
+  }
+
+  /**
+   * 终止运行中的后台任务；返回是否真的发送了终止信号。
+   * Windows 上 kill 只终止直接子进程（孙进程不追杀）——与前台超时同一边界。
+   */
+  stop(id: string): boolean {
+    const child = this.#children.get(id);
+    if (child === undefined || child.killed || child.exitCode !== null) {
+      return false;
+    }
+    child.kill();
+    return true;
   }
 }
 
@@ -120,6 +141,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
           windowsHide: true,
         });
         registry.track({ id, command, status: "running", logPath, startedAt: Date.now() });
+        registry.attach(id, child);
         child.on("error", (err) => {
           registry.update(id, { status: "failed" });
           void logFile.close();

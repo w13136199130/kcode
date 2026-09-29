@@ -192,7 +192,7 @@ SKILL.md = YAML frontmatter（`name`/`description` 含触发词/`allowed-tools`/
 | RPC | 无 | stdio JSON-Line（简化版） | N3-1 |
 | Agent 循环 | AgentLoop 单进程 | 已对标；缺单 turn 状态机显式化 | 微调 |
 | 工具契约 | 各工具独立实现 | 统一 ToolEntry（schema+permission+resultBudget+timeout） | N2-3 |
-| 工具清单 | 缺 ReadSessionContext/消息互通/后台控制/调度/EnterPlanMode 命名 | 补齐 | N2/N4 |
+| 工具清单 | ~~ReadSessionContext~~（2026-09-29 落地：sessions read detail=full）/~~后台控制~~（落地：task_output/task_stop）/~~Skill 工具~~（落地：skill 显式加载，trigger=tool）；仍缺：消息互通（SendMessage/RespondToCoordinator，需异步子代理运行时）/调度（N4-5）/EnterPlanMode 命名对齐（低优） | 补齐 | N2/N4 |
 | 上下文 | 三层压缩，固定 10 条切片 | 按轮分组 + 锚点段 | N0-2/3 |
 | 子代理 | task + .kcode/agents | 缺消息互通 | N2 |
 | 准入 | runner busy 直接抛错 | RuntimeCommandQueue + reservation | N2-2 |

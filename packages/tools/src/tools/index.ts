@@ -5,6 +5,7 @@ import { grepTool } from "./grep.js";
 import { writeTool } from "./write.js";
 import { editTool } from "./edit.js";
 import { createBashTool, type BashToolOptions } from "./bash.js";
+import { createTaskTools } from "./task-tools.js";
 import { createTodoTool } from "./todo.js";
 import { createAskUserTool } from "./ask-user.js";
 import { extractTool } from "./extract.js";
@@ -15,6 +16,7 @@ export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
 export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, detectWindowsBash, pickBashCandidates, extractShellSnapshot, msysPathToWin32 } from "./bash.js";
+export { createTaskTools } from "./task-tools.js";
 export { createTodoTool, type TodoToolOptions } from "./todo.js";
 export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";
@@ -39,12 +41,13 @@ export interface SessionToolOptions extends BashToolOptions {
   prompt?: UserPromptPort;
 }
 
-/** 会话工具全集：含 bash / todo / ask_user（会话态挂在会话上） */
+/** 会话工具全集：含 bash / todo / ask_user（会话态挂在会话上）+ 后台任务控制（注册表注入时） */
 export function createSessionTools(opts: SessionToolOptions): Tool[] {
   return [
     ...builtinTools,
     createBashTool(opts),
     createTodoTool({ sessionId: opts.sessionId, sink: opts.sink }),
     createAskUserTool({ prompt: opts.prompt }),
+    ...(opts.registry !== undefined ? createTaskTools(opts.registry) : []),
   ];
 }
