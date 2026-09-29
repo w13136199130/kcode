@@ -23,8 +23,9 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 
 ```
 N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台抽象/排队/UI 拆包/发行链 ✅
-             → N3 通道扩展（host ✅ · 凭证边界 ✅ · Web/中继 ✅ · Desktop 待 · 插件 hash 待）→ N4 生态与云（市场/账户/调度/电脑控制）
-             ↘ N3C CLI 入口层/TUI 交互快赢批（P1，无依赖可随时插队）
+             → N3 通道扩展（host ✅ · 凭证边界 ✅ · Web/中继 ✅ · Desktop 待 · 插件 hash ✅）→ N4 生态与云（市场/账户/调度/电脑控制）
+             ↘ N3C CLI 入口层/TUI 交互快赢批 ✅（①–⑦ 全落地）
+             ↘ N3D 子代理异步化与消息互通（两期，§8.4c：一期后台+通知+落盘 ~1 周；二期 steer+SendMessage 1–2 周）
 ```
 
 **一条重要判断**：单进程 CLI 与桌面/Web 不矛盾。ZCode 用**同一套 stdio 协议同时服务 CLI 与 Electron**，而不是给桌面另起一套。因此 kcode 保留单进程为默认形态，把"进程边界"做成**可选宿主**（§3.3），不为尚未开始的桌面预置常驻进程。
@@ -426,6 +427,19 @@ export interface IPlatformService {
 | N3C-3 | 管理类子命令（**已落地**：`skills list`、`commands list`、`plugins enable/disable` + list 显示 [已停用]；停用状态 `~/.kcode/cli/plugins/state.json` 原子写，`validate/update/marketplace` 后续） | 根构造提取为 `@kcode/extensions.buildExtensionRoots` 单一事实源，会话组装与 CLI 盘点同源 |
 | N3C-4 | TUI 交互补全（**①—⑦全部落地，本批收尾**）：① 状态栏常驻上下文余量/用量/git 分支；② 工具卡片逐块展开（Ctrl+B 覆盖层浏览器）；③ 后台任务面板（Ctrl+T，注册表会话级注入 + 1s 轮询 + 日志尾部）；④ Ctrl+E 外部编辑长输入（$EDITOR 回填，仅空闲）；⑤ Ctrl+V 剪贴板贴图（Windows 经 WinForms 读位图落盘 PNG，v1 仅 Windows、其他平台提示走 --image；pendingImages 状态 + 指示器，空闲提交随行、排队不消费避免静默丢失，清空在 App 守卫之后防 exit 丢图）；⑥ Ctrl+R 历史搜索覆盖层（跨会话输入历史子串过滤、Enter 回填输入框）；⑦ 欢迎横幅键位发现性两行（全部快赢键位一览） | §9.2 对应行全部达标 |
 
+### 8.4c 阶段 N3D：子代理异步化与消息互通（P1–P2，两期；对标 zcode 异步子代理体系）
+
+> 2026-09-29 对 zcode 源码（本地克隆，提交 `29628c9`）复核后的设计修订：原 benchmark §1.5"采纳消息互通"在此具体化为 zcode 式目标形态——子代理可后台运行、完成经**命令队列**通知注入父上下文、子会话**独立落盘**、SendMessage **三态投递**（steer/排队/复活）。
+> 分两期的依据：一期的积木 kcode 全部已有（N2-2 RuntimeCommandQueue / N3C-4③ BackgroundTaskRegistry / JsonlSessionSink）；二期的 steer 需要 AgentLoop 增加步边界 drain 钩子（动 core 循环），是全批最重的单点。
+> zcode 引用（`file:line`）指向其本地克隆仓库。
+
+| ID | 项 | 依赖 | 设计要点（zcode 机制 → kcode 落点） | 量级 |
+|---|---|---|---|---|
+| N3D-1 | 后台子代理 + 完成通知 + 子会话落盘 + ask_user 透传 | N3C-4③ | ① `task` 增 `wait: "sync"\|"background"`（默认 sync 行为不变）；background 立即返回 agentId + childSessionId + 通知承诺（对标 `runner.ts:1476` createAgentBackgroundedOutput）② 子代理注册进 `BackgroundTaskRegistry`——task_output/task_stop **直接复用**（"日志尾部"= 子事件流的活动摘要，不必另造 outputFile）③ 完成通知 = RuntimeCommandQueue 的 `next` 优先级命令，父空闲 drain 成 **model-only synthetic turn**（父忙时排队等 drain——v1 不做中途注入）；通知文本带防伪头 `[SYSTEM NOTIFICATION - NOT USER INPUT]`（对标 `incoming-message.ts:9`，防提示注入冒充用户输入）④ 幂等：注册表 `notified` 标志——tool_result 已回灌则不再通知，反之亦然（对标 `runner.ts:1847`）⑤ 子 sink 从 MemorySink 换 `JsonlSessionSink` 落盘 `sub_<id>.jsonl`（回放/审计闭环 + 二期复活的基础）⑥ `ask_user` 经父端口透传（子代理遇到真分叉可问用户，替代"按最合理假设执行"）⑦ contracts 增 `subagent_spawned`/`subagent_stopped` 两个事件（TUI 进度卡与 §9.2 行的数据源）⑧ Esc 中断**连杀**后台子代理（**不抄 detachParent**——kcode 单进程，本地直觉优先；桌面/远程形态再评估） | ~1 周 |
+| N3D-2 | SendMessage 三态投递 + RespondToCoordinator + steer | N3D-1 | ① AgentLoop 增**步边界 drain 钩子**（pendingInputs 概念入 core；对标 `turn-guide-drain.ts:13-66`）——收件人运行中 → steer 拼进当前请求 ② 收件人空闲 → 注册表 `pendingMessages` 排队、下次运行时冲刷（对标 `registry.ts:168`）③ 收件人终态 → 消息作为新 prompt 经 resume 复活（对标 `runner.ts:955`；依赖 N3D-1 落盘 + 既有 `resolveResumeHistory`）④ RespondToCoordinator **无条件注入**子代理工具面、异步单向入队（子不等待回复；对标 `subagent.ts:541`）⑤ 入站消息统一 system-reminder 包装 + 防伪头；⑥ SendMessage 非阻塞、只回投递回执（queued/steered/resumed 三态回执） | 1–2 周 |
+
+**明确不抄**（zcode 为多端平台付的税，与"子代理最小集"原则一致）：profile 系统（351 行）、持久通知账本（kcode 的 JSONL append-only 本身就是账本）、`branchGeneration` 回退代际、闲时轮拒发、镜像 toolCallId 重写（v1 用 spawned/stopped 事件 + task_output 查详情替代）。
+
 ### 8.5 阶段 N4：生态与云（P3+）
 
 | ID | 项 | 说明 |
@@ -453,7 +467,7 @@ export interface IPlatformService {
 |---|---|---|---|
 | Agent 循环/流式/并行工具/后台任务 | ✅ | ✅ | 无 |
 | 工具链 read/write/edit/grep/glob/bash | ✅ | ✅ | 无 |
-| 子代理 | ✅ | ✅ | 消息互通 SendMessage/RespondToCoordinator（需异步子代理运行时，独立批落地） |
+| 子代理 | ✅ | ✅（同步阻塞模型） | 异步化与消息互通（N3D 两期，§8.4c：对标 zcode 后台运行+命令队列通知+三态投递） |
 | Plan/结构化提问/Todo | ✅ | ✅ | 无 |
 | 上下文压缩/SKILL/AGENTS.md/resume | ✅ | ✅ | 无 |
 | 后台任务显式控制（task_output/task_stop） | ✅ | ✅（工具面补全落地：注册表挂子进程，stop 发信号、状态由 close 回调单一回写） | 无 |
@@ -493,7 +507,7 @@ export interface IPlatformService {
 | 跨会话历史搜索 | ✅（Ctrl+R） | ⚠️ | ✅ | ✅（N3C-4⑥：Ctrl+R 覆盖层，子串过滤 + Enter 回填） | 已达标 |
 | Esc Esc 回退（代码/对话/两者分粒度） | ✅ | ✅（revert/fork 消息级） | ✅ | ⚠️ rewind picker 有；粒度未分 | 小项 |
 | 后台任务浏览面板 | ✅ | ⚠️ | ✅ | ✅（N3C-4③：Ctrl+T 面板，1s 轮询 + 日志尾部） | 已达标 |
-| 子代理进度卡（代理名/活动态/层级导航） | ✅ | ✅（parent/child 导航） | ✅ | ⚠️ 仅工具状态行 | 随消息互通一起做 |
+| 子代理进度卡（代理名/活动态/层级导航） | ✅ | ✅（parent/child 导航） | ✅ | ⚠️ 仅工具状态行 | N3D-1（spawned/stopped 事件 + task_output 查活动） |
 | 会话侧栏/timeline/分享链接 | ⚠️（/resume picker） | ✅（sidebar+timeline+share） | ✅ | ⚠️ resume picker；share 无 | share 属 N4-2 |
 | 消息/输入级 undo-redo | ⚠️ | ✅（leader+u/r + 输入 undo） | ✅ | ❌ | 小项 |
 | leader/命令面板（动作可发现性） | ⚠️（IDE 侧） | ✅（leader+ctrl+p） | ✅ | ⚠️ OptionsMenu 有；无统一面板 | 后置评估 |
@@ -521,6 +535,7 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **N3D 设计定稿（子代理异步化与消息互通，采纳 zcode 模式）**：新增 §8.4c 两期设计——一期 N3D-1（后台子代理 + 完成通知经 RuntimeCommandQueue 注入 + 子会话 JsonlSessionSink 落盘 + ask_user 透传 + spawned/stopped 事件 + notified 幂等 + 防伪头，~1 周，全部复用既有积木）；二期 N3D-2（AgentLoop 步边界 drain 钩子 + SendMessage 三态投递 steer/排队/复活 + RespondToCoordinator 异步单向，1-2 周）。依据：对 zcode 本地克隆（`29628c9`）的源码解剖（SendMessage 三态投递 `runner.ts:900-1062`、通知=命令队列 `runtime-command-queue.ts:317`、detach/幂等/账本等机制，详见 benchmark §1.5 修订）。明确不抄：profile 系统、持久通知账本、branchGeneration、闲时轮拒发、toolCallId 镜像重写。§0 路线图、§9.1 子代理行、§9.2 进度卡行同步。
 - **工具面补全落地（第五批）**：① `task_output`/`task_stop`（对标 zcode TaskOutput/TaskStop）——`BackgroundTaskRegistry` 增子进程引用（`attach` 挂 track 后的 child、close 自摘、`stop` 发终止信号；Windows 不追杀孙进程——与前台超时同边界）；状态翻转仍由 close 回调单一回写（stop 只发信号，无双写）；权限：task_output 只读放行，task_stop 默认询问/plan 档拒绝。② `skill` 显式工具——技能正文第三条加载通道（自动触发 / 手动 /skill 之外，模型按名读取）；描述内联当前可用技能名；`skill_used` 契约 trigger 扩 `"tool"`（读旧文件兼容），TUI 回显"模型调用"。③ sessions read 增 `detail=full`（ReadSessionContext 语义）——从最近往前全文装填、8000 字符预算、超限标注省略条数（续接场景要的是会话末端完整状态）；summary 浓缩模式保持默认。**SendMessage 评估结论**：需要异步子代理运行时（子代理后台化 + task-notification 事件 + 消息路由），是架构级改动而非工具增补——独立批落地，不塞进工具面小步节奏。测试 +9（task-tools 3 含真实启动/终止链路；skill-tool 2；sessions-read 4 含超预算截断）。
 - **N3C-4⑤⑥⑦ 落地（第四批快赢，N3C-4 全部收尾）**：⑤ Ctrl+V 剪贴板贴图——终端不传图片数据，`clipboard-image.ts` 经 PowerShell WinForms（-STA）读剪贴板位图落盘 PNG（v1 仅 Windows，其他平台提示走 `--image`）；`pendingImages` 入共享 slice（去重增删清），输入区上方指示器；空闲提交随消息发送（`runDispatch` 增 images 参数、普通提问路径消费、斜杠路径不消费），排队不消费附件、清空时机在 App.submit 守卫之后（exit/空输入不丢已贴图）。⑥ Ctrl+R 历史搜索覆盖层——`HistorySearch.tsx` 自持键位（字符/退障编辑查询、↑↓ 选择、Enter 回填 App setInput、Esc 关闭），跨会话输入历史（~/.kcode/cli/history.json 最近 50 条）子串过滤最近优先；keybinds 层让行守卫覆盖三种覆盖层。⑦ 欢迎横幅键位发现性两行（Ctrl+O/B/T/E/V/R + /help 全览）。测试 +6（input-extras：slice 1/贴图与随行 1/历史搜索 1/横幅 1/Windows 真实剪贴板往返 1（WinForms 置图→读 PNG 魔数，无剪贴板服务环境自动跳过）/非 Windows 降级 1）。
 - **N3C-4③④ 落地（第三批快赢）**：③ 后台任务面板——`BackgroundTaskRegistry` 从 `createBashTool` 内部提升为 composition 创建并经 `BashToolOptions.registry` 注入（会话级单一事实，`ComposedSession/SessionHandle.backgroundTasks()` 透出）；`Ctrl+T` 覆层面板（打开期间 1s 轮询快照 + 展开时异步读日志尾部 40 行），与工具浏览器互斥、同一键位模式（↑↓/Enter/Esc，Ctrl+B/Ctrl+T 互为切换）；ui 层新增 `BgTaskView` 视图类型（不引 tools 包，守住分层）。④ Ctrl+E 外部编辑长输入——`external-editor.ts`（$EDITOR 临时文件回填，未设时 notepad/vi 兜底，空文件=放弃保持原输入）；键位放 InputArea（需要输入值与回填通道），仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染——代码注释已注明约束）；失败路径保证 raw mode 恢复。测试 +8（bash 注册表注入 1；task-browser 7：slice 2/渲染 2/键位互斥 1/编辑器 2 含真实 Ctrl+E→假编辑器→回填链路）。

@@ -81,7 +81,11 @@ ZCode 有**两套并存协议**（历史包袱）：旧 `zcode-protocol/index.ts
 
 内置 `general-purpose`/`explore` + 351 行 profile 系统（工具允许表、模型选择、权限模式、system prompt）。独立 child session + 独立 system prompt，仅透传 description/允许工具；结果经 runtime command queue 的 `task-notification`/`subagent-message` 回传；工具执行 `maxConcurrency` 默认 10。
 
-**kcode 决策**：保留 general-purpose/explore + 白名单 + 结果回传最小集，**不做 profile 系统**；但**采纳"子代理消息互通"（SendMessage/RespondToCoordinator）**，这是 kcode 目前缺的。
+**kcode 决策（2026-09-29 修订，采纳 zcode 模式，两期落地——设计细则见 DESIGN §8.4c）**：保留 general-purpose/explore + 白名单，**不做 profile 系统**；子代理体系对齐 zcode 目标形态——**后台运行 + 完成经命令队列通知注入 + 子会话独立落盘 + SendMessage 三态投递（steer/排队/复活）+ RespondToCoordinator 异步单向**。
+
+源码解剖要点（提交 `29628c9`）：SendMessage 非阻塞、按收件人状态三态分派（运行中 → steer 拼进当前请求的步边界 drain；空闲 → 注册表 pendingMessages 排队冲刷；终态 → 消息当新 prompt 经 resumeFromStore 复活，`runner.ts:900-1062`）；完成通知不是新通道，是父命令队列的一种命令（priority next：父空闲 = 合成 model-only turn，父忙 = 步边界 steer，`runtime-command-queue.ts:317-394`）；幂等 `notified` 标志防 tool_result 与通知双送达（`runner.ts:1847`）；通知带 `[SYSTEM NOTIFICATION - NOT USER INPUT]` 防伪头（`incoming-message.ts:9`）；后台子代理 detach 父 signal + 不活动看门狗（无墙钟）+ spawn 前持久化闸门；并发 = 工具批调度器 parallel groups（Agent concurrentSafe，默认 10）；子会话独立持久（`subagent_<agentId>` 共享父 eventStore）+ 工具/权限事件镜像父时间线（toolCallId 重写）。
+
+**kcode 两期**：一期复用 N2-2 队列 / N3C-4③ 注册表 / JsonlSessionSink（~1 周；含防伪头、Esc 连杀后台子代理等简化取舍）；二期给 AgentLoop 加步边界 drain 钩子后上完整投递（1-2 周）。**明确不抄**：profile 系统、持久通知账本（kcode JSONL append-only 即账本）、branchGeneration 回退代际、闲时轮拒发、toolCallId 镜像重写（v1 用 `subagent_spawned`/`subagent_stopped` 事件替代）。
 
 ### 1.6 输入准入 CommandInbox / owner-lease
 
@@ -192,7 +196,7 @@ SKILL.md = YAML frontmatter（`name`/`description` 含触发词/`allowed-tools`/
 | RPC | 无 | stdio JSON-Line（简化版） | N3-1 |
 | Agent 循环 | AgentLoop 单进程 | 已对标；缺单 turn 状态机显式化 | 微调 |
 | 工具契约 | 各工具独立实现 | 统一 ToolEntry（schema+permission+resultBudget+timeout） | N2-3 |
-| 工具清单 | ~~ReadSessionContext~~（2026-09-29 落地：sessions read detail=full）/~~后台控制~~（落地：task_output/task_stop）/~~Skill 工具~~（落地：skill 显式加载，trigger=tool）；仍缺：消息互通（SendMessage/RespondToCoordinator，需异步子代理运行时）/调度（N4-5）/EnterPlanMode 命名对齐（低优） | 补齐 | N2/N4 |
+| 工具清单 | ~~ReadSessionContext~~（2026-09-29 落地：sessions read detail=full）/~~后台控制~~（落地：task_output/task_stop）/~~Skill 工具~~（落地：skill 显式加载，trigger=tool）；消息互通与后台子代理 → N3D 两期落地（设计见 DESIGN §8.4c）；仍缺：调度（N4-5）/EnterPlanMode 命名对齐（低优） | 补齐 | N2/N4 |
 | 上下文 | 三层压缩，固定 10 条切片 | 按轮分组 + 锚点段 | N0-2/3 |
 | 子代理 | task + .kcode/agents | 缺消息互通 | N2 |
 | 准入 | runner busy 直接抛错 | RuntimeCommandQueue + reservation | N2-2 |
