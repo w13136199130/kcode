@@ -24,6 +24,7 @@ import { parseCliArgs, usageText } from "./args.js";
 import { doctorCommand } from "./doctor.js";
 import { runHeadless } from "./headless.js";
 import { commandsListCommand, skillsListCommand } from "./inspect.js";
+import { updateCommand } from "./update.js";
 
 /** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
 const print = (s: string): void => {
@@ -177,6 +178,9 @@ async function main(): Promise<void> {
     }
     if (kind === "doctor") {
       process.exit((await doctorCommand(platform, print)) ? 0 : 1);
+    }
+    if (kind === "update") {
+      process.exit((await updateCommand(sub, print)) ? 0 : 1);
     }
     if (kind === "skills") {
       if (sub[0] !== "list") {

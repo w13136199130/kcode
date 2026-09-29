@@ -7,10 +7,27 @@ import {
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { KeychainEntry } from "@kcode/contracts";
+import { homedir, platform, userInfo } from "node:os";
 import { DpapiKeychain } from "./dpapi-keychain.js";
 
 /**
- * keychain 工厂（B5）：优先级 口令环境变量（向后兼容）> Windows DPAPI（免口令）> 报错。
+ * 机器指纹回退密钥材料（N3E-5，对标 zcode credential-cipher.ts:87-101）：
+ * 固定盐 + 平台 + 主目录 + 用户名。威胁模型（DESIGN §7 诚实边界）：
+ * 防"key 明文落盘/误提交"级别——指纹在本机可推导，不防本地恶意用户，与 zcode 同级诚实。
+ */
+export function machineFingerprint(): string {
+  let username = "unknown";
+  try {
+    username = userInfo().username;
+  } catch {
+    // 沙箱环境取不到用户名——占位值保持可解密性
+  }
+  return `kcode-credential-fallback:${platform()}:${homedir()}:${username}`;
+}
+
+/**
+ * keychain 工厂（B5；N3E-5 修订）：优先级 口令环境变量 > Windows DPAPI（免口令）>
+ * 机器指纹回退（headless/CI 无口令场景的降级层，弱点评注见 machineFingerprint）。
  * DPAPI 存独立文件 keys.dpapi.json——与旧 keys.json 互不干扰，老用户零影响。
  */
 export function openKeychain(keysFilePath: string): KeychainStore {
@@ -25,9 +42,9 @@ export function openKeychain(keysFilePath: string): KeychainStore {
         : keysFilePath,
     );
   }
-  throw new Error(
-    "未设置 KCODE_KEYCHAIN_PASSPHRASE（Windows 默认走 DPAPI 免口令；其他平台需设置口令，§5.7）",
-  );
+  // 原则修正：此前"禁止机器 ID 派生密钥"堵死的是把它冒充强保护的用法；
+  // 这里作为显式降级层保留（非交互无口令时不再硬失败），弱点已在文档声明
+  return new EncryptedFileKeychain(keysFilePath, machineFingerprint());
 }
 
 import type { KeychainStore } from "./types.js";

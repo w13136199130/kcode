@@ -9,9 +9,9 @@ import type { PermissionMode } from "@kcode/contracts";
  */
 
 /** 子命令种类：首 token 命中即短路，后续 token 原样透传给对应处理函数 */
-type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands";
+type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update";
 
-const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands"];
+const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update"];
 
 const MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "fullAccess"];
 

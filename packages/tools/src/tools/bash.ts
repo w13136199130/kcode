@@ -1,13 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { newId } from "@kcode/shared";
+import { detectWindowsBash } from "./shell-detect.js";
+import { OutputCollector, type OutputLimits } from "./output-collector.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
-const MAX_OUTPUT_CHARS = 64_000;
 
 const BashArgs = z.object({
   command: z.string().min(1),
@@ -27,6 +28,8 @@ export interface BashToolOptions {
    * 句柄/面板经它查询任务清单；缺省时工具自建（行为不变）。
    */
   registry?: BackgroundTaskRegistry;
+  /** 前台输出三段预算覆盖（N3E-1，测试注入用；缺省 30k/2k/1M） */
+  outputLimits?: Partial<OutputLimits>;
 }
 
 export interface BackgroundTask {
@@ -88,9 +91,9 @@ export class BackgroundTaskRegistry {
 }
 
 /**
- * bash 工具（§9 B 域）：跨平台 shell（Windows PowerShell / Unix bash）、超时、后台任务。
- * 每次调用仍是独立短命 shell 进程，但前台命令结束后打点回传 $PWD 作为会话级持久
- * 工作目录，下次调用以该目录启动——cd 跨调用保留；环境变量/函数不保留。
+ * bash 工具（§9 B 域；N3E-1/2 升级）：跨平台 shell、超时、后台任务。
+ * 前台输出走三段预算（内联 30k / 超限全文落盘 artifacts / 尾部保留）；
+ * 持久工作目录仅在项目边界内保留（越界重置回会话目录并提示）。
  */
 export function createBashTool(opts: BashToolOptions): Tool {
   // 注册表优先用注入实例：会话层（句柄/面板）与工具共享同一份任务事实
@@ -103,19 +106,19 @@ export function createBashTool(opts: BashToolOptions): Tool {
     definition: {
       name: "bash",
       description:
-        "执行 shell 命令（bash 语法，输出 UTF-8；无 git-bash 时回退 PowerShell，系统提示环境块会注明）；默认 120s 超时；runInBackground 后台执行，日志落盘 artifacts；工作目录跨调用保留（cd 持久），路径优先写绝对路径",
+        "执行 shell 命令（bash 语法，输出 UTF-8；无 git-bash 时回退 PowerShell，系统提示环境块会注明）；默认 120s 超时；长输出三段预算（内联约 30k 字符，超限全文落盘 artifacts 并保留尾部）；runInBackground 后台执行；工作目录跨调用保留（限项目内，越界自动重置）",
       parameters: {
         type: "object",
         properties: {
-          command: { type: "string", description: "命令内容" },
-          timeoutMs: { type: "integer", description: "前台超时毫秒数，默认 120000" },
+          command: { type: "string", description: "要执行的命令（bash 语法）" },
+          timeoutMs: { type: "number", description: "超时毫秒（默认 120000）" },
           runInBackground: { type: "boolean", description: "后台执行，立即返回任务号与日志路径" },
-          cwd: { type: "string", description: "本次调用的 工作目录；缺省延续上次 cd 的目录（会话内持久）" },
+          cwd: { type: "string", description: "本次命令的工作目录（默认沿用上次目录/会话目录）" },
         },
         required: ["command"],
       },
       readOnly: false,
-      permission: { default: "ask" },
+      permission: { default: "ask", acceptEdits: "ask" },
       timeoutMs: 600_000,
       resultBudget: 4096,
     },
@@ -164,28 +167,53 @@ export function createBashTool(opts: BashToolOptions): Tool {
 
       try {
         const nonce = randomNonce();
-        const { code, output } = await runShell(
+        // 三段预算（N3E-1）：落盘目标 = artifacts/<callId>.log；无 artifactsDir/无 callId 时降级纯截断
+        const collector = new OutputCollector(
+          opts.outputLimits,
+          opts.artifactsDir !== undefined && ctx.callId !== undefined
+            ? join(opts.artifactsDir, `${ctx.callId}.log`)
+            : undefined,
+        );
+        const { code } = await runShell(
           shell.file,
           shell.args(markCommandForSnapshot(shell.name, command, nonce)),
           workDir,
           timeoutMs ?? DEFAULT_TIMEOUT_MS,
           ctx.signal,
+          collector,
         );
-        // 打点行剥除后再截断（打点在输出末尾，先剥可免被截断吞掉）；中断/超时/语法错误时无打点，保持旧目录
-        const snapshot = extractShellSnapshot(output, nonce);
+        // 打点行剥除后再终态编排（打点在输出末尾，先剥可免被编进尾部）；中断/超时/语法错误时无打点，保持旧目录
+        const snapshot = extractShellSnapshot(collector.getText(), nonce);
+        let boundaryNote = "";
         if (snapshot.cwd !== undefined) {
-          lastCwd = process.platform === "win32" ? msysPathToWin32(snapshot.cwd) : snapshot.cwd;
+          const candidate = process.platform === "win32" ? msysPathToWin32(snapshot.cwd) : snapshot.cwd;
+          // 无会话 cwd 锚点时无从判界，维持旧行为直接持久
+          if (ctx.cwd === undefined || isWithinPath(ctx.cwd, candidate)) {
+            lastCwd = candidate;
+          } else {
+            // N3E-2 项目边界（对标 zcode decideBashCwdPolicy）：越界不持久，重置回会话目录并告知模型
+            lastCwd = undefined;
+            boundaryNote = `\n⚠ 工作目录已离开项目（${candidate}）——持久目录重置回 ${ctx.cwd}；操作系统外路径请每次显式 cd 或用绝对路径`;
+          }
         }
-        const capped = capOutput(snapshot.output);
+        const result = await collector.finish((text) => extractShellSnapshot(text, nonce).output);
+        const text = boundaryNote === "" ? result.text : `${result.text}${boundaryNote}`;
         if (code === 0) {
-          return { ok: true, output: capped };
+          return { ok: true, output: text };
         }
-        return { ok: false, output: capped, error: `exit code ${code}` };
+        return { ok: false, output: text, error: `exit code ${code}` };
       } catch (err) {
         return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
       }
     },
   };
+}
+
+/** target 是否位于 base 子树内（含相等）；Windows 按大小写不敏感比较 */
+function isWithinPath(base: string, target: string): boolean {
+  const norm = (p: string): string => (process.platform === "win32" ? resolve(p).toLowerCase() : resolve(p));
+  const rel = relative(norm(base), norm(target));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /** PowerShell 侧强制 UTF-8 输出：中文 Windows 默认 GBK 代码页会输出乱码 */
@@ -201,8 +229,6 @@ interface ShellChoice {
  * 跨平台 shell 选择：Windows 优先 git-bash（模型写 bash 语法最流畅，且输出原生 UTF-8，
  * 规避「bash 语法打到 PowerShell 报错 → 换写法 → 中文乱码 → 再重试」的补偿循环），
  * 无可用 git-bash 时回退 PowerShell（前置 UTF-8 控制台编码，保留真实退出码）。
- * 探测跳过 \Windows\ 下的 bash.exe（那是 WSL 启动器：未装发行版时必失败且错误 GBK 乱码），
- * 并用一次性探针命令验证候选真的能执行。
  */
 async function resolveShell(): Promise<ShellChoice> {
   if (process.platform !== "win32") {
@@ -238,111 +264,6 @@ function shellOnce(): Promise<ShellChoice> {
   return cachedShell;
 }
 
-/**
- * Windows 上筛选 bash 候选路径：跳过 \Windows\ 目录（WSL 启动器）。
- * exists 可注入供测试；生产缺省 existsSync。
- */
-export function pickBashCandidates(
-  dirs: string[],
-  exists: (p: string) => boolean = existsSync,
-): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const dir of dirs) {
-    if (dir === "") continue;
-    const lower = dir.toLowerCase();
-    if (lower.startsWith("c:\\windows") || lower.includes("\\windows\\system32")) continue;
-    const candidate = join(dir.trim(), "bash.exe");
-    if (seen.has(candidate) || !exists(candidate)) continue;
-    seen.add(candidate);
-    out.push(candidate);
-  }
-  return out;
-}
-
-function commonBashDirs(): string[] {
-  const programDirs = [
-    process.env["ProgramFiles"],
-    process.env["ProgramFiles(x86)"],
-    process.env["LOCALAPPDATA"] !== undefined
-      ? join(process.env["LOCALAPPDATA"], "Programs")
-      : undefined,
-  ].filter((d): d is string => d !== undefined);
-  const out: string[] = [];
-  for (const base of programDirs) {
-    for (const sub of ["Git\\bin", "Git\\usr\\bin"]) {
-      out.push(join(base, sub, "bash.exe"));
-    }
-  }
-  return out;
-}
-
-/**
- * 由 PATH 上的 git.exe 反推同级 bash（git 常把 \cmd 加入 PATH 而 \usr\bin 不在）：
- * <gitdir>\cmd\git.exe → <gitdir>\usr\bin\bash.exe / <gitdir>\bin\bash.exe。
- */
-function bashDirsFromGitExe(dirs: string[], exists: (p: string) => boolean = existsSync): string[] {
-  const out: string[] = [];
-  for (const dir of dirs) {
-    if (dir === "") continue;
-    const lower = dir.toLowerCase();
-    if (lower.startsWith("c:\\windows") || lower.includes("\\windows\\system32")) continue;
-    if (!exists(join(dir.trim(), "git.exe"))) continue;
-    const gitRoot = dirname(dir.trim());
-    for (const sub of ["usr\\bin", "bin"]) {
-      const candidate = join(gitRoot, sub, "bash.exe");
-      if (exists(candidate)) {
-        out.push(candidate);
-      }
-    }
-  }
-  return out;
-}
-
-/** 探针标记：候选 bash 必须能真正执行并回显 */
-const BASH_PROBE_MARKER = "__kcode_bash_ok__";
-
-async function probeBashWorks(bashPath: string): Promise<boolean> {
-  return new Promise((resolveProbe) => {
-    const child = spawn(bashPath, ["-c", `echo ${BASH_PROBE_MARKER}`], {
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let out = "";
-    const timer = setTimeout(() => {
-      child.kill();
-      resolveProbe(false);
-    }, 4000);
-    child.stdout.on("data", (c: Buffer) => {
-      out += c.toString("utf8");
-    });
-    child.on("error", () => {
-      clearTimeout(timer);
-      resolveProbe(false);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolveProbe(code === 0 && out.includes(BASH_PROBE_MARKER));
-    });
-  });
-}
-
-/** 探测 Windows 上可用的 git-bash：PATH 候选（过滤 WSL）→ git.exe 反推 → 常见安装位 → 探针验证 */
-export async function detectWindowsBash(): Promise<string | undefined> {
-  const pathDirs = (process.env.PATH ?? "").split(delimiter);
-  const candidates = [
-    ...pickBashCandidates(pathDirs),
-    ...bashDirsFromGitExe(pathDirs),
-    ...commonBashDirs().filter((p) => existsSync(p)),
-  ];
-  for (const candidate of candidates) {
-    if (await probeBashWorks(candidate)) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
 /** 运行环境 shell 信息（composition 注入系统提示，模型不再猜 shell 方言） */
 export async function currentShellInfo(): Promise<{ name: "bash" | "powershell"; dialect: string }> {
   const shell = await shellOnce();
@@ -352,7 +273,7 @@ export async function currentShellInfo(): Promise<{ name: "bash" | "powershell";
 }
 
 /** 结束子进程树：shell 会派生子进程，直接 kill 只杀壳不杀孙——Windows 用 taskkill /T /F */
-function killTree(child: import("node:child_process").ChildProcess): void {
+function killTree(child: ChildProcess): void {
   if (child.pid === undefined) {
     child.kill();
     return;
@@ -364,22 +285,23 @@ function killTree(child: import("node:child_process").ChildProcess): void {
   }
 }
 
+/** 前台执行：输出进三段预算收集器（内存有硬顶），退出码与收集器一并返回 */
 function runShell(
   file: string,
   args: string[],
   cwd: string | undefined,
   timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<{ code: number; output: string }> {
+  signal: AbortSignal | undefined,
+  collector: OutputCollector,
+): Promise<{ code: number }> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(file, args, { cwd, windowsHide: true });
-    let output = "";
     // 用户中断（Esc/Ctrl+C）：立即杀树并结算（不等 120s 超时）
     const onAbort = (): void => {
       killTree(child);
       clearTimeout(timer);
-      resolvePromise({ code: -1, output: `${output}
-（已被用户中断）` });
+      collector.append("\n（已被用户中断）");
+      resolvePromise({ code: -1 });
     };
     if (signal !== undefined) {
       if (signal.aborted) {
@@ -393,10 +315,10 @@ function runShell(
       reject(new Error(`命令超时（${Math.round(timeoutMs / 1000)}s），已终止`));
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
-      output += chunk.toString("utf8");
+      collector.append(chunk.toString("utf8"));
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      output += chunk.toString("utf8");
+      collector.append(chunk.toString("utf8"));
     });
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -405,15 +327,9 @@ function runShell(
     child.on("close", (code) => {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      resolvePromise({ code: code ?? -1, output });
+      resolvePromise({ code: code ?? -1 });
     });
   });
-}
-
-function capOutput(text: string): string {
-  return text.length > MAX_OUTPUT_CHARS
-    ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n（截断：输出超过 ${MAX_OUTPUT_CHARS} 字符）`
-    : text;
 }
 
 /** 工作目录打点前缀：随机 nonce 后缀防与用户输出巧合碰撞 */
