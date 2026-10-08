@@ -10,7 +10,7 @@ export {
 } from "./composition.js";
 export { resolveResumeHistory, trustProject } from "./resume.js";
 export { SYSTEM_PROMPT, PLAN_MODE_SUFFIX } from "./prompt.js";
-export { buildTaskTool, SUBAGENT_MAX_TURNS, SUBAGENT_INACTIVITY_MS, SUBAGENT_NOTIFICATION_HEADER, type TaskToolDeps } from "./subagent.js";
+export { buildTaskTool, SUBAGENT_MAX_TURNS, SUBAGENT_INACTIVITY_MS, SUBAGENT_NOTIFICATION_HEADER, isBackgroundCompletionNotice, type TaskToolDeps } from "./subagent.js";
 export { buildPlanSubmitTool, type PlanVerdict, type PlanSubmitToolDeps } from "./plan-submit.js";
 export { buildSkillTool, type SkillToolDeps } from "./skill-tool.js";
 export { buildSendMessageTool, buildRespondToCoordinatorTool, STEER_HEADER } from "./agent-messaging.js";

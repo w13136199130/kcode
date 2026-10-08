@@ -1,8 +1,9 @@
 import type { MutableRefObject } from "react";
 import type { SessionEvent } from "@kcode/contracts";
 import type { UiStore } from "@kcode/ui";
-import { SUBAGENT_NOTIFICATION_HEADER } from "@kcode/session";
+import { SUBAGENT_NOTIFICATION_HEADER, isBackgroundCompletionNotice } from "@kcode/session";
 import { formatToolPreview } from "../transcript/Transcript.js";
+import { ringBell } from "../terminal/notify.js";
 import type { StreamController } from "./stream.js";
 
 /**
@@ -23,6 +24,11 @@ export function makeEventHandler(deps: {
         // 后台子代理完成通知（N3D-1）：内容带防伪头，渲染为系统通知而非用户消息
         if (event.content.startsWith(SUBAGENT_NOTIFICATION_HEADER)) {
           pushBlock({ kind: "info", text: `📩 ${event.content.split("\n").slice(1).join("\n")}` });
+          // N3F-3：后台完成（含中断/失败）响铃一次——父会话空闲时用户已切走，靠铃声召回；
+          // respond 中间消息不响（任务仍在进行，用户大概率在看）
+          if (isBackgroundCompletionNotice(event.content)) {
+            ringBell();
+          }
           break;
         }
         if (suppressNextUserBlock.current) {

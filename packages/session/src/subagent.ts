@@ -29,6 +29,13 @@ export const SUBAGENT_INACTIVITY_MS = 120_000;
 /** 完成通知防伪头（定义在 agent-messaging.ts，此处转出口保持既有导入路径） */
 export { SUBAGENT_NOTIFICATION_HEADER };
 
+/** 后台完成通知前缀（完成/中断/失败均含；respond 中间消息不带——TUI 完成铃同源判定） */
+const BACKGROUND_COMPLETION_PREFIX = `${SUBAGENT_NOTIFICATION_HEADER}\n后台子代理`;
+/** notify 载荷是否为后台子代理完成通知（N3F-3 完成铃触发判定） */
+export function isBackgroundCompletionNotice(content: string): boolean {
+  return content.startsWith(BACKGROUND_COMPLETION_PREFIX);
+}
+
 const EXPLORE_TOOLS = new Set(["read", "glob", "grep", "extract", "web_fetch", "web_search", "sessions"]);
 
 const TaskArgs = z.object({
@@ -367,7 +374,7 @@ ${deps.envBlock}
           const claimed = deps.registry?.get(subId)?.notified === true;
           deps.registry?.update(subId, { notified: true });
           if (!claimed && deps.notify !== undefined) {
-            const head = `${SUBAGENT_NOTIFICATION_HEADER}\n后台子代理${
+            const head = `${BACKGROUND_COMPLETION_PREFIX}${
               r.status === "completed" ? "完成" : r.status === "stopped" ? "被中断" : "失败"
             }：${type}「${description}」（${subId}，${metaLine(r)}）`;
             deps.notify(

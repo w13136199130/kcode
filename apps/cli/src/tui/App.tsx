@@ -12,6 +12,8 @@ import { c } from "./theme/theme.js";
 import { MODE_META } from "./theme/modes.js";
 import { appendInputLog } from "./terminal/input-log.js";
 import { useKeybinds } from "./terminal/keybinds.js";
+import { useTerminalTitle } from "./terminal/title.js";
+import { useCompletionBell } from "./terminal/notify.js";
 import { useSessionLifecycle } from "./state/lifecycle.js";
 import { InputArea } from "./input/InputArea.js";
 import { runDispatch } from "./input/commands.js";
@@ -384,6 +386,19 @@ export function KcodeApp(props: KcodeAppProps) {
     );
   };
 
+  // N3F-2/3：标题栏进度 + 完成铃（逻辑全在 tui/terminal 模块，App 只挂一行——行数红线）。
+  // activityLabel 上移到 early return 之前：hook 不能落在条件返回之后
+  const toolNames = Object.values(pendingTools);
+  // tool_call 表示模型提出调用，尚不保证已获准执行，因此使用“处理工具”。
+  const activityLabel = cancelling ? "正在取消，等待当前操作退出"
+    : ask !== null ? `等待工具确认：${ask.call.tool}`
+    : planApproval !== null ? "等待计划批准"
+    : question !== null ? "等待你的回答"
+    : toolNames.length > 0 ? `处理工具：${[...new Set(toolNames)].join("、")}`
+    : runPhase;
+  useTerminalTitle(busy, activityLabel);
+  useCompletionBell(busy, busySince);
+
   if (fatal !== null) {
     return (
       <Text color={c("destructive")}>✗ {fatal}</Text>
@@ -393,14 +408,6 @@ export function KcodeApp(props: KcodeAppProps) {
   const meta = MODE_META[mode];
   const busyElapsed =
     busy && busySince !== null && tick > busySince ? ` (${((tick - busySince) / 1000).toFixed(1)}s)` : "";
-  const toolNames = Object.values(pendingTools);
-  // tool_call 表示模型提出调用，尚不保证已获准执行，因此使用“处理工具”。
-  const activityLabel = cancelling ? "正在取消，等待当前操作退出"
-    : ask !== null ? `等待工具确认：${ask.call.tool}`
-    : planApproval !== null ? "等待计划批准"
-    : question !== null ? "等待你的回答"
-    : toolNames.length > 0 ? `处理工具：${[...new Set(toolNames)].join("、")}`
-    : runPhase;
 
   return (
     <ServicesProvider
