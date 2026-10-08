@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionSink, SessionEvent } from "@kcode/contracts";
-import { buildSkillTool } from "../src/skill-tool.js";
+import { buildSkillTool, formatSkillCatalog } from "../src/skill-tool.js";
 
 /**
  * Skill 显式工具（工具面补全）：模型按名读取技能正文。
@@ -27,9 +27,10 @@ describe("skill 工具（显式加载）", () => {
       sink,
       sessionId: "s1",
     });
-    // 描述内联可用技能名（模型无需先查清单）
+    // 描述内联可用技能名+用途（N3I-2：模型按意图匹配，不再只按名字猜）
     expect(tool.definition.description).toContain("deploy");
     expect(tool.definition.description).toContain("review");
+    expect(tool.definition.description).toContain("部署流程");
 
     const r = await tool.execute({ name: "deploy" }, { sessionId: "s1", cwd: "." });
     expect(r.ok).toBe(true);
@@ -48,5 +49,35 @@ describe("skill 工具（显式加载）", () => {
     expect(events).toHaveLength(0); // 失败路径不落事件
     expect(tool.definition.readOnly).toBe(true);
     expect(tool.definition.permission).toEqual({ default: "allow" });
+  });
+});
+
+describe("formatSkillCatalog（N3I-2 技能描述可见性）", () => {
+  it("逐行 name（description）；超 80 字符截断加省略号", () => {
+    const out = formatSkillCatalog([
+      { name: "deploy", description: "部署流程".repeat(30) }, // 120 字符 > 80
+      { name: "review", description: "代码审查" },
+    ]);
+    expect(out).toContain("- deploy（");
+    expect(out).toContain("- review（代码审查）");
+    const deployLine = out.split("\n").find((l) => l.includes("deploy")) ?? "";
+    expect(deployLine.length).toBeLessThanOrEqual("- deploy（".length + 80 + "…）".length);
+    expect(deployLine.endsWith("…）")).toBe(true);
+  });
+
+  it("总预算超限降级仅名字（2K 字符）", () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      name: `skill-${i}`,
+      description: "用途".repeat(40), // 每条 ~80 字符 → 40 条远超 2K
+    }));
+    const out = formatSkillCatalog(many);
+    expect(out).toContain("skill-0");
+    expect(out).toContain("skill-39");
+    expect(out).not.toContain("（用途"); // 已降级：不再带描述
+    expect(out.length).toBeLessThanOrEqual(2_000 + 10);
+  });
+
+  it("空清单返回（无）", () => {
+    expect(formatSkillCatalog([])).toBe("（无）");
   });
 });

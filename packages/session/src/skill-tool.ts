@@ -12,6 +12,30 @@ const SkillArgs = z.object({
   name: z.string().min(1),
 });
 
+/** 描述截断（字符）：技能清单里 description 的单条上限（zcode 同思路 250，kcode 工具描述更省） */
+const DESC_MAX_CHARS = 80;
+/** 清单总预算（字符）：超限降级仅名字——防技能膨胀撑爆工具描述（zcode 20K 预算分级的 kcode 版） */
+const LIST_BUDGET_CHARS = 2_000;
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+/**
+ * 技能目录对模型的可见形态（N3I-2）：`name（description 截断）` 逐行；
+ * 总预算超限降级仅名字——描述让模型按意图匹配技能，不再只能按名字猜。
+ */
+export function formatSkillCatalog(meta: { name: string; description: string }[]): string {
+  if (meta.length === 0) {
+    return "（无）";
+  }
+  const lines = meta.map((s) => `- ${s.name}（${truncate(s.description, DESC_MAX_CHARS)}）`);
+  if (lines.join("\n").length <= LIST_BUDGET_CHARS) {
+    return lines.join("\n");
+  }
+  return truncate(meta.map((s) => s.name).join("、"), LIST_BUDGET_CHARS);
+}
+
 /** 只依赖技能库的结构形状（FsSkillLibrary 满足），避免与 extensions 具体类型耦合 */
 export interface SkillToolDeps {
   skills: {
@@ -27,9 +51,8 @@ export function buildSkillTool(deps: SkillToolDeps): Tool {
   return {
     definition: {
       name: "skill",
-      description: `按名加载技能正文（需要完整操作步骤时调用）。当前可用技能：${
-        names().join("、") || "（无）"
-      }`,
+      description: `按名加载技能正文（需要完整操作步骤时调用）。当前可用技能（名：用途）：
+${formatSkillCatalog(deps.skills.meta())}`,
       parameters: {
         type: "object",
         properties: {

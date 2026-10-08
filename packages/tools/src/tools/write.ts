@@ -1,8 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, relative, sep } from "node:path";
+import { relative, sep } from "node:path";
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
 import { displayPath, resolveInCtx } from "./paths.js";
+import { atomicWriteText } from "./atomic-write.js";
 
 const WriteArgs = z.object({
   path: z.string().min(1),
@@ -54,8 +54,7 @@ export const writeTool: Tool = {
       return { ok: false, output: "", error: boundary };
     }
     try {
-      await mkdir(dirname(abs), { recursive: true });
-      await writeFile(abs, content, "utf8");
+      await atomicWriteText(abs, content);
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }

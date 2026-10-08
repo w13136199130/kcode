@@ -1,8 +1,9 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { displayPath, resolveInCtx } from "./paths.js";
+import { atomicWriteText } from "./atomic-write.js";
 
 const EditArgs = z.object({
   path: z.string().min(1),
@@ -63,7 +64,7 @@ export const editTool: Tool = {
     if (exact === 1) {
       // replacer 用函数形式，避免 newString 中的 $& 等被当作替换元字符
       const updated = content.replace(oldString, () => newString);
-      await writeFile(abs, updated, "utf8");
+      await atomicWriteText(abs, updated);
       return { ok: true, output: `已替换 ${displayPath(abs, ctx)}（精确匹配，1 处）` };
     }
     if (exact > 1) {
@@ -81,7 +82,7 @@ export const editTool: Tool = {
     if (!result.ok) {
       return { ok: false, output: "", error: result.reason };
     }
-    await writeFile(abs, result.content, "utf8");
+    await atomicWriteText(abs, result.content);
     return {
       ok: true,
       output: `已替换 ${displayPath(abs, ctx)}（模糊匹配，平均相似度 ${result.score.toFixed(2)}）`,
