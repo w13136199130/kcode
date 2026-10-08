@@ -167,3 +167,25 @@ describe("A3 AskPanel 取消语义", () => {
     t2.unmount();
   });
 });
+
+describe("B3 OptionsMenu 滚动窗与计数", () => {
+  it("25 项只渲染 10 行 + i/N 计数；↓ 滚动后选中项仍在视野", async () => {
+    const options = Array.from({ length: 25 }, (_, i) => ({ key: `k${i}`, label: `选项${i + 1}` }));
+    const t = mount(<OptionsMenu options={options} onPick={() => {}} onCancel={() => {}} />);
+    await sleep(80);
+    const f0 = t.frameWith("选项1");
+    expect(f0).toContain("1/25");
+    expect(f0).toContain("选项10");
+    expect(f0.includes("选项11")).toBe(false); // 窗口外不渲染
+
+    const DOWN = "\x1b[B";
+    for (let i = 0; i < 12; i++) {
+      t.stdin.write(DOWN);
+      await sleep(20);
+    }
+    await sleep(120);
+    const f1 = t.frameWith("13/25");
+    expect(f1).toContain("❯ 13. 选项13"); // 选中项滚入视野且高亮
+    t.unmount();
+  });
+});

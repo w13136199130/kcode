@@ -121,6 +121,8 @@ export type LLMChunk =
 export interface LLMProvider {
   id: string;
   stream(req: LLMRequest): AsyncIterable<LLMChunk>;
+  /** 端点模型清单（对齐批 B，可选——OpenAI 兼容 /models；不支持的 provider 缺席） */
+  listModels?(): Promise<string[]>;
 }
 
 /** 历史摘要器的输入：待压缩的历史消息（按时间先后排列） */

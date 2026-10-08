@@ -39,6 +39,32 @@ export class OpenAICompatibleProvider implements LLMProvider {
     this.#options = options;
   }
 
+  /**
+   * 拉取端点模型清单（对齐批 B：GET {baseURL}/models，OpenAI 兼容标准接口——
+   * DeepSeek/GLM/Moonshot/Qwen 兼容端点全支持）。10s 超时，失败返回空（调用方回退配置态）。
+   * 响应多数只有模型 id，不带 context window——窗口仍靠静态表（见 core/context/budget.ts）。
+   */
+  async listModels(): Promise<string[]> {
+    const doFetch = this.#options.fetch ?? globalThis.fetch;
+    try {
+      const res = await doFetch(`${this.#options.baseURL.replace(/\/+$/, "")}/models`, {
+        signal: AbortSignal.timeout(10_000),
+        headers: {
+          ...(this.#options.apiKey !== undefined ? { authorization: `Bearer ${this.#options.apiKey}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        return [];
+      }
+      const data = (await res.json()) as { data?: Array<{ id?: string }> };
+      return (data.data ?? [])
+        .map((m) => (typeof m.id === "string" ? m.id : ""))
+        .filter((id) => id !== "");
+    } catch {
+      return [];
+    }
+  }
+
   async *stream(req: LLMRequest): AsyncIterable<LLMChunk> {
     // 每次尝试新客户端（连接不复用失败状态）；tools 与消息在循环内重建，避免复用已被消费的流
     const maxRetries = this.#options.retry?.maxRetries ?? 3;

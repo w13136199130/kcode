@@ -37,6 +37,9 @@ export interface SessionHandle {
   /** 运行期换模型（/model）：成功返回 null，失败返回错误信息 */
   setModel(model: string): Promise<string | null>;
   models(): Promise<{ default?: string; providers: string[] }>;
+  /** 当前 provider 的端点模型清单（对齐批 B：/model 全量菜单数据源；
+   * GET /models 拉取 + 会话级缓存 5 分钟；不支持/失败返回空由调用方回退） */
+  availableModels(): Promise<string[]>;
   listSkills(): Promise<{ name: string; description: string }[]>;
   skillBody(name: string): Promise<string | null>;
   listSessions(): Promise<{ sessionId: string; preview: string; turns: number }[]>;
@@ -207,6 +210,26 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
         providers: Object.keys(models.providers ?? {}),
       };
     },
+    // 端点模型清单：resolve 当前 provider → listModels（OpenAI 兼容 /models）；
+    // 会话级缓存 5 分钟（/model 菜单反复开关不打端点），失败/不支持回退空
+    availableModels: (() => {
+      let cache: { at: number; ids: string[] } | null = null;
+      return async (): Promise<string[]> => {
+        if (cache !== null && Date.now() - cache.at < 300_000) {
+          return cache.ids;
+        }
+        try {
+          const provider = await opts.runtime.router.resolve(opts.model);
+          const ids = (await provider.listModels?.()) ?? [];
+          if (ids.length > 0) {
+            cache = { at: Date.now(), ids };
+          }
+          return ids;
+        } catch {
+          return cache?.ids ?? [];
+        }
+      };
+    })(),
     listSkills: async () => composed.listSkills().map((s) => ({ name: s.name, description: s.description })),
     skillBody: (name) => composed.skillBody(name),
     listSessions: async () => {

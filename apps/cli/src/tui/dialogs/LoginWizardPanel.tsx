@@ -12,6 +12,28 @@ import type { CliServices } from "../state/services.js";
  * /login 向导（N2-3 外迁）：四段式录入厂商/模型/地址/key + 口令或 DPAPI。
  * 平台能力与面板动作经 useServices 注入（N2-1 IPlatformService + N2-3 注入补全）。
  */
+/**
+ * 端点模型探测（对齐批 B，与 provider.listModels 同接口）：GET {baseURL}/models
+ * 10s 超时；失败返回 null（配置仍可保存——端点可能不支持 /models）。
+ * 保存前验证 key+地址连通，并校准默认模型（预填不在清单则取清单第一个）。
+ */
+async function probeModels(baseURL: string, apiKey: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${baseURL.replace(/\/+$/, "")}/models`, {
+      signal: AbortSignal.timeout(10_000),
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    const ids = (data.data ?? []).map((m) => (typeof m.id === "string" ? m.id : "")).filter((id) => id !== "");
+    return ids;
+  } catch {
+    return null;
+  }
+}
+
 /** 向导统一底部提示（对齐批：可发现性——取消/回退机制曾不可见） */
 function WizardHints(props: { first?: boolean }) {
   return (
@@ -115,8 +137,18 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
               void (async () => {
                 try {
                   const keyRef = `keychain://${w.providerName}`;
+                  // 保存前探测（对齐批 B）：验证 key+地址连通并校准默认模型
+                  const probed = await probeModels(w.baseURL, w.apiKey);
+                  let model = w.model;
+                  let probeNote = "";
+                  if (probed === null) {
+                    probeNote = "；端点 /models 不可达（配置已保存，模型名未验证）";
+                  } else if (!probed.includes(w.model)) {
+                    model = probed[0] ?? w.model;
+                    probeNote = `；预填模型 ${w.model} 不在清单，已改用 ${model}`;
+                  }
                   await saveUserModelsConfig({
-                    default: `${w.providerName}/${w.model}`,
+                    default: `${w.providerName}/${model}`,
                     providers: {
                       [w.providerName]: {
                         type: "openai-compatible",
@@ -134,7 +166,10 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
                   dialogs.pushBlock({
                     kind: "info",
                     tone: "ok",
-                    text: `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${w.providerName}/${w.model}）——重启 kcode 后以新配置启动`,
+                    text:
+                      `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${w.providerName}/${model}）` +
+                      (probed !== null && probed.length > 0 ? `——端点连通，检测到 ${probed.length} 个模型` : "") +
+                      `${probeNote}——重启 kcode 后以新配置启动`,
                   });
                 } catch (err) {
                   dialogs.pushBlock({

@@ -118,20 +118,37 @@ ${result.error}` : ""}`,
       }
       if (name === "model") {
         if (args === "") {
-          // 选择菜单：默认引用 + 当前会话模型（自定义引用用 /model <provider/模型名>）
+          // 全量菜单（对齐批 B）：端点 /models 拉取（会话级缓存，失败回退配置态）；
+          // 当前会话模型置顶高亮，Enter 会话级切换（setModel 语义不变）
           const info = await ctx.session.models().catch(() => null);
           if (info === null) {
             ctx.pushBlock({ kind: "info", tone: "warn", text: "模型清单获取失败（会话操作异常）" });
             return;
           }
+          const available = await ctx.session.availableModels().catch(() => []);
+          const providerPrefix =
+            ctx.modelLabel.includes("/") ? ctx.modelLabel.split("/")[0]! : (info.default ?? "").split("/")[0] ?? info.providers[0] ?? "";
           const options: MenuOption[] = [];
+          const seen = new Set<string>();
+          const add = (ref: string, note?: string): void => {
+            if (ref === "" || seen.has(ref)) {
+              return;
+            }
+            seen.add(ref);
+            options.push({
+              key: String((options.length % 9) + 1),
+              label: note !== undefined ? `${ref}（${note}）` : ref,
+              value: ref,
+            });
+          };
+          add(ctx.modelLabel, "当前会话");
           if (info.default !== undefined) {
-            options.push({ key: "1", label: `${info.default}（配置默认）` });
+            add(info.default, "配置默认");
           }
-          if (ctx.modelLabel !== info.default) {
-            options.push({ key: "2", label: `${ctx.modelLabel}（当前会话）` });
+          for (const id of available) {
+            add(providerPrefix !== "" ? `${providerPrefix}/${id}` : id);
           }
-          options.push({ key: "q", label: "取消" });
+          options.push({ key: "q", label: available.length > 0 ? "取消（自定义直接 /model <provider/模型名>）" : "取消（端点未返回清单——自定义直接 /model <provider/模型名>）" });
           ctx.setModelPicker({ options });
           return;
         }

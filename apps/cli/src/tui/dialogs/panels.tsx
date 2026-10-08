@@ -285,7 +285,7 @@ export function ModelPickerPanel(props: { options: MenuOption[] }) {
           if (picked === undefined || picked.key === "q") {
             return;
           }
-          const ref = picked.label.replace(/（.*$/, "");
+          const ref = picked.value ?? picked.label.replace(/（.*$/, "");
           void (async () => {
             const error = await dialogs.setModel(ref);
             if (error !== null) {

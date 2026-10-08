@@ -167,3 +167,34 @@ describe("toCoreMessages", () => {
     expect(chunks[0]?.type).toBe("reasoning");
   });
 });
+
+describe("listModels（对齐批 B：GET /models）", () => {
+  it("解析 data[].id；带 Bearer 头与尾斜杠归一；非 2xx/网络错误返回空", async () => {
+    const calls: string[] = [];
+    const okFetch = (async (input: unknown, init?: RequestInit) => {
+      calls.push(`${String(input)}|${String(init?.headers ? (init.headers as Record<string, string>)["authorization"] : "")}`);
+      return new Response(JSON.stringify({ data: [{ id: "deepseek-chat" }, { id: "deepseek-v4-pro" }, { no: "id" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const p = new OpenAICompatibleProvider("t", {
+      baseURL: "https://api.deepseek.com/v4/",
+      apiKey: "sk-test",
+      model: "m",
+      fetch: okFetch,
+    });
+    expect(await p.listModels()).toEqual(["deepseek-chat", "deepseek-v4-pro"]);
+    expect(calls[0]).toBe("https://api.deepseek.com/v4/models|Bearer sk-test");
+
+    const failFetch = (async () => new Response("nope", { status: 401 })) as typeof fetch;
+    const p2 = new OpenAICompatibleProvider("t", { baseURL: "https://x/v1", model: "m", fetch: failFetch });
+    expect(await p2.listModels()).toEqual([]);
+
+    const throwFetch = (async () => {
+      throw new Error("network down");
+    }) as typeof fetch;
+    const p3 = new OpenAICompatibleProvider("t", { baseURL: "https://x/v1", model: "m", fetch: throwFetch });
+    expect(await p3.listModels()).toEqual([]);
+  });
+});

@@ -7,6 +7,8 @@ export interface MenuOption {
   /** 快捷键（单选时按下即选中并确认；多选时忽略） */
   key: string;
   label: string;
+  /** 选中值（对齐批 B：/model 全量菜单等带注释 label 的场景，取值不再解析文本） */
+  value?: string;
 }
 
 /**
@@ -70,15 +72,20 @@ export function OptionsMenu(props: {
       }
     }
   });
+  // 滚动窗口（对齐批 B：长清单不再整屏铺开——/model 全量菜单可达数十项；选中项滚入视野）
+  const VISIBLE = 10;
+  const start = Math.min(Math.max(0, selected - VISIBLE + 1), Math.max(0, count - VISIBLE));
+  const visible = props.options.slice(start, start + VISIBLE);
   return (
     <Box flexDirection="column">
-      {props.options.map((o, i) => {
-        const highlighted = i === selected;
+      {visible.map((o, i) => {
+        const idx = start + i;
+        const highlighted = idx === selected;
         const marker =
-          props.multi === true ? (checked.has(i) ? "☒" : "☐") : highlighted ? "❯" : " ";
+          props.multi === true ? (checked.has(idx) ? "☒" : "☐") : highlighted ? "❯" : " ";
         return (
-          <Text key={o.key} color={highlighted ? c("brand") : undefined} bold={highlighted}>
-            {marker} {i + 1}. {o.label}
+          <Text key={o.key + String(idx)} color={highlighted ? c("brand") : undefined} bold={highlighted}>
+            {marker} {idx + 1}. {o.label}
           </Text>
         );
       })}
@@ -86,7 +93,7 @@ export function OptionsMenu(props: {
       <Text dimColor>
         {props.multi === true
           ? " ↑↓ 移动 · 空格勾选 · 回车确认 · Esc 取消"
-          : ` ↑↓/数字 选择 · 回车确认 · ${props.cancelLabel ?? "Esc 取消"}`}
+          : ` ↑↓/数字 选择（${selected + 1}/${count}）· 回车确认 · ${props.cancelLabel ?? "Esc 取消"}`}
       </Text>
     </Box>
   );
