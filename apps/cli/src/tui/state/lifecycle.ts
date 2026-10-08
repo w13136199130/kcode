@@ -85,6 +85,8 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
             ...handle.listCommands().map((c) => ({
               name: c.name,
               desc: c.source === "project" ? "（项目自定义命令）" : "（用户自定义命令）",
+              // N3G-1：自定义命令参数位说明 $ARGUMENTS 模板（展开在 session 侧）
+              argsHint: "/<命令> <参数…>——正文中的 $ARGUMENTS 替换为参数后作为提示词发送",
             })),
           ]);
         };

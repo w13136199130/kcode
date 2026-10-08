@@ -75,3 +75,16 @@ export function filterFileCandidates(files: string[], query: string, limit = 8):
   }
   return [...starts, ...contains].slice(0, limit);
 }
+
+/**
+ * 路径形态补全（N3G-1，Tab 三态判定之一）：光标前 token 含 / 或 \ 或以 ./ 开头 →
+ * 项目内相对路径前缀匹配。只 startsWith（@ 补全的子串回退在"补全"语义下是噪声）；
+ * 反斜杠归一为 /；大小写不敏感。取舍：只补相对路径——绝对路径场景少风险高。
+ */
+export function completePath(files: string[], prefix: string, limit = 8): string[] {
+  const p = prefix.replace(/\\/g, "/").toLowerCase().replace(/^\.\//, "");
+  if (p === "") {
+    return [];
+  }
+  return files.filter((f) => f.toLowerCase().startsWith(p)).slice(0, limit);
+}

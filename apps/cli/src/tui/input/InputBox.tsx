@@ -3,7 +3,7 @@ import { Box, Text, useInput, useStdin, useStdout } from "ink";
 import { previousBoundary, nextBoundary } from "../terminal/width.js";
 import { onHomeEnd, patchStdinReadForKeys } from "../terminal/home-end-tee.js";
 import { appendInputLog } from "../terminal/input-log.js";
-import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
+import { completePath, filterFileCandidates, listProjectFiles } from "./file-complete.js";
 import { UndoStack } from "./undo.js";
 import { GHOST_HINT } from "./suggestions.js";
 import { c } from "../theme/theme.js";
@@ -159,6 +159,52 @@ export function InputBox(props: {
     setValue(`${props.value.slice(0, keep)}${inserted}${props.value.slice(pos)}`, keep + inserted.length);
     setFileMenu(null);
   };
+  /** N3G-1 路径补全菜单（Tab 三态之一）：token 含 / 或 \ 或 ./ 开头时 Tab 打开；
+   * 打开后随输入实时重过滤，token 失去路径形态即关。@ 优先（fileMenu 先判）。 */
+  const [pathMenu, setPathMenu] = useState<{ items: string[]; index: number } | null>(null);
+  const tokenBeforeCursor = (): string => /\S*$/.exec(props.value.slice(0, pos))?.[0] ?? "";
+  const isPathFormToken = (token: string): boolean =>
+    !token.startsWith("@") &&
+    (token.includes("/") || token.includes("\\") || token.startsWith("./"));
+  const insertPathCandidate = (path: string): void => {
+    const token = tokenBeforeCursor();
+    const keep = props.value.slice(0, pos).length - token.length;
+    boundary.current = true; // 菜单插入是大跳变：独立撤销单元
+    setValue(`${props.value.slice(0, keep)}${path} ${props.value.slice(pos)}`, keep + path.length + 1);
+    setPathMenu(null);
+  };
+  const pathMenuOpen = pathMenu !== null;
+  useEffect(() => {
+    if (!pathMenuOpen) {
+      return;
+    }
+    const token = /\S*$/.exec(props.value.slice(0, pos))?.[0] ?? "";
+    if (props.value.startsWith("/") || !isPathFormToken(token)) {
+      setPathMenu(null);
+      return;
+    }
+    void (async () => {
+      if (fileList.current === null) {
+        fileList.current = await listProjectFiles(props.cwd);
+      }
+      const items = completePath(fileList.current, token);
+      // 同结果返回原引用：避免 effect↔state 互相触发的循环
+      setPathMenu((prev) => {
+        if (prev === null) {
+          return null;
+        }
+        if (items.length === 0) {
+          return null;
+        }
+        if (prev.index === 0 && prev.items.length === items.length && prev.items.every((x, i) => x === items[i])) {
+          return prev;
+        }
+        return { items, index: 0 };
+      });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.value, pos, pathMenuOpen]);
+
   // 过滤词变化即重置高亮（渲染期调整 state 的标准模式）
   // 单一 Ink 输入通道：字符/IME 整串/方向/回车/退格全在此处理。
   // Home/End 在 Ink 的 key 对象里未暴露，以序列形式到达（[H 被剥掉 ESC 后成 "[H"）。
@@ -204,6 +250,25 @@ export function InputBox(props: {
         }
         if (key.escape) {
           setFileMenu(null);
+          return;
+        }
+        // 其余按键落入正常输入处理（继续输入即实时过滤）
+      }
+      if (pathMenu !== null) {
+        if (key.upArrow) {
+          setPathMenu({ ...pathMenu, index: (pathMenu.index - 1 + pathMenu.items.length) % pathMenu.items.length });
+          return;
+        }
+        if (key.downArrow) {
+          setPathMenu({ ...pathMenu, index: (pathMenu.index + 1) % pathMenu.items.length });
+          return;
+        }
+        if (key.tab || key.return) {
+          insertPathCandidate(pathMenu.items[pathMenu.index] ?? pathMenu.items[0]!);
+          return;
+        }
+        if (key.escape) {
+          setPathMenu(null);
           return;
         }
         // 其余按键落入正常输入处理（继续输入即实时过滤）
@@ -283,6 +348,19 @@ export function InputBox(props: {
           boundary.current = true; // 提交后外部清空是独立撤销单元（误触回车可 Ctrl+Z 找回草稿）
           props.onSubmit(props.value);
         }
+      } else if (key.tab && !props.value.startsWith("/")) {
+        // N3G-1 三态判定（此刻无任何菜单）：@ 优先（上方 fileMenu 已处理）；
+        // 命令态（/ 开头）走参数提示不插入；路径形态 → 打开路径补全菜单
+        const token = tokenBeforeCursor();
+        if (isPathFormToken(token)) {
+          void (async () => {
+            if (fileList.current === null) {
+              fileList.current = await listProjectFiles(props.cwd);
+            }
+            const items = completePath(fileList.current, token);
+            setPathMenu(items.length > 0 ? { items, index: 0 } : null);
+          })();
+        }
       } else if (
         props.starters !== undefined &&
         props.value === "" &&
@@ -299,6 +377,19 @@ export function InputBox(props: {
     },
     { isActive: true },
   );
+  // N3G-1 三态之二：斜杠命令参数位提示（展示不插入）——/cmd 已定格（后随空格）即显示
+  const argsHint = (() => {
+    if (!props.value.startsWith("/")) {
+      return null;
+    }
+    const spaceIdx = props.value.indexOf(" ");
+    if (spaceIdx <= 1) {
+      return null;
+    }
+    const name = props.value.slice(1, spaceIdx);
+    return props.commands.find((cmd) => cmd.name === name)?.argsHint ?? null;
+  })();
+
   // 布局对标 Claude Code：菜单在上方 → ── 分隔线 → 输入行（必须是帧的最后一行，
   // 帧渲染后光标锚定回输入行，IME 组合窗随之显示在 > 后面）
   // 输入行渲染为纯扁平字符串（before + █ 光标 + after）：
@@ -350,6 +441,22 @@ export function InputBox(props: {
           ))}
           <Text dimColor>↑↓ 选择 · Tab/回车 插入路径 · Esc 关闭</Text>
         </Box>
+      )}
+      {pathMenu !== null && (
+        <Box flexDirection="column">
+          {pathMenu.items.map((f, i) => (
+            <Text key={f} color={i === pathMenu.index ? c("brand") : undefined} bold={i === pathMenu.index}>
+              {i === pathMenu.index ? "❯ " : "  "}
+              {f}
+            </Text>
+          ))}
+          <Text dimColor>↑↓ 选择 · Tab/回车 插入路径 · Esc 关闭（只补项目内相对路径）</Text>
+        </Box>
+      )}
+      {argsHint !== null && (
+        <Text dimColor>
+          {`❒ /${props.value.slice(1, props.value.indexOf(" "))} 参数：${argsHint}`}
+        </Text>
       )}
       <Text dimColor>{separator}</Text>
       <Box flexDirection="column">
