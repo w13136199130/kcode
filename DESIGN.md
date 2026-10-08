@@ -27,6 +27,7 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
              ↘ N3C CLI 入口层/TUI 交互快赢批 ✅（①–⑦ 全落地）
              ↘ N3D 子代理异步化与消息互通（两期，§8.4c：一期后台+通知+落盘+并行组 ~1.5 周；二期 TurnPhase 前置+steer+SendMessage 1.5-2.5 周）
              ↘ N3E 执行层体验批（§8.4d：bash 三段预算/cd 项目边界/配置覆盖层/kcode update/凭证指纹回退/idle 微压缩，~1.5 周）
+             ↘ N3F/G/H CLI 体验三期（§8.4e：终端打磨/输入补全/深度交互，F≈1 周→G≈1 周→H 后排）
 ```
 
 **一条重要判断**：单进程 CLI 与桌面/Web 不矛盾。ZCode 用**同一套 stdio 协议同时服务 CLI 与 Electron**，而不是给桌面另起一套。因此 kcode 保留单进程为默认形态，把"进程边界"做成**可选宿主**（§3.3），不为尚未开始的桌面预置常驻进程。
@@ -454,6 +455,46 @@ export interface IPlatformService {
 | N3E-5 | 凭证机器指纹回退（**已落地**：口令 > DPAPI > 指纹三级；原"禁止机器 ID 派生"原则修正为显式降级层+文档声明） | `ZCODE_CREDENTIAL_SECRET` 未设时回退指纹 `盐:platform:homedir:username`→sha256→AES-GCM（`credential-cipher.ts:87-101`） | 非 Windows 且未设口令时同款指纹回退（Windows 已有 DPAPI）；威胁模型写入 threat-model：指纹是"防误提交"级（同机可推导），非防本地恶意用户——与 zcode 同级诚实 | 1 天 |
 | N3E-6 | idle 微压缩（**已落地**：空闲超 60min 下一次输入先走 persistedCompact；阈值可注入测试） | 挂机 >60min 触发微压缩（zcode 后台定时） | kcode 单进程不必后台定时：**下一次用户输入时**检查距上次活动超 60min 即触发压缩——语义等价成本更低 | 0.5 天 |
 
+### 8.4e 阶段 N3F/G/H：CLI 体验三期（2026-09-29 对标审计产出；zcode 引用指向本地克隆，CC=Claude Code / OC=opencode 按公开行为对标）
+
+> 审计口径：只列**未落地**项；已交付的 N3C①–⑦/N3D/N3E 不重复。每项给机制、落点、对标依据与取舍；量级小计 F≈1 周 / G≈1 周 / H≈1.5–2 周（H 后排至 N3-4 之后）。
+
+**N3F 终端打磨批（先做——低成本高感知 + CLI 基本面收口）**
+
+| ID | 项 | 设计要点（机制 → 落点 → 对标 → 取舍） | 量级 |
+|---|---|---|---|
+| N3F-1 | OSC 8 可点击链接（**一期只做结构化链接**——复审修订） | 机制：`\x1b]8;;file:///<abs>#L<line>\x1b\\<label>\x1b]8;;\x1b\\` 零宽序列包裹。**一期只覆盖结构性位置**（路径是已知值零误报）：工具 argsPreview、bash 三段预算 artifact 路径、task_output 日志路径、检查点/子代理会话路径——CC/OC 的链接同样来自结构位而非文本扫描。二期（可选）才扩展 assistant 正文，且**仅限 Markdown code span 内**（markdownToLines 已产出 span 边界，检测面缩 95%；全文正则扫路径的误报——版本号/URL/盘符——是 CC/OC 都不走的死路）。**两个坑**：① `truncateVisual` 可能切掉 OSC8 闭合序列造成悬空链接——截断必须链接感知（先截 label 再包序列）；② Ink 宽度计量 POC 先行（宽度回归测试再铺开）。**支持面诚实化**：`file://` 点了开编辑器仅 VS Code 集成终端成立（iTerm2/WezTerm 走系统默认应用），独立 WT 会丢给浏览器——默认仅 `TERM_PROGRAM=vscode` 等已知良好终端发射，其余 `KCODE_LINKS=1` 手动开 | 1 天（含 POC） |
+| N3F-2 | 终端标题栏进度 | 机制：OSC 0 `\x1b]0;kcode ⏳ <activity>\x07`；busy 或 activityLabel 变化时写，空闲/卸载复位为 `kcode`。落点：新建 `tui/terminal/title.ts`（写序列 + isTTY 门 + KCODE_TITLE=0 门），App 挂一行 effect（逻辑全在模块——App 行数红线）。对标：CC 同款。取舍：终端不自动还原标题，卸载时复位常量即可 | 0.5 天 |
+| N3F-3 | 任务完成 bell | 机制：busy 下降沿且本轮耗时 >10s → 写 `\a` 一次；后台完成通知同触发。落点：`tui/terminal/notify.ts`（bell + 耗时判定 + KCODE_BELL=0 门）。对标：CC hooks 通知/bell 同语义。取舍：不做系统级通知（OS 通知属 N4 桌面） | 0.5 天 |
+| N3F-4 | respond 通知显示瑕疵修复 | 机制：`buildRespondToCoordinatorTool` 的 notify 载荷统一加 `SUBAGENT_NOTIFICATION_HEADER` 前缀（与完成通知同头）→ TUI 既有 📩 分支直接命中，XML 载荷随头之后。对标：zcode 入站消息统一防伪头（`incoming-message.ts:9`）。取舍：改载荷而非改 TUI 分支——单一事实源 | 10 分钟 |
+| N3F-5 | `--model <provider/model>` 旗标 | 机制：args.ts 增旗标；main.tsx 覆盖 `modelRef`（contracts modelRef 格式校验 + provider 存在性检查，未知 provider fail-fast 列可用清单）；TUI 与 headless 同一生效点。对标：CC `--model`。取舍：不另建配置层——这是 N3E-3 三层之上的第四层（CLI 覆盖，优先级最高），与 zcode `ConfigScope.Cli=50` 同位 | 0.5 天 |
+| N3F-6 | `kcode mcp` 子命令 | 机制：`list`（名称/transport）/ `add <name> -- <stdio 命令>` 或 `add <name> <url> --transport http` / `remove <name>` / `test <name>`（单服务器连接探针，复用 `connectMcpServers` + 10s 超时）。落点：新 `apps/cli/src/mcp-cmd.ts`（镜像 doctor.ts 的 print/exit 约定）；写 `~/.kcode/mcp.json` 前 zod 校验 + tmp/rename 原子写。对标：CC `claude mcp add/list/remove`。取舍：不做 add-json（手改文件仍是逃生门）。**复审注**：项目级 MCP 配置（zcode 五级含 mcp.servers、CC --scope project）是已知缺口——但项目 mcp.json 能注入"启动即执行"的 stdio 命令，**实作前提是 /trust 门控**（同 hooks 项目级），排 N3H 之后 | 1.5–2 天 |
+| N3F-7 | headless 流式文本 | 机制：`-p` 非 `--json` 时 onDelta 直写 stdout，50ms/64 字符合帧（防逐 token 系统调用抖动）；流式模式末尾换行收尾不重复摘要。落点：headless.ts 增 onDelta 通道 + 微缓冲。对标：CC `--print` 流式 | 1 天 |
+
+| N3F-8 | 搜索后端可配置 | 机制：web_search 现硬编码 DDG HTML 抓取；Env 白名单加 `KCODE_SEARCH`（duckduckgo|searxng|none）+ searxng 实例 URL 参数。对标：CC 服务端搜索（kcode 保持本地免 key 优先）。取舍：不做 API-key 搜索引擎（需要者可自配 MCP） | 0.5 天 |
+
+**N3G 输入补全批（Tab 补全单独立批——要动 InputBox 补全状态机，值得专注）**
+
+| ID | 项 | 设计要点 | 量级 |
+|---|---|---|---|
+| N3G-1 | Tab 路径/命令参数补全 | 机制：按光标左侧 token 三态判定——① 路径形态（含 /或\ 或 `./`）→ 路径补全菜单：`file-complete.ts` 泛化为 `complete(prefix, cwd)`（去 @ 前缀强绑定，评分排序复用）；② 斜杠命令参数位 → 提示菜单：`CommandInfo` 增 `argsHint?: string`（内置命令逐个补文案；自定义命令显示 $ARGUMENTS 模板说明），展示不插入；③ 菜单内 Tab=选中（既有）。落点：InputBox 按键分支 + file-complete 泛化 + builtin-commands 加字段。对标：CC Tab 全场景 / OC dialog 内 Tab。取舍：只补**项目内相对路径**（绝对路径场景少风险高）；与 @ 补全共存（@ 优先） | 2–3 天 |
+| N3G-2 | 输入 undo/redo | 机制：InputBox 本地双栈；入栈点合并（100ms 窗口或边界事件：提交/粘贴/清空）；Ctrl+Z / Ctrl+Y 与 Ctrl+Shift+Z；IME 组合中不入栈。对标：OC（ctrl+z/super+z）。取舍：历史上限 50，不持久化 | 1 天 |
+| N3G-3 | `#` 快捷追加记忆 | 机制：InputArea 的 onSubmit 包装层拦截首字符 `#` → `tui/memory.ts` 追加 `cwd/AGENTS.md`（空行分隔）+ 📝 通知，不进模型不进历史。对标：CC `#`。取舍：项目级 AGENTS.md（与记忆加载同源）；不经 App（行数红线），模块自治 | 0.5 天 |
+| N3G-4 | 空态建议提示词（**数字快捷填入**——复审补强） | 机制：转写仅横幅时渲染 3 条建议，前缀 ①②③——**输入为空时按数字键直接填入输入框**（终端原生替代 CC 的可点击建议，成本不变价值翻倍；InputBox 空值分支加三键判定）；输入框空时 ghost 提示 1 条（dim 前缀，输入即让位）。对标：CC 欢迎页可点建议 / OC ghost text。取舍：ghost 只展示不预填 | 1 天 |
+
+**N3H 深度交互批（N3-4 Desktop 之后）**
+
+| ID | 项 | 设计要点 | 量级 |
+|---|---|---|---|
+| N3H-1 | rewind 粒度三分 | 机制：rewind picker 选中点后弹三选（仅恢复文件快照 / 仅截断对话 / 两者——现行为）；`rewindTo` 增 `options:{files,events}`；仅代码时事件流保留，模型后续被告知文件已回退。对标：CC Esc Esc 三选菜单。**复审注**：真正成本在"仅代码"后的**后续回退点一致性**——之后各点的 fileChanges 计数引用已再次变化的文件，须作废或重算（CC 有独立 checkpoint 体系兜底，kcode 没有）；量级修正为 2–3 天，一致性列为验收项 | 2–3 天 |
+| N3H-2 | statusline 脚本注入 | 机制：`/statusline <cmd>` 存 `~/.kcode/statusline.json`；StatusBar 以状态哈希（mode/model/ctx%/branch/busy）为键缓存子进程输出，spawn 传 JSON stdin、500ms 超时、失败回落内置三段。对标：CC /statusline 生态 | 2 天 |
+| N3H-3 | 命令面板（Ctrl+K） | 机制：覆盖层第 4 分支（InputArea）；`tui/palette.ts` 动作注册表（**全部内置 + `.kcode/commands` 自定义命令**——复审补：自定义命令必须入面板，本就是斜杠命令一行注册的事—— + 键动作如浏览器/面板/模式切换），模糊过滤 + ↑↓/Enter。对标：OC leader+ctrl+p（其面板可被插件扩展，kcode 先静态注册）。取舍：**自定义键位不做**；面板成熟后**吸收合并 OptionsMenu**（职责重叠双入口冗余——复审补） | 3–4 天 |
+| N3H-4 | 计划编辑器（$EDITOR 修订） | 机制：plan approval 面板增"在编辑器中修订"项 → 计划写临时 .md → 复用 `openInExternalEditor` → 返回文本以 revise 语义回 plan_submit（修订稿作新输入注入）。对标：CC Ctrl+G | 1 天 |
+
+**维持不做**：原地编辑历史消息（Static 约束）、会话分享（N4-2）、终端内图片显示、自定义键位（见 N3H-3 取舍）。
+
+**复审结论（2026-09-29，对本节设计的二次审查）**：① 修订七处——N3F-1 改结构化链接先行+截断链接感知+支持面诚实化（VS Code 终端为主战场）、N3G-4 数字快捷填入、N3H-1 量级修正+一致性验收、N3H-3 自定义命令入面板+OptionsMenu 合并注、N3F-6 项目级 MCP 缺口与安全前提、新增 N3F-8 搜索后端可配、N3H-4 语义取舍（修订稿经 $EDITOR 多一跳模型往返，换 plan_submit 机制复用）；② 覆盖度判断：F+G 落地后 CLI 交互面达"无明显高频摩擦"——与 CC 剩余差距集中在 **IDE 集成**（VS Code 扩展：选中上下文/IDE diff/状态显示，最大单项差距，随 N3-4/N4 排期）与生态（N4 范畴），不再是 CLI 本身；③ 已知未排期小项：hooks 拒绝原因内联渲染打磨（现 notice 够用，观察后再说）。
+
 ### 8.5 阶段 N4：生态与云（P3+）
 
 | ID | 项 | 说明 |
@@ -514,17 +555,17 @@ export interface IPlatformService {
 | 工具卡片逐块展开/折叠 | ✅ | ✅ | ✅ | ✅（N3C-4②：Ctrl+B 浏览器，↑↓/Enter 交互，覆盖层避开 Static 不重绘约束） | 已达标 |
 | 上下文余量/成本常驻状态栏 | ✅（context left） | ✅（status view） | ✅ | ✅（N3C-4①：ctx %·k 值 + ⇅ 双向 token + >85% 警示色） | 已达标 |
 | git 分支/工作区状态注入 | ✅（statusline） | ✅ | ✅（git snapshot） | ✅（N3C-4①：⎇ 分支段，60s 采样） | 已达标 |
-| 可定制 statusline（脚本注入） | ✅（/statusline） | ⚠️ | ✅ tokens | ❌ | 后置评估 |
+| 可定制 statusline（脚本注入） | ✅（/statusline） | ⚠️ | ✅ tokens | ❌ | N3H-2（§8.4e） |
 | 外部编辑器（$EDITOR 长输入/计划） | ✅（Ctrl+G 计划） | ✅（leader+e） | ✅ | ✅（N3C-4④：Ctrl+E，空闲态编辑当前输入并回填） | 计划编辑后批 |
 | 剪贴板图片粘贴 | ✅ | ✅ | ✅ | ✅（N3C-4⑤：Ctrl+V 贴图为附件随消息发送；v1 仅 Windows） | 已达标（平台覆盖后续） |
-| Tab 路径/斜杠参数补全 | ✅ | ✅ | ✅ | ⚠️ @ 补全有；Tab 路径与命令参数提示无 | 小项 |
+| Tab 路径/斜杠参数补全 | ✅ | ✅ | ✅ | ⚠️ @ 补全有；Tab 路径与命令参数提示无 | N3G-1（§8.4e） |
 | 跨会话历史搜索 | ✅（Ctrl+R） | ⚠️ | ✅ | ✅（N3C-4⑥：Ctrl+R 覆盖层，子串过滤 + Enter 回填） | 已达标 |
 | Esc Esc 回退（代码/对话/两者分粒度） | ✅ | ✅（revert/fork 消息级） | ✅ | ⚠️ rewind picker 有；粒度未分 | 小项 |
 | 后台任务浏览面板 | ✅ | ⚠️ | ✅ | ✅（N3C-4③：Ctrl+T 面板，1s 轮询 + 日志尾部） | 已达标 |
 | 子代理进度卡（代理名/活动态/层级导航） | ✅ | ✅（parent/child 导航） | ✅ | ⚠️ 仅工具状态行 | N3D-1（spawned/stopped 事件 + task_output 查活动） |
 | 会话侧栏/timeline/分享链接 | ⚠️（/resume picker） | ✅（sidebar+timeline+share） | ✅ | ⚠️ resume picker；share 无 | share 属 N4-2 |
-| 消息/输入级 undo-redo | ⚠️ | ✅（leader+u/r + 输入 undo） | ✅ | ❌ | 小项 |
-| leader/命令面板（动作可发现性） | ⚠️（IDE 侧） | ✅（leader+ctrl+p） | ✅ | ⚠️ OptionsMenu 有；无统一面板 | 后置评估 |
+| 消息/输入级 undo-redo | ⚠️ | ✅（leader+u/r + 输入 undo） | ✅ | ❌ | N3G-2（输入级；消息级受 Static 约束不做） |
+| leader/命令面板（动作可发现性） | ⚠️（IDE 侧） | ✅（leader+ctrl+p） | ✅ | ⚠️ OptionsMenu 有；无统一面板 | N3H-3（Ctrl+K 面板） |
 | 空态欢迎/建议/提示 | ✅ | ✅ | ✅ | ✅（N3C-4⑦：横幅两行键位一览；建议提示词后续可加） | 已达标 |
 | 技能触发透明（回显加载来源） | ✅ | ✅ | ✅ | ✅（skill_used 回显"自动/手动"） | 已达标 |
 | 思考流独立层 | ✅ | ✅ | ✅ | ✅（思考行 + Ctrl+O 展开） | 已达标 |
@@ -549,6 +590,8 @@ export interface IPlatformService {
 
 ### v5（2026-09-29）
 
+- **§8.4e 二次复审修订（7 处）**：N3F-1 改结构化链接先行（CC/OC 链接来自结构位非文本扫描）+截断链接感知+支持面诚实化（VS Code 终端为主战场）；N3G-4 数字快捷填入（终端原生替代可点击建议）；N3H-1 量级修正 2-3 天+后续回退点一致性验收；N3H-3 自定义命令入面板+OptionsMenu 合并注；N3F-6 记项目级 MCP 缺口（安全前提 /trust 门控，排 N3H 后）；新增 N3F-8 搜索后端可配；N3H-4 语义取舍声明。复审结论：F+G 落地后 CLI 交互面达"无明显高频摩擦"，与 CC 剩余差距=IDE 集成（N4）+生态（N4），不再是 CLI 本身。
+- **CLI 体验审计与三期设计定稿（§8.4e 新增）**：对标 CC/OC/zcode 盘点未落地项，按价值密度分三批——N3F 终端打磨（OSC 8 可点击链接[POC 先行防 Ink 宽度风险]/标题栏进度/完成 bell/respond 显示瑕疵修复[载荷统一防伪头]/--model 旗标/kcode mcp 子命令/headless 流式文本，≈1 周）；N3G 输入补全（Tab 路径+命令参数补全[InputBox 状态机专批]/输入 undo-redo/# 追加 AGENTS.md[InputArea 拦截不经 App]/空态建议+ghost，≈1 周）；N3H 深度交互（rewind 三分粒度/statusline 脚本/Ctrl+K 命令面板/$EDITOR 计划修订，N3-4 之后）。§0 路线图与 §9.2 四行同步；明确不做：原地编辑消息（Static）、会话分享（N4-2）、终端图片、自定义键位。
 - **N3D-2 主体落地（子代理消息互通，设计修订后实施）**：开工前设计审查发现三处不合理并调整——① zcode 三态投递的"空闲排队"在 kcode 不存在（子代理一次 run 即终态）→ 简化为两态回执（steered/resumed），终态同 loop 开新 run 即"复活"（单进程内存历史无损，优于 zcode resumeFromStore——其需要它因 runtime 不留内存）；② 寻址缺基础设施 → 新增 `session/subagent-registry.ts` 句柄注册表（持 AgentLoop 引用；终态 LRU 上限 8——单进程内存自管，zcode 由 runtime 生命周期托管无此问题）；③ respond 不另建命令类型 → 复用 N3D-1 notify 通道（`<subagent-message>` XML 载荷）。实现：`core/loop.ts` 增 `pendingInputs`+`steer()`（以 TurnMachine.phase 判运行中——前置任务价值兑现）+ while 顶模型步边界 drain（注入走既有 user_message 事件，回放/resume 自动一致，契约零新增）；`session/agent-messaging.ts` 两工具（send_message 父专属不进 baseTools——子代理不可互发，对齐 zcode 门控；respond_to_coordinator 无条件注入子代理工具面）；subagent 双注册（元数据进 BackgroundTaskRegistry/句柄进 SubagentRegistry）；行数治理：settle-results.ts 外迁（loop 486 行）。修复：早前补丁引入的 `join("\n")` 双反斜杠源码缺陷（会产出字面 
  文本）。测试 +7（steer 确定性注入——工具 execute 期同线程触发；两态投递；LRU；respond 载荷；组合级全链路：后台子代理中途 respond → 父收通知开新 turn 应答）。教训：bash heredoc 对含反斜义内容不可靠，改用 Edit/Write 工具直写。
 - **TurnPhase 显式化落地（N3D-2 前置）**：`packages/core/src/core/turn-state.ts`——八态（Idle/ProcessingInput/Streaming/SchedulingTools/ExecutingTools/AggregatingResults/Completing/Error；zcode 十态裁剪：kcode 流式即刻开始无独立 AwaitingModelResponse、权限等待在执行内）+ `TURN_TRANSITIONS` 迁移表（Completing/Error 终态只回 Idle；AggregatingResults 保留回 SchedulingTools 为重调度预留）+ `transition()` 唯一强制点（非法迁移抛错 fail-fast）+ `finish()` 幂等归位（Error/Completing 直回 Idle）。loop.ts 十处位点推进，`AgentLoopPorts.onPhase` 观察缝；流式消费抽为 `consume-stream.ts` 独立模块（循环依赖以结构化内联类型解开；loop.ts 477 行达标）。测试 +8（迁移表单测 5 + 真实 loop 三路径序列断言：多轮工具/纯文本/流式错误归位与连续 run 干净起步）。**既有 424 用例零改动全过——所有现存路径天然只走合法迁移，这是对状态机设计正确性的最强验证。**
