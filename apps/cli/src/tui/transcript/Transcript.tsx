@@ -3,6 +3,7 @@ import type { TodoItem } from "@kcode/contracts";
 import { markdownToLines, type MdLine } from "./markdown.js";
 // 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
 import { visualWidth, wrapVisual, truncateVisual } from "../terminal/width.js";
+import { clipVisual, formatFileLink, linkifyStructuredPaths } from "../terminal/links.js";
 import { c } from "../theme/theme.js";
 
 export { visualWidth, wrapVisual };
@@ -35,12 +36,14 @@ function formatMs(ms: number): string {
 /**
  * 按工具智能提取参数预览（替代原始 JSON 转写）：
  * bash 显示命令、read/glob/grep 显示路径与 pattern、write/edit 显示目标文件。
+ * 路径是已知值——展示层直接包 OSC8 结构化链接（N3F-1，禁用时 formatFileLink 退化为裸文本）。
  */
 export function formatToolPreview(tool: string, args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
   const s = (v: unknown): string => (typeof v === "string" ? v : "");
-  const clip = (t: string, max = 60): string =>
-    t.length > max ? `${t.slice(0, max)}…` : t;
+  const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const clip = (t: string, max = 60): string => clipVisual(t, max);
+  const pathLink = (p: string, line?: number): string => formatFileLink(p, p, { line });
   switch (tool) {
     case "bash":
       return clip(s(a.command).replace(/\s+/g, " "));
@@ -49,14 +52,14 @@ export function formatToolPreview(tool: string, args: unknown): string {
         a.offset !== undefined || a.limit !== undefined
           ? `:${a.offset ?? 1}${a.limit !== undefined ? `+${a.limit}` : ""}`
           : "";
-      return clip(`${s(a.path)}${range}`);
+      return clip(`${pathLink(s(a.path), num(a.offset))}${range}`);
     }
     case "glob":
     case "grep":
-      return clip(`${s(a.pattern)}${s(a.path) !== "" ? ` @ ${s(a.path)}` : ""}`);
+      return clip(`${s(a.pattern)}${s(a.path) !== "" ? ` @ ${pathLink(s(a.path))}` : ""}`);
     case "write":
     case "edit":
-      return clip(s(a.path));
+      return clip(pathLink(s(a.path)));
     case "task":
       return clip(`[${s(a.subagent_type)}] ${s(a.description)}`);
     case "todo":
@@ -223,7 +226,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             .map((line, j) => (
               <Text key={j} dimColor wrap="truncate-end">
                 {"  "}
-                {truncateVisual(line, 120)}
+                {truncateVisual(linkifyStructuredPaths(line), 120)}
               </Text>
             ))}
         </Box>
@@ -231,7 +234,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         block.summary !== undefined &&
         block.summary !== "" && (
           <Box marginLeft={2}>
-            <Text dimColor>⎿ {block.summary}</Text>
+            <Text dimColor>⎿ {linkifyStructuredPaths(block.summary)}</Text>
           </Box>
         )
       )}

@@ -2,6 +2,7 @@ import { Box, Text } from "ink";
 import { useStore } from "zustand";
 import type { Block, UiStore } from "@kcode/ui";
 import { truncateVisual } from "../terminal/width.js";
+import { linkifyStructuredPaths } from "../terminal/links.js";
 import { c } from "../theme/theme.js";
 
 /**
@@ -86,7 +87,7 @@ function ToolDetail(props: { block: ToolBlock }) {
       {shown.map((line, j) => (
         <Text key={j} dimColor wrap="truncate-end">
           {"  "}
-          {truncateVisual(line, 120)}
+          {truncateVisual(linkifyStructuredPaths(line), 120)}
         </Text>
       ))}
       {lines.length > DETAIL_LINES ? <Text dimColor>  …（共 {lines.length} 行，完整内容见会话 JSONL）</Text> : null}
