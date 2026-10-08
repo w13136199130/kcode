@@ -26,15 +26,9 @@ export function StatusLine(props: {
   );
 }
 
-/** token 数的人话化：千位以下原样，以上以 k 计（过万取整，减少状态栏抖动） */
-function fmtTokens(n: number): string {
-  if (n >= 10_000) {
-    return `${Math.round(n / 1000)}k`;
-  }
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-}
-
-/** 底部常驻状态栏：模式 — 模型 — 用量/余量 — 分支 — 快捷键提示；无数据的段自动隐藏不占位 */
+/** 底部常驻状态栏（对齐批简化：默认最少——zcode/CC 同哲学，用量细节归 /cost /context）：
+ * 模式 · 模型 · ctx 百分比（分母=压缩预算，即"距自动压缩"口径，85%+ 警示色）
+ * · 分支 · busy 态场景提示（运行时才出现，非空闲装饰）。无数据的段自动隐藏。 */
 export function StatusBar(props: {
   modeLabel: string;
   modelLabel: string;
@@ -56,17 +50,11 @@ export function StatusBar(props: {
       {"  "}
       <Text color={c("brand")}>{props.modeLabel}</Text>
       {`  ${props.modelLabel}`}
-      {usage !== null && (
-        <Text color={hot ? c("warning") : undefined}>
-          {` — ctx ${ctxPercent}%·${fmtTokens(usage.historyTokens)}/${fmtTokens(usage.historyBudget)} · ⇅${fmtTokens(usage.inputTokens)}/${fmtTokens(usage.outputTokens)}`}
-        </Text>
-      )}
+      {usage !== null && <Text color={hot ? c("warning") : undefined}>{` — ctx ${ctxPercent}%`}</Text>}
       {props.branch != null && props.branch !== "" ? ` — ⎇ ${props.branch}` : ""}
       {props.busy ? (
         <Text dimColor> — Ctrl+C cancel · Ctrl+O {props.verbose ? "collapse" : "expand"}</Text>
-      ) : (
-        <Text dimColor> — /mode · /help · exit</Text>
-      )}
+      ) : null}
     </Text>
   );
 }

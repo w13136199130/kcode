@@ -12,7 +12,7 @@ import { readGitBranch } from "../src/tui/state/status-data.js";
  */
 
 describe("StatusBar 常驻信息段", () => {
-  it("有用量与分支时渲染 ctx 百分比、token 双向与分支段", () => {
+  it("有用量与分支时渲染 ctx 百分比与分支段；绝对值与累计用量不再常驻（对齐批简化）", () => {
     const { lastFrame } = render(
       <StatusBar
         modeLabel="default"
@@ -34,8 +34,8 @@ describe("StatusBar 常驻信息段", () => {
     expect(frame).toContain("default");
     expect(frame).toContain("deepseek/chat");
     expect(frame).toContain("ctx 31%");
-    expect(frame).toContain("24k/77k");
-    expect(frame).toContain("⇅1.2k/5.7k");
+    expect(frame).not.toContain("24k/77k"); // 绝对值归 /context
+    expect(frame).not.toContain("⇅"); // 累计用量归 /cost
     expect(frame).toContain("⎇ main");
   });
 
@@ -46,7 +46,7 @@ describe("StatusBar 常驻信息段", () => {
     const frame = lastFrame() ?? "";
     expect(frame).not.toContain("ctx");
     expect(frame).not.toContain("⎇");
-    expect(frame).toContain("/mode · /help · exit");
+    expect(frame).not.toContain("/mode · /help · exit"); // 空闲尾巴已砍（横幅+ghost 覆盖）
   });
 
   it("余量占用超 85% 时正常渲染警示分支（测试环境剥离 ANSI，色码不可断言）", () => {
