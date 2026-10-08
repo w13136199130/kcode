@@ -16,6 +16,7 @@ vi.mock("../src/session.js", () => ({
     listCommands: () => [],
     expandCommand: async () => null,
     trustProject: async () => {},
+      isProjectTrusted: async () => false,
   })),
 }));
 

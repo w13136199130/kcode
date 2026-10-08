@@ -12,6 +12,7 @@ import {
   composeSession,
   resolveResumeHistory,
   trustProject,
+  isProjectTrusted,
   type ComposedSession,
   type PlanVerdict,
 } from "@kcode/session";
@@ -46,6 +47,8 @@ export interface SessionHandle {
   listCommands(): { name: string; source: "project" | "user" }[];
   expandCommand(name: string, args: string): Promise<string | null>;
   trustProject(): Promise<void>;
+  /** 项目是否已受信任（N3I-4：已信任后 /trust 从菜单隐藏） */
+  isProjectTrusted(): Promise<boolean>;
   /** 本项目持久放行清单（/permissions） */
   listPersistentGrants(): Promise<string[]>;
   /** 清空本项目持久放行（/permissions）；成功返回 true */
@@ -239,6 +242,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     listCommands: () => composed.listCommands(),
     expandCommand: (name, args) => composed.expandCommand(name, args),
     trustProject: () => trustProject(opts.cwd, kcodeHomeDir),
+    isProjectTrusted: () => isProjectTrusted(opts.cwd, kcodeHomeDir),
     listPersistentGrants: () => composed.listPersistentGrants(),
     clearPersistentGrants: async () => {
       await composed.clearPersistentGrants();

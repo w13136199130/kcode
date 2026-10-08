@@ -8,7 +8,7 @@ export {
   type ComposeSessionOptions,
   type ComposedSession,
 } from "./composition.js";
-export { resolveResumeHistory, trustProject } from "./resume.js";
+export { resolveResumeHistory, trustProject, isProjectTrusted } from "./resume.js";
 export { SYSTEM_PROMPT, PLAN_MODE_SUFFIX } from "./prompt.js";
 export { buildTaskTool, SUBAGENT_MAX_TURNS, SUBAGENT_INACTIVITY_MS, SUBAGENT_NOTIFICATION_HEADER, isBackgroundCompletionNotice, type TaskToolDeps } from "./subagent.js";
 export { buildPlanSubmitTool, type PlanVerdict, type PlanSubmitToolDeps } from "./plan-submit.js";

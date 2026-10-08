@@ -11,6 +11,7 @@ import type { Block, UiStore } from "@kcode/ui";
 import type { QueuedCommand } from "@kcode/runtime";
 import { MODE_META, MODE_CYCLE } from "../theme/modes.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
+import { contextWindowFor, modelWindowKnown } from "@kcode/core";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
 /**
@@ -55,6 +56,14 @@ export interface DispatchContext {
     reply: (labels: string[]) => void;
   }): void;
   onQueueChange(items: readonly QueuedCommand[]): void;
+}
+
+/**
+ * /model 菜单项的窗口注记（N3I-3）：窗口直接决定压缩阈值与价位感知，BYOK 切换是关键信息。
+ * 表外模型标 "?" 不猜——与 /context 的 windowKnown 注记同源诚实化。
+ */
+export function modelWindowNote(ref: string): string {
+  return modelWindowKnown(ref) ? `· ${Math.round(contextWindowFor(ref) / 1000)}k` : "· ?";
 }
 
 export async function runDispatch(ctx: DispatchContext, text: string, images?: string[]): Promise<void> {
@@ -137,7 +146,7 @@ ${result.error}` : ""}`,
             seen.add(ref);
             options.push({
               key: String((options.length % 9) + 1),
-              label: note !== undefined ? `${ref}（${note}）` : ref,
+              label: `${note !== undefined ? `${ref}（${note}）` : ref} ${modelWindowNote(ref)}`,
               value: ref,
             });
           };

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ChatMessage } from "@kcode/contracts";
-import { trustProject as trustProjectOnFile } from "@kcode/extensions";
+import { trustProject as trustProjectOnFile, isProjectTrusted as isTrustedOnFile } from "@kcode/extensions";
 import {
   listSessions,
   loadSessionEvents,
@@ -55,4 +55,9 @@ export async function resolveResumeHistory(
 /** 把项目写入受信任清单（幂等） */
 export function trustProject(cwd: string, kcodeHomeDir: string): Promise<void> {
   return trustProjectOnFile(cwd, join(kcodeHomeDir, "trusted-projects.json"));
+}
+
+/** 项目是否已受信任（N3I-4：已信任后 /trust 从菜单隐藏） */
+export function isProjectTrusted(cwd: string, kcodeHomeDir: string): Promise<boolean> {
+  return isTrustedOnFile(cwd, join(kcodeHomeDir, "trusted-projects.json"));
 }

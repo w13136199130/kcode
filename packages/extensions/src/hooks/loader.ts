@@ -35,6 +35,11 @@ export async function loadHookConfigs(options: HookLoadOptions): Promise<HookCon
 }
 
 /** 把项目路径写入受信任清单（已存在则保持幂等） */
+/** 项目是否已在受信任清单（N3I-4：/trust 已信任后从菜单隐藏） */
+export async function isProjectTrusted(projectDir: string, trustFile: string): Promise<boolean> {
+  return (await readTrustedProjects(trustFile)).includes(projectDir);
+}
+
 export async function trustProject(projectDir: string, trustFile: string): Promise<void> {
   const trusted = await readTrustedProjects(trustFile);
   if (!trusted.includes(projectDir)) {

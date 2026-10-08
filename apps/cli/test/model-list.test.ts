@@ -74,3 +74,13 @@ describe("availableModels（/model 全量菜单数据源）", () => {
     await session.close();
   }, 30_000);
 });
+
+describe("modelWindowNote（N3I-3 /model 菜单窗口注记）", () => {
+  it("表内模型标窗口，表外标 ?（不猜）", async () => {
+    const { modelWindowNote } = await import("../src/tui/input/commands.js");
+    expect(modelWindowNote("deepseek/deepseek-v4-pro")).toBe("· 1000k");
+    expect(modelWindowNote("deepseek/deepseek-chat")).toBe("· 128k");
+    expect(modelWindowNote("qwen/qwen-max")).toBe("· 131k");
+    expect(modelWindowNote("test/m")).toBe("· ?");
+  });
+});

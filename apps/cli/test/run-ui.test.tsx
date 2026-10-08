@@ -54,6 +54,7 @@ async function setup() {
       listCommands: () => [],
       expandCommand: async () => null,
       trustProject: async () => {},
+      isProjectTrusted: async () => false,
       listPersistentGrants: async () => [],
       clearPersistentGrants: async () => true,
       usage: async () => null,

@@ -125,9 +125,12 @@ export function InputBox(props: {
   // 匹配两级：前缀命中优先，子串次之（zcode 同款 includes；/con 可达 context/compact）
   const matches = menuOpen
     ? [
-        ...props.commands.filter((c) => c.name.toLowerCase().startsWith(needle)),
+        ...props.commands.filter((c) => !c.hidden && c.name.toLowerCase().startsWith(needle)),
         ...props.commands.filter(
-          (c) => !c.name.toLowerCase().startsWith(needle) && c.name.toLowerCase().includes(needle),
+          (c) =>
+            !c.hidden &&
+            !c.name.toLowerCase().startsWith(needle) &&
+            c.name.toLowerCase().includes(needle),
         ),
       ]
     : [];

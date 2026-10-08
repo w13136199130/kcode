@@ -180,3 +180,22 @@ describe("斜杠命令菜单（对齐批）", () => {
     t.unmount();
   });
 });
+
+describe("N3I-4 隐藏别名：菜单不列、输入仍执行", () => {
+  it("hidden 命令不进菜单；完整输入不受影响（提交原样透传）", async () => {
+    const t = makeHarness();
+    await sleep(80);
+    t.stdin.write("/p");
+    await sleep(150);
+    const f = t.frameWith("> /p");
+    // /plan 是 hidden 别名：前缀 /p 不应把它列进菜单（菜单只含可见命令）
+    expect(f.includes("❯ /plan")).toBe(false);
+    // 但完整输入 /plan 仍作为普通提交透传（App 侧 dispatch 识别执行）
+    t.stdin.write("lan");
+    await sleep(150);
+    t.stdin.write("\r");
+    await sleep(150);
+    expect(t.submits).toEqual(["/plan"]);
+    t.unmount();
+  });
+});

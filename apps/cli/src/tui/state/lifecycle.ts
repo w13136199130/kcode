@@ -78,17 +78,23 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
         deps.setReady(true);
         deps.inputHistory.current = (await loadInputHistory(props.historyFile)).slice(-50);
         pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
-        // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）
+        // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）；
+        // N3I-4：已信任项目过滤 /trust（无意义入口隐藏——输入完整命令仍可执行）
         const mergeCommands = (): void => {
-          deps.setCommands([
-            ...BUILTIN_COMMANDS,
-            ...handle.listCommands().map((c) => ({
-              name: c.name,
-              desc: c.source === "project" ? "（项目自定义命令）" : "（用户自定义命令）",
-              // N3G-1：自定义命令参数位说明 $ARGUMENTS 模板（展开在 session 侧）
-              argsHint: "/<命令> <参数…>——正文中的 $ARGUMENTS 替换为参数后作为提示词发送",
-            })),
-          ]);
+          void handle
+            .isProjectTrusted()
+            .catch(() => false)
+            .then((trusted) => {
+              deps.setCommands([
+                ...BUILTIN_COMMANDS.filter((cmd) => cmd.name !== "trust" || !trusted),
+                ...handle.listCommands().map((c) => ({
+                  name: c.name,
+                  desc: c.source === "project" ? "（项目自定义命令）" : "（用户自定义命令）",
+                  // N3G-1：自定义命令参数位说明 $ARGUMENTS 模板（展开在 session 侧）
+                  argsHint: "/<命令> <参数…>——正文中的 $ARGUMENTS 替换为参数后作为提示词发送",
+                })),
+              ]);
+            });
         };
         mergeCommands();
         setTimeout(mergeCommands, 600);
