@@ -44,8 +44,6 @@ export function InputBox(props: {
   commands: CommandInfo[];
   /** @ 补全的项目根目录 */
   cwd: string;
-  /** 空态起步建议（N3G-4）：非空且输入为空时数字键 1..n 直接填入（填入不提交） */
-  starters?: readonly string[];
   onCjkCommit?: () => void;
 }) {
   const draft = useRef("");
@@ -390,15 +388,6 @@ export function InputBox(props: {
             setPathMenu(items.length > 0 ? { items, index: 0 } : null);
           })();
         }
-      } else if (
-        props.starters !== undefined &&
-        props.value === "" &&
-        (ch === "1" || ch === "2" || ch === "3") &&
-        Number(ch) <= props.starters.length
-      ) {
-        // N3G-4：空态数字快捷填入（填入不提交——过目后回车）
-        boundary.current = true;
-        setValue(props.starters[Number(ch) - 1]!);
       } else if (ch !== "" && !key.escape && !key.tab) {
         // 可打印字符 / IME 提交的整串
         insertText(ch);

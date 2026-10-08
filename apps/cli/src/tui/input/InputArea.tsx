@@ -12,7 +12,6 @@ import { HistorySearch } from "./HistorySearch.js";
 import { openInExternalEditor } from "./external-editor.js";
 import { readClipboardImageToFile } from "./clipboard-image.js";
 import { appendMemoryLine } from "../memory.js";
-import { STARTER_SUGGESTIONS } from "./suggestions.js";
 import { c } from "../theme/theme.js";
 import { kcodeHome } from "../../bootstrap.js";
 
@@ -42,12 +41,8 @@ export function InputArea(props: {
   const historySearchOpen = useStore(props.ui, (s) => s.historySearchOpen);
   const pendingImages = useStore(props.ui, (s) => s.pendingImages);
   const busy = useStore(props.ui, (s) => s.busy);
-  const blocks = useStore(props.ui, (s) => s.blocks);
   const { setRawMode } = useStdin();
   const inputActive = props.interactive && props.ready && !browserOpen && !taskBrowserOpen && !historySearchOpen;
-  // N3G-4：转写仅横幅（会话刚开始）且输入为空 → 展示 3 条起步建议（数字键填入）
-  const bannerOnly = blocks.every((b) => b.kind === "banner");
-  const starters = bannerOnly && props.value === "" ? STARTER_SUGGESTIONS : undefined;
 
   // Ctrl+E 外部编辑长输入：仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染）
   useInput(
@@ -166,19 +161,8 @@ export function InputArea(props: {
         history={props.history}
         commands={props.commands}
         cwd={props.cwd}
-        starters={starters}
         onCjkCommit={props.onCjkCommit}
       />
-      {starters !== undefined && (
-        <Box flexDirection="column" marginTop={1}>
-          {starters.map((s, i) => (
-            <Text key={i} dimColor>
-              {["①", "②", "③"][i] ?? "·"} {s}
-            </Text>
-          ))}
-          <Text dimColor>按 1/{starters.length} 快速填入（回车发送）</Text>
-        </Box>
-      )}
     </Fragment>
   );
 }

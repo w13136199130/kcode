@@ -305,42 +305,32 @@ describe("N3G-3 # 快捷记忆", () => {
   });
 });
 
-describe("N3G-4 空态建议与 ghost", () => {
-  it("空态渲染 ①②③ 与 ghost；数字键填入不提交；ghost 输入即让位", async () => {
+describe("N3G-4 ghost 提示（空态建议条已按截图反馈移除）", () => {
+  it("空态只渲染 ghost；数字键是普通字符（无建议填入）；ghost 输入即让位", async () => {
     const store = createUiStore();
     const submits: string[] = [];
-    const { stdin, frame, frameWith, settle } = mountInputArea(store, (v) => submits.push(v));
+    const { stdin, frameWith, settle } = mountInputArea(store, (v) => submits.push(v));
     await settle(250);
-    const f0 = frameWith("①");
-    expect(f0).toContain("②");
-    expect(f0).toContain("快速填入");
-    expect(f0).toContain("# 记住偏好"); // ghost
+    expect(frameWith("# 记住偏好")).toContain("# 记住偏好"); // ghost
+    expect(frameWith("# 记住偏好")).not.toContain("①"); // 建议条不再渲染
 
-    stdin.write("2"); // 数字快捷填入：不提交
+    stdin.write("1"); // 数字键直接输入（曾有数字快捷填入建议）
     await settle(250);
     expect(submits).toEqual([]);
-    const f1 = frameWith("审查最近一次改动");
-    expect(f1).not.toContain("①"); // 建议列表让位
+    const f1 = frameWith("> 1");
     expect(f1.includes("# 记住偏好")).toBe(false); // ghost 让位
 
-    stdin.write("1"); // 已有输入：数字是普通字符
-    await settle();
-    stdin.write("\r");
-    await settle(200);
-    expect(submits.at(-1)).toBe("审查最近一次改动，指出潜在问题与改进建议1");
-  });
-
-  it("转写出现内容块后建议不再渲染；非空态数字键正常输入", async () => {
-    const store = createUiStore();
-    store.getState().pushBlock({ kind: "user", text: "hi" });
-    const submits: string[] = [];
-    const { stdin, frame, settle } = mountInputArea(store, (v) => submits.push(v));
-    await settle();
-    expect(frame()).not.toContain("①");
-    stdin.write("1");
-    await settle();
     stdin.write("\r");
     await settle(200);
     expect(submits.at(-1)).toBe("1");
+  });
+
+  it("转写出现内容块后空输入仍有 ghost", async () => {
+    const store = createUiStore();
+    store.getState().pushBlock({ kind: "user", text: "hi" });
+    const { frameWith, settle } = mountInputArea(store, () => {});
+    await settle();
+    // 末帧可能是控制序列（如隐藏光标）：锚定含 ghost 的帧反向搜索
+    expect(frameWith("# 记住偏好")).toContain("# 记住偏好");
   });
 });
