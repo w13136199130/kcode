@@ -16,6 +16,9 @@ import type { SubagentRegistry } from "./subagent-registry.js";
 /** 子代理侧收到的注入消息头（防伪：与用户输入可区分） */
 export const STEER_HEADER = "[SYSTEM MESSAGE - 协调者消息]";
 
+/** 通知防伪头（对标 zcode incoming-message.ts:9）：防不可信内容冒充用户输入 */
+export const SUBAGENT_NOTIFICATION_HEADER = "[SYSTEM NOTIFICATION - NOT USER INPUT]";
+
 const SendMessageArgs = z.object({
   agentId: z.string().min(1),
   message: z.string().min(1),
@@ -82,7 +85,7 @@ export function buildSendMessageTool(deps: {
 export function buildRespondToCoordinatorTool(deps: {
   childId: string;
   childType: string;
-  /** N3D-1 notify 通道：父忙入队 / 父空闲开新 turn（载荷已含防伪头语义） */
+  /** N3D-1 notify 通道：父忙入队 / 父空闲开新 turn（载荷统一防伪头，TUI 📩 分支同源命中） */
   notify: (text: string) => void;
 }): Tool {
   return {
@@ -107,7 +110,7 @@ export function buildRespondToCoordinatorTool(deps: {
         return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
       }
       deps.notify(
-        `<subagent-message>\n<agent-id>${deps.childId}</agent-id>\n<agent-type>${deps.childType}</agent-type>\n<message>${parsed.data.message}</message>\n</subagent-message>`,
+        `${SUBAGENT_NOTIFICATION_HEADER}\n<subagent-message>\n<agent-id>${deps.childId}</agent-id>\n<agent-type>${deps.childType}</agent-type>\n<message>${parsed.data.message}</message>\n</subagent-message>`,
       );
       return { ok: true, output: "已送达协调者（异步，无需等待回复）" };
     },

@@ -6,7 +6,7 @@ import { ScriptedLLM, type ScriptedTurn } from "@kcode/core";
 import type { SessionEvent } from "@kcode/contracts";
 import { AgentLoop, InMemoryToolRegistry, MemoryAudit, MemorySink, allowAll, noHooks } from "@kcode/core";
 import { composeSession } from "../src/composition.js";
-import { SubagentRegistry, buildSendMessageTool, buildRespondToCoordinatorTool, STEER_HEADER } from "../src/index.js";
+import { SubagentRegistry, buildSendMessageTool, buildRespondToCoordinatorTool, STEER_HEADER, SUBAGENT_NOTIFICATION_HEADER } from "../src/index.js";
 
 /**
  * N3D-2 主体：两态投递（steered/resumed）+ respond_to_coordinator 通知链 + 句柄 LRU。
@@ -101,6 +101,8 @@ describe("RespondToCoordinator（通知链）", () => {
     expect(r.ok).toBe(true);
     expect(r.output).toContain("已送达");
     expect(delivered).toHaveLength(1);
+    // N3F-4：载荷与完成通知同防伪头——TUI 📩 分支按头判定，不再误渲染为用户消息
+    expect(delivered[0]?.startsWith(SUBAGENT_NOTIFICATION_HEADER)).toBe(true);
     expect(delivered[0]).toContain("<subagent-message>");
     expect(delivered[0]).toContain("<agent-id>sub_c1</agent-id>");
     expect(delivered[0]).toContain("中间发现：入口在 main.ts");

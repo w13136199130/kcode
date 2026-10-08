@@ -15,7 +15,7 @@ import { AgentLoop, InMemoryToolRegistry, MemoryAudit, MemorySink } from "@kcode
 import { AgentLibrary } from "@kcode/extensions";
 import { JsonlSessionSink } from "@kcode/runtime";
 import { createAskUserTool, type BackgroundTaskRegistry } from "@kcode/tools";
-import { buildRespondToCoordinatorTool } from "./agent-messaging.js";
+import { buildRespondToCoordinatorTool, SUBAGENT_NOTIFICATION_HEADER } from "./agent-messaging.js";
 import type { SubagentRegistry } from "./subagent-registry.js";
 import { newId } from "@kcode/shared";
 
@@ -26,8 +26,8 @@ export const SUBAGENT_MAX_TURNS = 12;
  * 慢而活的子代理（等长流式响应）不再被误杀，真挂死的照常收敛（对标 zcode runner.ts:1191）。
  */
 export const SUBAGENT_INACTIVITY_MS = 120_000;
-/** 完成通知防伪头（对标 zcode incoming-message.ts:9）：防不可信内容冒充用户输入 */
-export const SUBAGENT_NOTIFICATION_HEADER = "[SYSTEM NOTIFICATION - NOT USER INPUT]";
+/** 完成通知防伪头（定义在 agent-messaging.ts，此处转出口保持既有导入路径） */
+export { SUBAGENT_NOTIFICATION_HEADER };
 
 const EXPLORE_TOOLS = new Set(["read", "glob", "grep", "extract", "web_fetch", "web_search", "sessions"]);
 
