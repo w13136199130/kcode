@@ -21,6 +21,8 @@ export interface Runtime {
   platform: IPlatformService;
   /** kcode 主目录（~/.kcode；本地会话组装与 JSONL 落盘的基准） */
   kcodeHomeDir: string;
+  /** 会话 token 预算（N3I-8）：用户级 config.json budget.maxSessionTokens，env KCODE_BUDGET_TOKENS 覆盖 */
+  sessionBudgetTokens?: number;
 }
 
 /** CLI 的平台服务装配（N2-1 唯一 import platform 的 UI 侧入口；key 子命令在 bootstrap 前也用它） */
@@ -113,7 +115,31 @@ export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise
         };
   }
   const router = createProviderRouter(models, keychain, options);
-  return { models, keychain, router, platform, kcodeHomeDir: kcodeHome() };
+  return { models, keychain, router, platform, kcodeHomeDir: kcodeHome(), sessionBudgetTokens: await loadSessionBudgetTokens() };
+}
+
+/**
+ * 会话 token 预算（N3I-8）：读用户级 config.json 的 budget.maxSessionTokens，
+ * env KCODE_BUDGET_TOKENS（正整数）覆盖（白名单同 KCODE_DEFAULT_MODEL 收窄原则；
+ * 缺失/文件不存在/值非法 → undefined = 预算关）。
+ */
+export async function loadSessionBudgetTokens(
+  path = join(kcodeHome(), "config.json"),
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<number | undefined> {
+  const envVal = env["KCODE_BUDGET_TOKENS"];
+  if (envVal !== undefined && envVal !== "" && /^\d+$/.test(envVal) && Number(envVal) > 0) {
+    return Number(envVal);
+  }
+  try {
+    const parsed = UserConfigFile.safeParse(JSON.parse(await readFile(path, "utf8")));
+    if (parsed.success) {
+      return parsed.data.budget?.maxSessionTokens;
+    }
+  } catch {
+    // 配置缺失/损坏：loadUserConfig 主路径已报错，这里静默按预算关
+  }
+  return undefined;
 }
 
 /** 必须显式设置 default（模型 id 因厂商而异，不猜测） */

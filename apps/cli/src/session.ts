@@ -83,6 +83,9 @@ export interface SessionHandle {
     historyBudget: number;
     systemTokens: number;
     pinnedAnchor: boolean;
+    /** 会话累计用量与预算（N3I-8：/status /context 显示预算进度） */
+    sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
+    sessionBudgetTokens?: number;
   } | null>;
 }
 
@@ -107,6 +110,8 @@ export interface LocalSessionOptions {
     }): Promise<boolean | PermissionAnswer>;
   };
   askUser?: { ask: (question: StructuredQuestion) => Promise<string[]> };
+  /** N3I-8 预算到顶问询（TUI 注入；headless 缺省按停止 fail-closed） */
+  onBudgetLimit?: (used: { inputTokens: number; outputTokens: number; calls: number }, max: number) => Promise<boolean>;
   /** 计划批准交互（plan_submit 工具）：渲染计划全文 + 批准菜单 */
   onPlanApproval?: (payload: {
     plan: string;
@@ -171,6 +176,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
             },
           },
     askUser: opts.askUser,
+    onBudgetLimit: opts.onBudgetLimit,
+    sessionBudgetTokens: opts.sessionBudgetTokens ?? opts.runtime.sessionBudgetTokens,
     onQueueChange: opts.onQueueChange,
     initialMode: opts.initialMode,
     disallowedTools: opts.disallowedTools,

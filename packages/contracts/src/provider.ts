@@ -53,6 +53,8 @@ export type ProjectModelsConfig = z.infer<typeof ProjectModelsConfig>;
 export const UserConfigFile = z
   .object({
     models: UserModelsConfig.optional(),
+    /** 会话 token 预算（N3I-8）：input+output 累计到顶经问询继续/停止；仅用户级（项目层防投毒不开放） */
+    budget: z.object({ maxSessionTokens: z.number().int().positive() }).optional(),
   })
   .strict();
 

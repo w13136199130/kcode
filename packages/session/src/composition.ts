@@ -89,6 +89,8 @@ export interface ComposedSession {
     historyBudget: number;
     systemTokens: number;
     pinnedAnchor: boolean;
+    sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
+    sessionBudgetTokens?: number;
   };
   close(): Promise<void>;
 }
@@ -119,6 +121,9 @@ export interface ComposeSessionOptions {
   initialMode?: PermissionMode;
   /** 空闲压缩阈值毫秒（N3E-6，测试注入用）；默认 60min */
   idleCompactMs?: number;
+  /** 会话 token 预算（N3I-8）：透传 AgentLoop；到顶经 onBudgetLimit 问询 */
+  sessionBudgetTokens?: number;
+  onBudgetLimit?: (used: { inputTokens: number; outputTokens: number; calls: number }, max: number) => Promise<boolean>;
   /** 组装期剔除的工具名（--disallowed-tools）：作用于含 MCP/插件/task/plan_submit 的全集；未知名抛错 */
   disallowedTools?: string[];
 }
@@ -352,6 +357,8 @@ ${plan}`);
       initialHistory: opts.resumeFrom,
       initialUsage: opts.resumeUsage,
       maxTurns: 24,
+      sessionBudgetTokens: opts.sessionBudgetTokens,
+      onBudgetLimit: opts.onBudgetLimit,
     },
   );
   const runner = new SessionRunner();

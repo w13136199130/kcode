@@ -332,6 +332,10 @@ ${body}
 ` +
             `LLM 调用 ${usage !== null ? usage.calls : "?"} 次 · 输入 ${usage !== null ? fmt(usage.inputTokens) : "?"} tok · 输出 ${usage !== null ? fmt(usage.outputTokens) : "?"} tok
 ` +
+            (stats !== null && stats.sessionBudgetTokens !== undefined
+              ? `预算 ${Math.round((stats.sessionUsage.inputTokens + stats.sessionUsage.outputTokens) / 1000)}k/${Math.round(stats.sessionBudgetTokens / 1000)}k tok（N3I-8 到顶问询）
+`
+              : "") +
             `技能 ${skills.length} 个 · 子代理 可用（/help 查看） · cwd ${ctx.props.cwd}`,
         });
         return;
@@ -467,7 +471,10 @@ ${hooks
 ` +
             `[${"█".repeat(barLen)}${"░".repeat(Math.max(0, 40 - barLen))}]
 ` +
-            `系统提示 ${fmt(stats.systemTokens)} tok · ${stats.pinnedAnchor ? "已钉固计划锚点" : "无计划锚点"} · 超预算自动压缩、/compact 手动压缩`,
+            `系统提示 ${fmt(stats.systemTokens)} tok · ${stats.pinnedAnchor ? "已钉固计划锚点" : "无计划锚点"} · 超预算自动压缩、/compact 手动压缩` +
+            (stats.sessionBudgetTokens !== undefined
+              ? `\n会话预算 ${Math.round((stats.sessionUsage.inputTokens + stats.sessionUsage.outputTokens) / 1000)}k/${Math.round(stats.sessionBudgetTokens / 1000)}k tok（input+output 累计，到顶问询继续/停止）`
+              : ""),
         });
         return;
       }

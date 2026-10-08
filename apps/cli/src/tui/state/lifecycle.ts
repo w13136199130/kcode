@@ -69,6 +69,18 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           onNotice: (n) => {
             if (!cancelled) ui.getState().setNotice(n);
           },
+          // N3I-8 预算到顶问询：复用 askUser 通道（继续=本会话不再问 / 停止=拒本轮）
+          onBudgetLimit: async (used, max) => {
+            const fmtTok = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+            const answers = await askUser.ask({
+              question: `本会话 token 已达预算上限（${fmtTok(used.inputTokens + used.outputTokens)}/${fmtTok(max)}），继续吗？`,
+              options: [
+                { label: "继续（本会话不再提醒）" },
+                { label: "停止（可在 ~/.kcode/config.json 的 budget.maxSessionTokens 调整）" },
+              ],
+            });
+            return (answers[0] ?? "").includes("继续");
+          },
           asker,
           askUser,
           onPlanApproval,
@@ -157,6 +169,17 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           askUser,
           onPlanApproval,
           onQueueChange,
+          onBudgetLimit: async (used, max) => {
+            const fmtTok = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+            const answers = await askUser.ask({
+              question: `本会话 token 已达预算上限（${fmtTok(used.inputTokens + used.outputTokens)}/${fmtTok(max)}），继续吗？`,
+              options: [
+                { label: "继续（本会话不再提醒）" },
+                { label: "停止（可在 ~/.kcode/config.json 的 budget.maxSessionTokens 调整）" },
+              ],
+            });
+            return (answers[0] ?? "").includes("继续");
+          },
         });
         sessionRef.current = handle;
         ui.getState().resetTranscript();

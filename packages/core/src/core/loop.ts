@@ -64,6 +64,10 @@ export interface AgentLoopOptions {
   maxTurns?: number;
   now?: () => number;
   budget?: Budget;
+  /** 会话 token 预算（N3I-8）：input+output 累计跨过即经 onBudgetLimit 问询；正整数生效 */
+  sessionBudgetTokens?: number;
+  /** 预算到顶问询：true=继续（本会话不再问）；缺省（headless 等不可交互）按停止——fail-closed 同 ask 拒绝降级 */
+  onBudgetLimit?: (used: SessionUsage, max: number) => Promise<boolean>;
 }
 
 /** 会话累计用量（/cost 数据源；initialUsage 种子 + 本进程各轮增量） */
@@ -96,6 +100,8 @@ export class AgentLoop {
   private llm: LLMProvider;
   private summarizer?: SummarizerPort;
   private usage: SessionUsage;
+  /** N3I-8：预算问询后用户选继续——本会话不再问 */
+  private budgetAck = false;
   /** B3：预算随模型窗口派生（opts.budget 显式指定时以指定为准） */
   private budget: Budget;
   private contextWindow: number;
@@ -207,7 +213,7 @@ export class AgentLoop {
     return this.providerInput + incremental;
   }
 
-  contextStats(): { model: string; contextWindow: number; windowKnown: boolean; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean } {
+  contextStats(): { model: string; contextWindow: number; windowKnown: boolean; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean; sessionUsage: { inputTokens: number; outputTokens: number; calls: number }; sessionBudgetTokens?: number } {
     return {
       model: this.model,
       contextWindow: this.contextWindow,
@@ -216,6 +222,10 @@ export class AgentLoop {
       historyBudget: this.budget.history,
       systemTokens: estimateTokens(this.systemPrompt),
       pinnedAnchor: this.pinnedAnchor !== undefined,
+      sessionUsage: this.getUsage(),
+      ...(this.opts.sessionBudgetTokens !== undefined && this.opts.sessionBudgetTokens > 0
+        ? { sessionBudgetTokens: this.opts.sessionBudgetTokens }
+        : {}),
     };
   }
 
@@ -282,6 +292,36 @@ export class AgentLoop {
       await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
     }
     this.machine.transition(TurnPhase.ProcessingInput);
+    // N3I-8 会话 token 预算护栏：每轮开始前检查累计（input+output）；到顶问询一次，
+    // 停止则本轮不发任何请求（不 kill 进行中的流——门在轮间）；继续则本会话不再问。
+    // 不可交互（无 onBudgetLimit）按停止——fail-closed，与 ask 权限拒绝降级同语义。
+    if (
+      this.opts.sessionBudgetTokens !== undefined &&
+      this.opts.sessionBudgetTokens > 0 &&
+      !this.budgetAck &&
+      this.usage.inputTokens + this.usage.outputTokens >= this.opts.sessionBudgetTokens
+    ) {
+      const proceed =
+        this.opts.onBudgetLimit !== undefined
+          ? await this.opts.onBudgetLimit({ ...this.usage }, this.opts.sessionBudgetTokens)
+          : false;
+      if (!proceed) {
+        const used = this.usage.inputTokens + this.usage.outputTokens;
+        await this.emit({
+          v: 1,
+          type: "session_end",
+          ts: ts(),
+          sessionId: this.sessionId,
+          reason: "rejected",
+          detail: `会话 token 预算已用尽（${used}/${this.opts.sessionBudgetTokens}）——可在 ~/.kcode/config.json 的 budget.maxSessionTokens 或环境变量 KCODE_BUDGET_TOKENS 调整`,
+        });
+        await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
+        this.machine.transition(TurnPhase.Completing);
+        this.machine.transition(TurnPhase.Idle);
+        return { sessionId: this.sessionId, turns: 0, toolCalls: 0, status: "rejected" };
+      }
+      this.budgetAck = true;
+    }
     // 否决必须先于用户消息和技能注入，避免下一轮重新发送被拒绝内容。
     const promptGate = await this.gateHook((h) =>
       h.onUserPromptSubmit?.({ sessionId: this.sessionId, prompt: userInput }),

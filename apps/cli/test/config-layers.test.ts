@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadUserConfig, resolveModelOverride } from "../src/bootstrap.js";
+import { loadUserConfig, resolveModelOverride, loadSessionBudgetTokens } from "../src/bootstrap.js";
 
 /** N3E-3：配置三层覆盖（用户级 providers 唯一 → Project 仅 default → Env 白名单）。 */
 let home: string;
@@ -89,5 +89,21 @@ describe("N3F-5 --model 第四层覆盖（resolveModelOverride）", () => {
     expect(resolveModelOverride(withDefault, "other-model")).toBe("other-model");
     const noDefault = { providers: { user: { type: "gateway" as const } } };
     expect(() => resolveModelOverride(noDefault, "other-model")).toThrow(/provider\/model 形式/);
+  });
+});
+
+describe("N3I-8 会话 token 预算读取（loadSessionBudgetTokens）", () => {
+  it("用户级 budget 生效；env 覆盖；缺失/非法回 undefined", async () => {
+    const cfg = join(home, "budget.json");
+    await writeFile(cfg, JSON.stringify({ budget: { maxSessionTokens: 500_000 } }), "utf8");
+    expect(await loadSessionBudgetTokens(cfg, {})).toBe(500_000);
+    expect(await loadSessionBudgetTokens(cfg, { KCODE_BUDGET_TOKENS: "800000" })).toBe(800_000);
+    // env 非正整数忽略，回落配置
+    expect(await loadSessionBudgetTokens(cfg, { KCODE_BUDGET_TOKENS: "-3" })).toBe(500_000);
+    expect(await loadSessionBudgetTokens(cfg, { KCODE_BUDGET_TOKENS: "abc" })).toBe(500_000);
+    // 文件缺失 / 无 budget 键 → undefined（预算关）
+    expect(await loadSessionBudgetTokens(join(home, "nope.json"), {})).toBeUndefined();
+    await writeFile(join(home, "nobudget.json"), JSON.stringify({ models: {} }), "utf8");
+    expect(await loadSessionBudgetTokens(join(home, "nobudget.json"), {})).toBeUndefined();
   });
 });
