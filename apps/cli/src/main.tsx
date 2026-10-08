@@ -284,6 +284,8 @@ async function main(): Promise<void> {
         json: args.json,
       },
       print,
+      // 流式增量不加换行直写 stdout（print 会逐次补 \n，正文会被切碎）
+      (chunk) => process.stdout.write(chunk),
     );
     process.exit(code);
   }

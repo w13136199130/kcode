@@ -27,12 +27,72 @@ function exitCodeFor(status: string): number {
   return 1;
 }
 
+/**
+ * 流式增量微缓冲（N3F-7）：逐 token 直写 stdout 会造成系统调用抖动——
+ * 攒到 64 字节或 50ms 先到者即冲刷。导出便于单测（fake timers）。
+ */
+export class DeltaWriter {
+  readonly #write: (s: string) => void;
+  readonly #maxBytes: number;
+  readonly #intervalMs: number;
+  #buf = "";
+  #timer: NodeJS.Timeout | undefined;
+  #lastChar = "";
+  /** 是否已冲刷过正文（决定收尾行为：流式不重复摘要） */
+  streamed = false;
+
+  constructor(write: (s: string) => void, maxBytes = 64, intervalMs = 50) {
+    this.#write = write;
+    this.#maxBytes = maxBytes;
+    this.#intervalMs = intervalMs;
+  }
+
+  push(delta: string): void {
+    if (delta === "") {
+      return;
+    }
+    this.#buf += delta;
+    if (Buffer.byteLength(this.#buf, "utf8") >= this.#maxBytes) {
+      this.flush();
+      return;
+    }
+    if (this.#timer === undefined) {
+      this.#timer = setTimeout(() => this.flush(), this.#intervalMs);
+      this.#timer.unref(); // 不拖进程退出
+    }
+  }
+
+  flush(): void {
+    if (this.#timer !== undefined) {
+      clearTimeout(this.#timer);
+      this.#timer = undefined;
+    }
+    if (this.#buf !== "") {
+      this.#lastChar = this.#buf.at(-1) ?? "";
+      this.streamed = true;
+      this.#write(this.#buf);
+      this.#buf = "";
+    }
+  }
+
+  /** 收尾换行：正文末字符已是换行则不再补（避免空行） */
+  endNewline(): void {
+    if (this.streamed && this.#lastChar !== "\n") {
+      this.#write("\n");
+    }
+  }
+}
+
 export async function runHeadless(
   runtime: Runtime,
   model: string,
   opts: HeadlessOptions,
   write: (line: string) => void,
+  /** 流式增量原始写通道（不加换行——正文必须连续）；缺省复用 write（测试收集器语义一致） */
+  writeRaw: (chunk: string) => void = write,
 ): Promise<number> {
+  // -p 非 --json：onDelta 直写 stdout（微缓冲）；--json 保持纯 NDJSON 通道
+  const streamer = opts.json ? undefined : new DeltaWriter(writeRaw);
   const session = await createSession({
     runtime,
     model,
@@ -41,6 +101,7 @@ export async function runHeadless(
     initialMode: opts.mode,
     disallowedTools: opts.disallowedTools,
     onEvent: opts.json ? (event) => write(jsonlLine(event)) : undefined,
+    onDelta: streamer !== undefined ? (delta) => streamer.push(delta) : undefined,
   });
   try {
     const summary = await session.loop.run(
@@ -60,8 +121,15 @@ export async function runHeadless(
         }),
       );
     } else {
-      const mark = summary.status === "completed" ? "✓" : "✗";
-      write(`${mark} ${summary.status} · ${summary.turns} turns · ${summary.toolCalls} tool calls · ${summary.sessionId}`);
+      // 先冲刷再分支：正文若还在微缓冲里（<64B 且未满 50ms），此刻必须落盘
+      streamer?.flush();
+      if (streamer !== undefined && streamer.streamed) {
+        // 流式模式：正文已逐段写出，末尾换行收尾不重复摘要（状态经退出码传达）
+        streamer.endNewline();
+      } else {
+        const mark = summary.status === "completed" ? "✓" : "✗";
+        write(`${mark} ${summary.status} · ${summary.turns} turns · ${summary.toolCalls} tool calls · ${summary.sessionId}`);
+      }
     }
     return exitCodeFor(summary.status);
   } finally {
