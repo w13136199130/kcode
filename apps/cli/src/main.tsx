@@ -18,6 +18,7 @@ import {
   loadUserConfig,
   kcodeHome,
   requireDefaultModelRef,
+  resolveModelOverride,
 } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
 import { parseCliArgs, usageText } from "./args.js";
@@ -214,9 +215,11 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // 模型引用仅作显示与传递，实际供给由 providers 路由解析（含受众绑定校验）
+  // 模型引用仅作显示与传递，实际供给由 providers 路由解析（含受众绑定校验）；
+  // --model（N3F-5 第四层）覆盖三层配置，TUI 与 headless 同一生效点
   const models = await loadUserConfig(undefined, { cwd: process.cwd() });
-  const modelRef = requireDefaultModelRef(models);
+  const modelRef =
+    args.model !== undefined ? resolveModelOverride(models, args.model) : requireDefaultModelRef(models);
 
   // 提前预警：配置了需要 key 的 provider 但当前终端没设口令——
   // 单进程直接继承本终端环境，此刻启动必然在会话创建时报 keychain 错

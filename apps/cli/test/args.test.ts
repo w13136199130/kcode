@@ -57,3 +57,16 @@ describe("parseCliArgs（N3C-1 参数解析）", () => {
     expect(() => parseCliArgs(["-p"])).toThrow("需要一个值");
   });
 });
+
+describe("N3F-5 --model 旗标", () => {
+  it("--model 取值进 model 字段，可与其他旗标组合", () => {
+    const r = parseCliArgs(["--model", "deepseek/deepseek-chat", "--json", "-p", "hi"]);
+    expect(r.model).toBe("deepseek/deepseek-chat");
+    expect(r.json).toBe(true);
+    expect(r.prompt).toBe("hi");
+  });
+
+  it("缺值报错；非法形态（空）报错", () => {
+    expect(() => parseCliArgs(["--model"])).toThrow("需要一个值");
+  });
+});

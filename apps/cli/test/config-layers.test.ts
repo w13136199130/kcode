@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadUserConfig } from "../src/bootstrap.js";
+import { loadUserConfig, resolveModelOverride } from "../src/bootstrap.js";
 
 /** N3E-3：配置三层覆盖（用户级 providers 唯一 → Project 仅 default → Env 白名单）。 */
 let home: string;
@@ -64,5 +64,30 @@ describe("N3E-3 配置覆盖层", () => {
       env: { KCODE_DEFAULT_MODEL: "" },
     });
     expect(models2.default).toBe("user/default-model");
+  });
+});
+
+describe("N3F-5 --model 第四层覆盖（resolveModelOverride）", () => {
+  it("provider/model 且 provider 已配置：原样通过", () => {
+    const models = { default: "user/default-model", providers: { user: { type: "gateway" as const } } };
+    expect(resolveModelOverride(models, "user/other-model")).toBe("user/other-model");
+  });
+
+  it("未知 provider fail-fast 并列出可用清单", () => {
+    const models = { providers: { user: { type: "gateway" as const }, ollama: { type: "gateway" as const } } };
+    expect(() => resolveModelOverride(models, "nope/x")).toThrow(/nope" 未配置——可用：user、ollama/);
+  });
+
+  it("格式不合法 fail-fast", () => {
+    const models = { providers: { user: { type: "gateway" as const } } };
+    expect(() => resolveModelOverride(models, "Bad/Name")).toThrow(/格式不合法/);
+    expect(() => resolveModelOverride(models, "")).toThrow(/格式不合法/);
+  });
+
+  it("裸模型名沿 default 的 provider；无 default 前缀则要求 provider/model 形式", () => {
+    const withDefault = { default: "user/default-model", providers: { user: { type: "gateway" as const } } };
+    expect(resolveModelOverride(withDefault, "other-model")).toBe("other-model");
+    const noDefault = { providers: { user: { type: "gateway" as const } } };
+    expect(() => resolveModelOverride(noDefault, "other-model")).toThrow(/provider\/model 形式/);
   });
 });

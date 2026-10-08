@@ -26,6 +26,8 @@ export interface CliArgs {
   images: string[];
   resume?: string;
   mode?: PermissionMode;
+  /** --model <provider/model>：单次运行覆盖（N3F-5 第四层，优先级最高；TUI 与 headless 同一生效点） */
+  model?: string;
   cwd?: string;
   json: boolean;
   disallowedTools?: string[];
@@ -40,6 +42,7 @@ export function usageText(): string {
     "  -i, --image <路径>            附加图片（可多次）",
     "      --attach <路径>           附件（v1 为图片，等价 --image；文档抽取走会话内 extract 工具）",
     "      --mode <档>               初始权限档：plan | default | acceptEdits | fullAccess",
+    "      --model <provider/model>  本次运行覆盖默认模型（最高优先级，如 deepseek/deepseek-chat）",
     "      --json                   无 TUI：NDJSON 输出会话事件流（脚本/CI 消费）",
     "      --cwd <路径>              以指定目录为工作区启动",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
@@ -103,6 +106,10 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         i += 1;
         break;
       }
+      case "--model":
+        args.model = valueOf(argv, i, arg);
+        i += 1;
+        break;
       case "--cwd":
         args.cwd = valueOf(argv, i, arg);
         i += 1;

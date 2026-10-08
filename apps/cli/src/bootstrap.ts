@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { UserConfigFile, type IPlatformService, type UserModelsConfig } from "@kcode/contracts";
+import { UserConfigFile, isModelRef, type IPlatformService, type UserModelsConfig } from "@kcode/contracts";
 import {
   createPlatformService,
   createProviderRouter,
@@ -124,6 +124,32 @@ export function requireDefaultModelRef(models: UserModelsConfig): string {
   throw new Error(
     "请在 ~/.kcode/config.json 设置 models.default（如 \"deepseek/deepseek-chat\" 或 \"ollama/qwen2.5-coder\"）",
   );
+}
+
+/**
+ * CLI --model 覆盖（N3F-5）：N3E-3 三层之上的第四层，单次运行优先级最高——
+ * 给了 --model 即不需要 default 存在。格式与 provider 存在性当场校验（fail-fast），
+ * 未知 provider 列出可用清单；裸模型名沿用 default 的 provider（与路由解析同规则）。
+ */
+export function resolveModelOverride(models: UserModelsConfig, value: string): string {
+  if (!isModelRef(value)) {
+    throw new Error(`--model 格式不合法：${value}（应为 provider/model，如 deepseek/deepseek-chat）`);
+  }
+  let providerName: string;
+  if (value.includes("/")) {
+    providerName = value.split("/")[0]!;
+  } else {
+    const fallback = models.default;
+    if (fallback === undefined || fallback === "" || !fallback.includes("/")) {
+      throw new Error(`--model 裸模型名需要 default 配置了 provider 前缀才能解析——请用 provider/model 形式`);
+    }
+    providerName = fallback.split("/")[0]!;
+  }
+  if (models.providers[providerName] === undefined) {
+    const available = Object.keys(models.providers).join("、") || "（无——先在 ~/.kcode/config.json 配置 providers）";
+    throw new Error(`--model 的 provider "${providerName}" 未配置——可用：${available}`);
+  }
+  return value;
 }
 
 /** 写用户级配置（/login 向导用；providers 只存在于这一层，§5.7） */

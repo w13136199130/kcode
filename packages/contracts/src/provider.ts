@@ -11,6 +11,8 @@ import { z } from "zod";
 const providerName = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
 /** 模型引用：裸 provider 名或 provider/model 形式（§5.7：`model: "deepseek/chat"` 解析路由） */
 const modelRef = z.string().regex(/^[a-z0-9][a-z0-9-_.]{0,63}(?:\/[a-z0-9][a-z0-9-_.]{0,63})?$/);
+/** modelRef 格式校验（CLI --model 等入口 fail-fast 用，与 schema 同源） */
+export const isModelRef = (value: string): boolean => modelRef.safeParse(value).success;
 const keyRef = z.string().regex(/^keychain:\/\/[a-z0-9-]+$/);
 
 export const GatewayProviderConfig = z.object({ type: z.literal("gateway") });
