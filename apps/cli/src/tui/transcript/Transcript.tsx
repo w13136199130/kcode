@@ -97,11 +97,10 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         <Text dimColor wrap="truncate-end">
           {`${block.model} · ${block.cwd}`}
         </Text>
+        {/* 键位教学收敛为一行指路（截屏反馈：banner 太密）。Ctrl 系键位由 ghost 提示
+            与 /help 承载，菜单内操作由菜单 footer 提示——不再三处重复 */}
         <Text dimColor wrap="truncate-end">
-          输入 / 弹出命令菜单 · Ctrl+O 展开思考 · Ctrl+B 工具卡 · Ctrl+T 后台任务
-        </Text>
-        <Text dimColor wrap="truncate-end">
-          Ctrl+E 编辑器写长输入 · Ctrl+V 贴图 · Ctrl+R 搜历史 · /help 全部命令
+          输入 / 命令菜单 · /help 全部键位与命令
         </Text>
       </Box>
     );

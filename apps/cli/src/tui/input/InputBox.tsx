@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useInput, useStdin, useStdout } from "ink";
-import { previousBoundary, nextBoundary } from "../terminal/width.js";
+import { previousBoundary, nextBoundary, visualWidth } from "../terminal/width.js";
 import { onHomeEnd, patchStdinReadForKeys } from "../terminal/home-end-tee.js";
 import { appendInputLog } from "../terminal/input-log.js";
 import { completePath, filterFileCandidates, listProjectFiles } from "./file-complete.js";
@@ -134,13 +134,16 @@ export function InputBox(props: {
   const [dismissedNeedle, setDismissedNeedle] = useState<string | null>(null);
   const showMenu = matches.length > 0 && dismissedNeedle !== needle;
   const clamped = Math.min(menuIndex, Math.max(0, matches.length - 1));
-  // 滚动窗口（修复可达性：候选不再被 8 条截断——选中项滚入视野，zcode 同款算法）
-  const MENU_VISIBLE = 8;
+  // 滚动窗口（修复可达性：候选不再被截断——选中项滚入视野，zcode 同款算法）。
+  // 窗口 6：更少的同时可见行 = 扫视更稳（CC 同屏 ~7 项；19 命令翻页靠 ↑↓）
+  const MENU_VISIBLE = 6;
   const visibleStart = Math.min(
     Math.max(0, clamped - MENU_VISIBLE + 1),
     Math.max(0, matches.length - MENU_VISIBLE),
   );
   const visibleMatches = matches.slice(visibleStart, visibleStart + MENU_VISIBLE);
+  // 描述起始列：本批候选最长命令名（封顶 20 列）+ 2 空隙——滚动时列不跳动
+  const nameColumn = Math.min(20, Math.max(4, ...matches.map((m) => visualWidth(m.name)))) + 2;
   // 过滤词一变，旧高亮索引失去意义（zcode reconcileSlashSelection 同义：重置到首项）
   useEffect(() => {
     setMenuIndex(0);
@@ -444,17 +447,25 @@ export function InputBox(props: {
         <Box flexDirection="column">
           {visibleMatches.map((cmd, i) => {
             const highlighted = visibleStart + i === clamped;
+            // 描述列对齐：命令名 pad 到本批最长（封顶 20 列）——中文名长短差被全角放大，
+            // 不对齐时描述起点参差（截图反馈）；命令名全 ASCII，宽度可靠
+            const pad = " ".repeat(Math.max(1, nameColumn - visualWidth(cmd.name)));
             return (
               <Text key={cmd.name} color={highlighted ? c("brand") : undefined} bold={highlighted}>
                 {highlighted ? "❯ /" : "  /"}
                 {cmd.name}
-                <Text dimColor={!highlighted}>  {cmd.desc}</Text>
+                <Text dimColor={!highlighted}>
+                  {pad}
+                  {cmd.desc}
+                </Text>
               </Text>
             );
           })}
-          <Text dimColor>
-            {`↑↓ 选择（${clamped + 1}/${matches.length}）· Tab 补全 · 回车 执行 · Esc 关闭`}
-          </Text>
+          <Box marginTop={1}>
+            <Text dimColor>
+              {`↑↓ 选择（${clamped + 1}/${matches.length}）· 回车 执行 · Tab 补全 · Esc 关闭`}
+            </Text>
+          </Box>
         </Box>
       )}
       {fileMenu !== null && (

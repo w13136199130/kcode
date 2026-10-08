@@ -90,11 +90,13 @@ export function OptionsMenu(props: {
         );
       })}
       {props.footer !== undefined ? props.footer(selected) : null}
-      <Text dimColor>
-        {props.multi === true
-          ? " ↑↓ 移动 · 空格勾选 · 回车确认 · Esc 取消"
-          : ` ↑↓/数字 选择（${selected + 1}/${count}）· 回车确认 · ${props.cancelLabel ?? "Esc 取消"}`}
-      </Text>
+      <Box marginTop={1}>
+        <Text dimColor>
+          {props.multi === true
+            ? " ↑↓ 移动 · 空格勾选 · 回车确认 · Esc 取消"
+            : ` ↑↓/数字 选择（${selected + 1}/${count}）· 回车确认 · ${props.cancelLabel ?? "Esc 取消"}`}
+        </Text>
+      </Box>
     </Box>
   );
 }

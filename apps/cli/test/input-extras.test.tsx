@@ -204,14 +204,14 @@ function mountInputAreaWith(
 }
 
 describe("⑦ 欢迎横幅键位提示", () => {
-  it("横幅包含三批快赢的键位发现性行", () => {
+  it("横幅键位教学收敛为一行指路（Ctrl 系键位改由 /help 承载）", () => {
     const { lastFrame } = render(<BlockView block={{ kind: "banner", model: "m", cwd: "." }} />);
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("Ctrl+B 工具卡");
-    expect(frame).toContain("Ctrl+T 后台任务");
-    expect(frame).toContain("Ctrl+E 编辑器");
-    expect(frame).toContain("Ctrl+V 贴图");
-    expect(frame).toContain("Ctrl+R 搜历史");
+    expect(frame).toContain("输入 / 命令菜单");
+    expect(frame).toContain("/help 全部键位");
+    // 两行 Ctrl 键位清单已删除（截屏反馈：banner 密度过高）
+    expect(frame).not.toContain("Ctrl+O 展开思考");
+    expect(frame).not.toContain("Ctrl+E 编辑器");
   });
 });
 

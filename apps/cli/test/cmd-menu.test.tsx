@@ -98,7 +98,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const DOWN = "\x1b[B";
 
 describe("斜杠命令菜单（对齐批）", () => {
-  it("可达性：↓ 超过 8 条窗口后选中项滚入视野，计数同步（修复截断不可选 bug）", async () => {
+  it("可达性：↓ 超出可见窗口后选中项滚入视野，计数同步（修复截断不可选 bug）", async () => {
     const t = makeHarness();
     await sleep(80);
     t.stdin.write("/");
