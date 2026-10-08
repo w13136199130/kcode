@@ -519,8 +519,8 @@ export interface IPlatformService {
 
 | ID | 项 | 设计要点 | 量级 |
 |---|---|---|---|
-| N3I-6 | /export 会话导出 | 机制：`/export [path]`——会话 JSONL 事件流格式化 Markdown（`## 🧑 用户`/`## 🤖 助手`，工具调用折叠 `> 🔧 bash`+结果截断 200 字，info 块原样）；缺省 `./kcode-session-<id8>.md`。落点：新 `apps/cli/src/tui/export.ts`（纯函数 blocks→md 可单测）+ commands.ts 注册。zcode 参照：**zcode 无导出**（20 命令无 export/share，会话存 SQLite 非用户可读——`adapters/src/storage/session-store.ts`）——净新增无对标包袱；kcode JSONL 全文在盘反而占优 | 1 天 |
-| N3I-7 | /mcp 操作指引与工具清单 | 机制：/mcp 状态尾加指引行（`增删：kcode mcp add/remove（退出后终端执行）`）+ 新 `/mcp tools <name>` 列单个已连接服务器的工具名清单。落点：commands.ts /mcp 分支 + session mcp 句柄扩展。zcode 参照：zcode /mcp 支持 list/connect/disconnect（`cli/src/command-center/handlers/mcp.ts:7-83`）但同样不 add/remove——共识：TUI 内做配置写入交互成本高；kcode 先指引+工具清单，connect/disconnect 观察 hooks 二期后再排 | 0.5 天 |
+| N3I-6 | /export 会话导出（**已落地**：`tui/export.ts` 纯函数 blocksToMarkdown + 原子写落盘——复用 N3I-1 公共件） | 机制：`/export [path]`——会话 JSONL 事件流格式化 Markdown（`## 🧑 用户`/`## 🤖 助手`，工具调用折叠 `> 🔧 bash`+结果截断 200 字，info 块原样）；缺省 `./kcode-session-<id8>.md`。落点：新 `apps/cli/src/tui/export.ts`（纯函数 blocks→md 可单测）+ commands.ts 注册。zcode 参照：**zcode 无导出**（20 命令无 export/share，会话存 SQLite 非用户可读——`adapters/src/storage/session-store.ts`）——净新增无对标包袱；kcode JSONL 全文在盘反而占优 | 1 天 |
+| N3I-7 | /mcp 操作指引与工具清单（**已落地**：/mcp 状态尾增删指引行 + `/mcp tools <名称>` 列已连接服务器工具名（composition mcpToolNames 透传）；残留项 /hooks 查看一并落地——SourcedHookConfig 来源标（loader 加 source: user|project）+ session hooksInfo + `/hooks` 命令列用户/项目/事件/命令/fail-closed 与配置路径） | 机制：/mcp 状态尾加指引行（`增删：kcode mcp add/remove（退出后终端执行）`）+ 新 `/mcp tools <name>` 列单个已连接服务器的工具名清单。落点：commands.ts /mcp 分支 + session mcp 句柄扩展。zcode 参照：zcode /mcp 支持 list/connect/disconnect（`cli/src/command-center/handlers/mcp.ts:7-83`）但同样不 add/remove——共识：TUI 内做配置写入交互成本高；kcode 先指引+工具清单，connect/disconnect 观察 hooks 二期后再排 | 0.5 天 |
 
 **IV 护栏与平台能力**
 
@@ -628,6 +628,7 @@ export interface IPlatformService {
 
 ### v6（2026-10-08）
 
+- **N3I 桌面前收尾批 6-7/8**：⑥ N3I-6 `/export [路径]` 会话导出（`tui/export.ts` blocksToMarkdown 纯函数：用户/助手成节 `## 🧑/## 🤖`、banner 转元信息行、工具块 `> 🔧 tool args ✓摘要` + 输出截断 200 字符（导出是摘要不是取证，全文在 JSONL）、思考取首行、info 按语气图标；落盘走 atomicWriteText 公共件导出复用）；⑦ N3I-7 /mcp 状态尾指引行 + `/mcp tools <名称>` 工具清单（composition mcpToolNames→session.mcpTools，未连接 null）+ **/hooks 查看命令**（N3I-9 撤销后的残留项顺手落地：hooks loader 增 SourcedHookConfig 来源标 user/project，session.hooksInfo 列出事件/命令/fail-closed 与两处配置路径）。菜单入口 +2（export/hooks，mcp desc 更新）。全套 544 过 1 跳（+5）。
 - **N3I 桌面前收尾批 5/9 + 立项更正**：⑤ N3I-5 持久放行参数级粒度 v2——`extensions/permissions/grant-patterns.ts`（三档匹配 `前缀:*` 词边界/通配全锚定/整串精确 + suggestGrant 建议规则：bash 稳定子命令前缀 `npm install:*`、edit/write 目录前缀 `src/legacy/*`、危险根（rm/sudo/解释器/env 包装…）与可疑语法（变量/替换/重定向/续行）及前缀不统一的复合命令只给整串精确）+ store v2 对象条目（v1 字符串兼容）+ composition asker 按命令/路径主体匹配与落盘 + AskPanel「本项目」档内联展示将保存规则；store/引擎 15 个新用例。⑥ 立项更正：N3I-9 hooks 撤销——B5 批已完整落地（用户级+项目级 trust 门控+六事件+exit 码阻断+fail-closed），原评估漏查。全套 539 过 1 跳（+15）。
 - **N3I 桌面前收尾批 3-4/9**：③ N3I-3 /model 菜单窗口注记（modelWindowNote：表内 `· 128k`/`· 1000k`，表外 `· ?` 不猜——窗口决定压缩阈值与价位感知，BYOK 切换关键信息；zcode 菜单刻意极简不显示，kcode 反向取舍）；④ N3I-4 命令面 hidden 机制（CommandInfo.hidden——菜单/补全不列、完整输入仍识别执行的隐藏别名；/plan 与 /mode 重复、/sessions 为 /resume 子集 → 静态隐藏；/trust 已信任项目动态过滤：isProjectTrusted 新增 extensions loader→session resume→cli SessionHandle 三层透传，lifecycle mergeCommands 异步读取后过滤——测试 mock 同步补齐）。全套 524 过 1 跳（+5）。
 - **N3I 桌面前收尾批开批（1-2/9，§8.4f 自查驱动 + zcode 参照校准）**：① N3I-1 write/edit 原子写（`tools/atomic-write.ts` 公共件：同目录 `.{name}.tmp-{pid}-{rnd}` 写入 → mode 继承 → fsync → rename 原子替换，失败清理临时文件并降级直写——Esc 中断/进程崩溃不再可能留半截文件；write/edit 两工具切换；测试覆盖内容完整性/无 tmp 残留/大内容 fsync/posix mode 继承）；② N3I-2 技能描述对模型可见（skill 工具描述从纯名字清单改 `- name（description 截断 80 字符）` 逐行 + 2K 总预算超限降级仅名字——模型可按意图匹配技能不再按名猜；formatSkillCatalog 导出纯函数单测）。全套 520 过 1 跳（win32 mode 继承按设计跳过）。

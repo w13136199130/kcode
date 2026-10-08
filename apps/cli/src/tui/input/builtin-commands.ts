@@ -21,7 +21,9 @@ export const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "context", desc: "查看上下文 token 占用与压缩阈值", argsHint: "（无参数）" },
   { name: "clear", desc: "清屏并开启全新会话（上下文一并清空）", argsHint: "（无参数）" },
   { name: "status", desc: "会话/模型/模式/用量一览", argsHint: "（无参数）" },
-  { name: "mcp", desc: "MCP 服务器接入状态", argsHint: "（无参数）" },
+  { name: "mcp", desc: "MCP 服务器接入状态与工具清单", argsHint: "[tools <名称>]（空 = 状态一览）" },
+  { name: "hooks", desc: "查看已装载的 hooks 钩子", argsHint: "（无参数）" },
+  { name: "export", desc: "导出会话为 Markdown 文件", argsHint: "[路径]（空 = ./kcode-session-<id>.md）" },
   { name: "permissions", desc: "查看/清除本项目的持久放行", argsHint: "（无参数）" },
   { name: "cost", desc: "查看本会话 token 用量", argsHint: "（无参数）" },
   { name: "plan", desc: "计划模式快捷切换", argsHint: "（无参数：plan ↔ default 切换）", hidden: true }, // N3I-4：与 /mode 重复，保留为隐藏别名

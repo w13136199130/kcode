@@ -12,6 +12,9 @@ import type { QueuedCommand } from "@kcode/runtime";
 import { MODE_META, MODE_CYCLE } from "../theme/modes.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import { contextWindowFor, modelWindowKnown } from "@kcode/core";
+import { join, resolve } from "node:path";
+import { atomicWriteText } from "@kcode/tools";
+import { blocksToMarkdown } from "../export.js";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
 /**
@@ -334,22 +337,85 @@ ${body}
         return;
       }
       if (name === "mcp") {
+        // N3I-7：/mcp tools <名称> 列单个已连接服务器的工具清单
+        const parts = args.trim().split(/\s+/).filter(Boolean);
+        if (parts[0] === "tools") {
+          const server = parts.slice(1).join(" ");
+          if (server === "") {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/mcp tools <服务器名>（/mcp 查看状态）" });
+            return;
+          }
+          const tools = await ctx.session.mcpTools(server).catch(() => null);
+          if (tools === null) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: `服务器「${server}」未连接（/mcp 查看状态）` });
+            return;
+          }
+          ctx.pushBlock({
+            kind: "info",
+            text:
+              tools.length === 0
+                ? `（${server} 已连接但没有工具）`
+                : `MCP ${server} 工具（${tools.length} 个）：\n${tools.map((t) => `- ${t}`).join("\n")}`,
+          });
+          return;
+        }
         const servers = await ctx.session.mcpStatus().catch(() => null);
+        const guide = "\n增删：kcode mcp add/remove（终端执行）· 工具清单：/mcp tools <名称>";
         ctx.pushBlock({
           kind: "info",
           text:
             servers === null
               ? "MCP 状态获取失败（会话操作异常）"
               : servers.length === 0
-                ? "（未配置 MCP 服务器——~/.kcode/mcp.json 可添加；支持 stdio / http / sse 三种传输）"
+                ? "（未配置 MCP 服务器——~/.kcode/mcp.json 可添加；支持 stdio / http / sse 三种传输）" + guide
                 : `MCP 服务器（${servers.filter((x) => x.ok).length}/${servers.length} 接入成功）：
 ${servers
                     .map(
                       (x) =>
                         `${x.ok ? "✓" : "✗"} ${x.name} · ${x.transport} · ${x.tools} 个工具${x.ok ? "" : "（连接失败，查看启动告警）"}`,
                     )
-                    .join("\n")}`,
+                    .join("\n")}` + guide,
         });
+        return;
+      }
+      if (name === "hooks") {
+        const hooks = await ctx.session.hooksInfo().catch(() => null);
+        if (hooks === null) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "hooks 清单获取失败（会话操作异常）" });
+          return;
+        }
+        ctx.pushBlock({
+          kind: "info",
+          text:
+            hooks.length === 0
+              ? "（未配置 hooks——~/.kcode/hooks.json 用户级始终生效；项目 .kcode/hooks.json 需 /trust 信任）"
+              : `已装载 hooks（${hooks.length} 条）：
+${hooks
+                .map(
+                  (h) =>
+                    `${h.source === "user" ? "用户" : "项目"} · ${h.event} · ${h.command}${h.failClosed === true ? "（fail-closed）" : ""}`,
+                )
+                .join("\n")}\n配置：~/.kcode/hooks.json（用户）/ .kcode/hooks.json（项目，需信任）`,
+        });
+        return;
+      }
+      if (name === "export") {
+        // N3I-6：转写块 → Markdown 落盘（原子写复用 N3I-1 公共件）
+        const blocks = ctx.ui.getState().blocks;
+        const target =
+          args.trim() !== ""
+            ? resolve(ctx.props.cwd, args.trim())
+            : join(ctx.props.cwd, `kcode-session-${ctx.session.sessionId.slice(0, 8)}.md`);
+        try {
+          await atomicWriteText(target, blocksToMarkdown(blocks));
+          ctx.pushBlock({ kind: "info", tone: "ok", text: `✓ 已导出会话（${blocks.length} 块）→ ${target}` });
+        } catch (err) {
+          ctx.pushBlock({
+            kind: "info",
+            tone: "warn",
+            text: `✗ 导出失败：${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
         return;
       }
       if (name === "trust") {

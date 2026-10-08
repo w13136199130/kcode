@@ -69,6 +69,10 @@ export interface SessionHandle {
   close(): Promise<void>;
   /** /mcp：MCP 服务器接入状态 */
   mcpStatus(): Promise<{ name: string; transport: string; tools: number; ok: boolean }[] | null>;
+  /** 单个已连接 MCP 服务器的工具名清单（N3I-7 /mcp tools；未连接 null） */
+  mcpTools(name: string): Promise<string[] | null>;
+  /** 已装载 hooks（N3I-7 /hooks） */
+  hooksInfo(): Promise<{ source: "user" | "project"; event: string; command: string; failClosed?: boolean }[]>;
   /** /context 上下文占用 */
   context(): Promise<{
     model: string;
@@ -272,6 +276,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     context: async () => composed.contextStats(),
     runBash: (command, timeoutMs) => composed.runBash(command, timeoutMs),
     mcpStatus: async () => composed.mcpInfo().servers,
+    mcpTools: async (name) => composed.mcpToolNames(name),
+    hooksInfo: async () => composed.hooksInfo(),
     backgroundTasks: () => composed.backgroundTasks(),
     close: () => composed.close(),
   };

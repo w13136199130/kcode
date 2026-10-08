@@ -11,6 +11,7 @@ import { createAskUserTool } from "./ask-user.js";
 import { extractTool } from "./extract.js";
 
 export { readTool } from "./read.js";
+export { atomicWriteText } from "./atomic-write.js";
 export { globTool } from "./glob.js";
 export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";

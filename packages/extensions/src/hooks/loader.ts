@@ -16,14 +16,24 @@ export interface HookLoadOptions {
  * 加载钩子配置：用户级始终生效；项目级需要项目路径出现在受信任清单里——
  * 防止克隆来的仓库通过项目级钩子在会话启动时执行任意命令。
  */
-export async function loadHookConfigs(options: HookLoadOptions): Promise<HookConfig[]> {
-  const configs: HookConfig[] = [];
-  configs.push(...(await loadFile(join(options.userDir, "hooks.json"), "用户级", options.onWarn)));
+/** 带来源标的钩子（N3I-7 /hooks 查看：区分用户级/项目级；source 不参与执行） */
+export type SourcedHookConfig = HookConfig & { source: "user" | "project" };
+
+export async function loadHookConfigs(options: HookLoadOptions): Promise<SourcedHookConfig[]> {
+  const configs: SourcedHookConfig[] = [];
+  configs.push(
+    ...(await loadFile(join(options.userDir, "hooks.json"), "用户级", options.onWarn)).map((h) => ({
+      ...h,
+      source: "user" as const,
+    })),
+  );
 
   const trusted = await readTrustedProjects(options.trustFile);
   if (trusted.includes(options.projectDir)) {
     configs.push(
-      ...(await loadFile(join(options.projectDir, ".kcode", "hooks.json"), "项目级", options.onWarn)),
+      ...(await loadFile(join(options.projectDir, ".kcode", "hooks.json"), "项目级", options.onWarn)).map(
+        (h) => ({ ...h, source: "project" as const }),
+      ),
     );
   } else {
     const exists = await fileExists(join(options.projectDir, ".kcode", "hooks.json"));

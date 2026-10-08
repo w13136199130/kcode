@@ -74,6 +74,10 @@ export interface ComposedSession {
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }>;
   /** /mcp：接入状态（含失败项） */
   mcpInfo(): { servers: { name: string; transport: string; tools: number; ok: boolean }[] };
+  /** 单个已连接 MCP 服务器的工具名清单（N3I-7 /mcp tools；未连接返回 null） */
+  mcpToolNames(name: string): string[] | null;
+  /** 已装载 hooks（N3I-7 /hooks；带用户/项目来源标） */
+  hooksInfo(): { source: "user" | "project"; event: string; command: string; failClosed?: boolean }[];
   /** 后台任务清单（N3C-4③）：bash 工具注册表的会话级视图（任务面板轮询源） */
   backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number; notified?: boolean }[];
   /** /context 上下文占用 */
@@ -477,6 +481,12 @@ ${plan}`);
         }),
       };
     },
+    mcpToolNames: (name) => {
+      const session = [...mcpSessions, ...pluginMcpSessions].find((x) => x.name === name);
+      return session === undefined ? null : session.tools.map((t) => t.definition.name);
+    },
+    hooksInfo: () =>
+      hookConfigs.map((h) => ({ source: h.source, event: h.event, command: h.command, failClosed: h.failClosed })),
     runBash: (command, timeoutMs) =>
       runUserBash(command, timeoutMs, {
         sessionId,
