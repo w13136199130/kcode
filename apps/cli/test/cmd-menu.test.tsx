@@ -98,21 +98,22 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const DOWN = "\x1b[B";
 
 describe("斜杠命令菜单（对齐批）", () => {
-  it("可达性：↓ 超出可见窗口后选中项滚入视野，计数同步（修复截断不可选 bug）", async () => {
+  it("可达性：↓ 超出可见窗口后选中项滚入视野（修复截断不可选 bug）", async () => {
     const t = makeHarness();
     await sleep(80);
     t.stdin.write("/");
     await sleep(150);
-    expect(t.frameWith("1/14")).toContain("❯ /cmd01"); // 12 个 cmd + context + compact
+    expect(t.frameWith("> /")).toContain("❯ /cmd01"); // 12 个 cmd + context + compact
 
     for (let i = 0; i < 10; i++) {
       t.stdin.write(DOWN);
       await sleep(30);
     }
     await sleep(150);
-    // 第 11 项高亮且在窗口内可见（旧实现：渲染截 8 条、高亮索引打到不可见区）
+    // 第 11 项高亮且在窗口内可见（旧实现：渲染截 8 条、高亮索引打到不可见区）；
+    // 窗口起点前移 → 视野里应能看到上一个邻居 cmd06
     expect(t.frameWith("❯ /cmd11")).toContain("❯ /cmd11");
-    expect(t.frameWith("11/14")).toContain("11/14");
+    expect(t.frameWith("❯ /cmd11")).toContain("/cmd06");
     t.unmount();
   });
 
@@ -172,10 +173,10 @@ describe("斜杠命令菜单（对齐批）", () => {
     t.stdin.write(DOWN);
     t.stdin.write(DOWN);
     await sleep(150);
-    expect(t.frameWith("❯ /cmd03")).toContain("3/14");
+    expect(t.frameWith("❯ /cmd03")).toContain("cmd03");
     t.stdin.write("c"); // needle: "" → "c"
     await sleep(150);
-    expect(t.frameWith("1/")).toContain("❯ /cmd01"); // 复位首项（cmd01 含 c）
+    expect(t.frameWith("> /c")).toContain("❯ /cmd01"); // 复位首项（cmd01 含 c）
     t.unmount();
   });
 });

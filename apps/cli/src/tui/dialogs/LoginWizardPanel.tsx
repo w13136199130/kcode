@@ -37,9 +37,11 @@ async function probeModels(baseURL: string, apiKey: string): Promise<string[] | 
 /** 向导统一底部提示（对齐批：可发现性——取消/回退机制曾不可见） */
 function WizardHints(props: { first?: boolean }) {
   return (
-    <Text dimColor>
-      {props.first === true ? "回车 下一步 · Esc 取消" : "回车 下一步 · 空输入退格 上一步 · Esc 取消"}
-    </Text>
+    <Box marginTop={1}>
+      <Text dimColor italic>
+        {props.first === true ? "回车 下一步 · Esc 取消" : "回车 下一步 · 空输入退格 上一步 · Esc 取消"}
+      </Text>
+    </Box>
   );
 }
 
@@ -115,6 +117,7 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
           </Text>
           <HiddenInput
             label="API key: "
+            placeholder="在此粘贴 API key（输入不回显）"
             onDone={(apiKey) =>
               dialogs.setLoginWizard({ ...wizard, stage: "passphrase", apiKey: apiKey.trim() })
             }
@@ -133,6 +136,7 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
           ) : null}
           <HiddenInput
             label="口令: "
+            placeholder={platform.secureStorageAvailable ? "留空回车 = DPAPI 免口令存储" : "设置解锁口令"}
             onBack={() => dialogs.setLoginWizard({ ...wizard, stage: "apikey" })}
             onDone={(pass) => {
               const w = wizard;

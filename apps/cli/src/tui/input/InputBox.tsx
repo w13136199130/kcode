@@ -33,6 +33,9 @@ function useLiveInput(handler: Parameters<typeof useInput>[0], options: Paramete
   useInput(useCallback((text, key) => latest.current(text, key), []), options);
 }
 
+/** 描述列起点（CC ~19 列定宽）：宽度只够命令名 + 一道宽沟，列不随过滤集移动 */
+const NAME_COLUMN = 19;
+
 export function InputBox(props: {
   value: string;
   onChange: (value: string) => void;
@@ -142,8 +145,6 @@ export function InputBox(props: {
     Math.max(0, matches.length - MENU_VISIBLE),
   );
   const visibleMatches = matches.slice(visibleStart, visibleStart + MENU_VISIBLE);
-  // 描述起始列：本批候选最长命令名（封顶 20 列）+ 2 空隙——滚动时列不跳动
-  const nameColumn = Math.min(20, Math.max(4, ...matches.map((m) => visualWidth(m.name)))) + 2;
   // 过滤词一变，旧高亮索引失去意义（zcode reconcileSlashSelection 同义：重置到首项）
   useEffect(() => {
     setMenuIndex(0);
@@ -465,14 +466,15 @@ export function InputBox(props: {
         <Box flexDirection="column" marginTop={1}>
           {visibleMatches.map((cmd, i) => {
             const highlighted = visibleStart + i === clamped;
-            // 描述列对齐：命令名 pad 到本批最长（封顶 20 列）——中文名长短差被全角放大，
-            // 不对齐时描述起点参差（截图反馈）；命令名全 ASCII，宽度可靠
-            const pad = " ".repeat(Math.max(1, nameColumn - visualWidth(cmd.name)));
+            // 描述列对齐 CC：固定 NAME_COLUMN 定宽（不随过滤集变化，列恒定才有表格稳定感）；
+            // 命令名全 ASCII，宽度可靠。配色 CC 双层：命令名白粗、描述选中 accent/未选中 dim
+            // （整行染品牌色视觉比 CC 重一档）
+            const pad = " ".repeat(Math.max(1, NAME_COLUMN - visualWidth(cmd.name)));
             return (
-              <Text key={cmd.name} color={highlighted ? c("brand") : undefined} bold={highlighted}>
+              <Text key={cmd.name} bold={highlighted}>
                 {highlighted ? "❯ /" : "  /"}
                 {cmd.name}
-                <Text dimColor={!highlighted}>
+                <Text color={highlighted ? c("accent") : undefined} dimColor={!highlighted}>
                   {pad}
                   {cmd.desc}
                 </Text>
@@ -480,9 +482,7 @@ export function InputBox(props: {
             );
           })}
           <Box marginTop={1}>
-            <Text dimColor>
-              {`↑↓ 选择（${clamped + 1}/${matches.length}）· 回车 执行 · Tab 补全 · Esc 关闭`}
-            </Text>
+            <Text dimColor>↑↓ 选择 · 回车 执行 · Esc 关闭</Text>
           </Box>
         </Box>
       )}
@@ -494,7 +494,7 @@ export function InputBox(props: {
               {f}
             </Text>
           ))}
-          <Text dimColor>↑↓ 选择 · Tab/回车 插入路径 · Esc 关闭</Text>
+          <Text dimColor>↑↓ 选择 · Tab/回车 插入 · Esc 关闭</Text>
         </Box>
       )}
       {pathMenu !== null && (
@@ -505,7 +505,7 @@ export function InputBox(props: {
               {f}
             </Text>
           ))}
-          <Text dimColor>↑↓ 选择 · Tab/回车 插入路径 · Esc 关闭（只补项目内相对路径）</Text>
+          <Text dimColor>↑↓ 选择 · Tab/回车 插入 · Esc 关闭</Text>
         </Box>
       )}
       {argsHint !== null && (
