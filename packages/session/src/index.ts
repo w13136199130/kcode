@@ -13,5 +13,7 @@ export { SYSTEM_PROMPT, PLAN_MODE_SUFFIX } from "./prompt.js";
 export { buildTaskTool, SUBAGENT_MAX_TURNS, SUBAGENT_INACTIVITY_MS, SUBAGENT_NOTIFICATION_HEADER, type TaskToolDeps } from "./subagent.js";
 export { buildPlanSubmitTool, type PlanVerdict, type PlanSubmitToolDeps } from "./plan-submit.js";
 export { buildSkillTool, type SkillToolDeps } from "./skill-tool.js";
+export { buildSendMessageTool, buildRespondToCoordinatorTool, STEER_HEADER } from "./agent-messaging.js";
+export { SubagentRegistry, type SubagentHandle } from "./subagent-registry.js";
 export { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
 export { rewindTo } from "./rewind.js";

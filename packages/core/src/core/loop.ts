@@ -14,13 +14,14 @@ import {
 } from "@kcode/contracts";
 import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
-import { capToolResult, contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
+import { contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
 import { runCompaction, type CompactionResult } from "../context/compact.js";
 import type { Tool } from "@kcode/contracts";
 import { ToolPipeline, type AuditSink, auditWithPermissionEvents } from "./pipeline.js";
 import { TurnExecutor, type PendingCall } from "./executor.js";
 import { TurnMachine, TurnPhase } from "./turn-state.js";
 import { consumeStream } from "./consume-stream.js";
+import { settleToolResults } from "./settle-results.js";
 
 export interface AgentLoopPorts {
   llm: LLMProvider;
@@ -99,6 +100,8 @@ export class AgentLoop {
   private pinnedAnchor?: ChatMessage;
   /** 单轮显式状态机（N3D-2 前置）：run() 内推进，非法迁移即刻抛错 */
   private readonly machine: TurnMachine;
+  /** steer 注入队列（N3D-2）：运行中收到的外部消息，在下一模型步边界以 user 消息进入当前轮 */
+  private pendingInputs: string[] = [];
 
   constructor(
     private readonly ports: AgentLoopPorts,
@@ -124,6 +127,23 @@ export class AgentLoop {
     );
     this.executor = new TurnExecutor(this.pipeline, this.now);
     this.machine = new TurnMachine(ports.onPhase);
+  }
+
+  /** 当前轮相位（只读）：SendMessage/注册表判定"运行中"的依据（N3D-2） */
+  get phase(): TurnPhase {
+    return this.machine.phase;
+  }
+
+  /**
+   * 运行中注入（steer，N3D-2）：消息排队到 pendingInputs，下一模型步边界（AggregatingResults→Streaming）
+   * 以 user 消息拼进当前请求；Idle 时返回 false，由调用方决定是否开新 run（两态投递的依据）。
+   */
+  steer(content: string): boolean {
+    if (this.machine.phase === TurnPhase.Idle) {
+      return false;
+    }
+    this.pendingInputs.push(content);
+    return true;
   }
 
   /** 会话累计用量（含 resume 种子）；/cost 经本地会话读取 */
@@ -276,6 +296,20 @@ export class AgentLoop {
         if (signal?.aborted) {
           break;
         }
+        // 模型步边界 drain（N3D-2 steer）：上一轮聚合后、本轮组装前——注入的消息参与本次请求；
+        // 经 user_message 事件落盘，回放/resume 自动一致（不发明新事件类型）
+        if (this.pendingInputs.length > 0) {
+          for (const steerMsg of this.pendingInputs.splice(0)) {
+            this.history.push({ role: "user", content: steerMsg });
+            await this.emit({
+              v: 1,
+              type: "user_message",
+              ts: ts(),
+              sessionId: this.sessionId,
+              content: steerMsg,
+            });
+          }
+        }
         turns++;
         // 压缩在组装之前执行：超预算先生成摘要替换旧历史，再拼装本轮请求
         const compacted = await this.maybeCompact();
@@ -383,41 +417,16 @@ export class AgentLoop {
         // §5.1：一轮多个只读工具并发执行；任一非只读则串行
         const results = await this.executor.executeCalls(calls, tools, signal);
         this.machine.transition(TurnPhase.AggregatingResults);
-        const defByName = new Map(tools.map((t) => [t.definition.name, t.definition] as const));
-        for (let i = 0; i < calls.length; i++) {
-          const call = calls[i]!;
-          const { result, durationMs } = results[i]!;
-          await this.emit({
-            v: 1,
-            type: "tool_result",
-            ts: ts(),
-            sessionId: this.sessionId,
-            callId: call.callId,
-            ok: result.ok,
-            output: result.output,
-            ...(result.error !== undefined ? { error: result.error } : {}),
-            durationMs,
-          });
-          this.history.push({
-            role: "tool",
-            // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文
-            content: capToolResult(
-              result.output !== "" ? result.output : (result.error ?? ""),
-              defByName.get(call.tool)?.resultBudget ?? this.budget.toolResult,
-            ),
-            toolCallId: call.callId,
-            name: call.tool,
-          });
-          // extract 图片挂载：以带图 user 消息注入（ChatMessage.images 既有通道），
-          // 视觉模型可直接查看；文本模型忽略。成本护栏：最多 3 张。
-          if (result.imagePaths !== undefined && result.imagePaths.length > 0) {
-            this.history.push({
-              role: "user",
-              content: `<tool_image tool="extract">${result.imagePaths.join("\n")}</tool_image>（工具挂载的图片，供视觉查看）`,
-              images: result.imagePaths.slice(0, 3),
-            });
-          }
-        }
+        await settleToolResults({
+          calls,
+          results,
+          tools,
+          emit: (event) => this.emit(event),
+          pushHistory: (message) => this.history.push(message),
+          sessionId: this.sessionId,
+          toolResultBudget: this.budget.toolResult,
+          ts,
+        });
       }
     } catch (err) {
       if (this.machine.phase !== TurnPhase.Error) {

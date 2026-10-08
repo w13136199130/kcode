@@ -15,6 +15,8 @@ import { AgentLoop, InMemoryToolRegistry, MemoryAudit, MemorySink } from "@kcode
 import { AgentLibrary } from "@kcode/extensions";
 import { JsonlSessionSink } from "@kcode/runtime";
 import { createAskUserTool, type BackgroundTaskRegistry } from "@kcode/tools";
+import { buildRespondToCoordinatorTool } from "./agent-messaging.js";
+import type { SubagentRegistry } from "./subagent-registry.js";
 import { newId } from "@kcode/shared";
 
 /** 子代理轮次上限（成本护栏；到顶仍返回已有结论并标注不完整） */
@@ -67,11 +69,14 @@ export interface TaskToolDeps {
   notify?: (text: string) => void;
   /** 后台子代理登记（Esc 连杀）：注册 kill 回调，返回反注册函数 */
   trackBackground?: (kill: () => void) => () => void;
+  /** 子代理句柄注册表（N3D-2）：SendMessage 寻址（loop 引用/终态 LRU） */
+  agentRegistry?: SubagentRegistry;
 }
 
 const SUBAGENT_BASE_PROMPT = `你是 kcode 的子代理，在隔离上下文中执行委派任务。
 - 委派方能看到你的最终结论：在轮次内完成任务，产出自包含的结论（引用 file:line，不堆砌整文件）
 - 需要用户决策时可用 ask_user 提问（经父会话转达）；不便提问时按最合理假设执行并在结论中注明
+- 中间发现/部分结论可用 respond_to_coordinator 异步转达协调者（不阻塞、不等回复）
 - 委派任务即全部背景，与本会话无关的猜测不要写入结论`;
 
 interface AgentConfig {
@@ -207,11 +212,19 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       };
       const unregisterKill = background ? deps.trackBackground?.(() => childAbort.abort()) : undefined;
 
-      // default 档子代理补 ask_user（经父端口转达）；explore 只读档用不到
-      const childTools =
-        config.permissionKind === "default" && deps.askUser !== undefined
-          ? [...config.tools, createAskUserTool({ prompt: deps.askUser })]
-          : config.tools;
+      // default 档子代理补 ask_user（经父端口转达）；explore 只读档用不到；
+      // respond_to_coordinator 无条件注入（对标 zcode subagent.ts:541——子代理回父的唯一通道）
+      const respondTool =
+        deps.notify !== undefined
+          ? buildRespondToCoordinatorTool({ childId: subId, childType: type, notify: deps.notify })
+          : undefined;
+      const childTools = [
+        ...config.tools,
+        ...(config.permissionKind === "default" && deps.askUser !== undefined
+          ? [createAskUserTool({ prompt: deps.askUser })]
+          : []),
+        ...(respondTool !== undefined ? [respondTool] : []),
+      ];
 
       const loop = new AgentLoop(
         {
@@ -258,6 +271,15 @@ ${deps.envBlock}
         status: "running",
         logPath: join(subDir, `${subId}.jsonl`),
         startedAt: Date.now(),
+      });
+      // 句柄双注册（N3D-2）：SendMessage 经 agentRegistry 寻址本子代理（steer/续跑）
+      deps.agentRegistry?.register({
+        id: subId,
+        agentType: type,
+        description,
+        loop,
+        status: "running",
+        kill: () => childAbort.abort(),
       });
       deps.onNotice?.(`子代理 ${type} 开始：${description}${background ? "（后台）" : ""}`);
 
@@ -318,6 +340,7 @@ ${deps.envBlock}
           status: r.status === "completed" ? "done" : "failed",
           exitCode: r.status === "completed" ? 0 : 1,
         });
+        deps.agentRegistry?.markTerminal(subId);
         emit({
           v: 1,
           type: "subagent_stopped",

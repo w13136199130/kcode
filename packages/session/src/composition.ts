@@ -31,6 +31,8 @@ import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { buildSkillTool } from "./skill-tool.js";
+import { buildSendMessageTool } from "./agent-messaging.js";
+import { SubagentRegistry } from "./subagent-registry.js";
 import { loadMcpConfigs, loadAgentsMd, normalizeDisallowedTools, applyDisallowedTools } from "./composition-helpers.js";
 import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
@@ -258,6 +260,9 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   // B2 /rewind：写类工具执行前快照目标文件（bash 造成的改动无法快照——与 CC 检查点同边界）
   const checkpoints = await CheckpointStore.open(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
   const guardedTools = baseTools.map((t) => withFileCheckpoints(t, checkpoints, resolveInCtx));
+  // 子代理句柄注册表（N3D-2）：SendMessage 寻址——只进父工具集，不进 baseTools
+  //（子代理之间不可互发，对齐 zcode 的 includeAgent 门控）
+  const agentRegistry = new SubagentRegistry();
   // 组装期剔除（--disallowed-tools）：归一化一次，子代理与主注册表共用同一剔除集
   const disallowedSet = normalizeDisallowedTools(opts.disallowedTools);
   // 子代理继承剔除：被点名剔除的工具在 task 派生的隔离上下文里同样不可见
@@ -296,6 +301,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       backgroundKills.add(kill);
       return () => backgroundKills.delete(kill);
     },
+    agentRegistry,
   });
   const planSubmitTool = buildPlanSubmitTool({
     currentMode: () => sessionMode,
@@ -307,13 +313,15 @@ ${plan}`);
       applyMode("default");
     },
   });
+  // SendMessage（N3D-2）：父会话专属工具（两态投递），随主注册表装配
+  const sendMessageTool = buildSendMessageTool({ registry: agentRegistry });
   const loop = new AgentLoop(
     {
       llm: initialLlm,
       // 未知名校验对**全集**（guardedTools 含 write/edit 等）而非剔除后的子代理视图，
       // 否则被点名剔除的工具自身会被误报为"未知"
       tools: new InMemoryToolRegistry(
-        applyDisallowedTools([...guardedTools, taskTool, planSubmitTool], disallowedSet),
+        applyDisallowedTools([...guardedTools, taskTool, planSubmitTool, sendMessageTool], disallowedSet),
       ),
       permissions,
       hooks,
