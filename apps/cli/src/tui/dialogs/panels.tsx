@@ -27,6 +27,7 @@ export function AskPanel(props: { ask: AskState }) {
       </Text>
       {ask.call.preview !== undefined && <DiffPreview preview={ask.call.preview} />}
       <OptionsMenu
+        cancelLabel="Esc = 拒绝"
         options={[
           { key: "y", label: "允许" },
           { key: "s", label: "允许，本会话不再询问" },

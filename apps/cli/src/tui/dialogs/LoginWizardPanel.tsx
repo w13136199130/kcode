@@ -12,6 +12,15 @@ import type { CliServices } from "../state/services.js";
  * /login 向导（N2-3 外迁）：四段式录入厂商/模型/地址/key + 口令或 DPAPI。
  * 平台能力与面板动作经 useServices 注入（N2-1 IPlatformService + N2-3 注入补全）。
  */
+/** 向导统一底部提示（对齐批：可发现性——取消/回退机制曾不可见） */
+function WizardHints(props: { first?: boolean }) {
+  return (
+    <Text dimColor>
+      {props.first === true ? "回车 下一步 · Esc 取消" : "回车 下一步 · 空输入退格 上一步 · Esc 取消"}
+    </Text>
+  );
+}
+
 export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) {
   const { wizard } = props;
   const { platform, dialogs } = useServices<CliServices>();
@@ -40,25 +49,28 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
                 model: preset.model,
               });
             }}
-            onCancel={() => dialogs.setLoginWizard(null)}
+              onCancel={() => dialogs.setLoginWizard(null)}
           />
+          <WizardHints first />
         </>
       ) : wizard.stage === "model" ? (
         <>
           <Text color={c("accent")} bold>
-            Login · 2/4 模型名
+            Login · 2/4 模型名（Esc 取消）
           </Text>
           <PromptInput
             label="模型名: "
             initialValue={wizard.presetModel}
             onDone={(model) => dialogs.setLoginWizard({ ...wizard, stage: "baseURL", model })}
             onCancel={() => dialogs.setLoginWizard(null)}
+            onBack={() => dialogs.setLoginWizard({ ...wizard, stage: "method" })}
           />
+          <WizardHints />
         </>
       ) : wizard.stage === "baseURL" ? (
         <>
           <Text color={c("accent")} bold>
-            Login · 3/4 API 地址
+            Login · 3/4 API 地址（回车接受预填 · Esc 取消）
           </Text>
           <PromptInput
             label="BaseURL: "
@@ -67,12 +79,14 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
               dialogs.setLoginWizard({ ...wizard, stage: "apikey", baseURL: baseURL.trim() })
             }
             onCancel={() => dialogs.setLoginWizard(null)}
+            onBack={() => dialogs.setLoginWizard({ ...wizard, stage: "model" })}
           />
+          <WizardHints />
         </>
       ) : wizard.stage === "apikey" ? (
         <>
           <Text color={c("accent")} bold>
-            Login · 4/4 API key（输入不回显）
+            Login · 4/4 API key（输入不回显 · Esc 取消）
           </Text>
           <HiddenInput
             label="API key: "
@@ -80,18 +94,21 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
               dialogs.setLoginWizard({ ...wizard, stage: "passphrase", apiKey: apiKey.trim() })
             }
             onCancel={() => dialogs.setLoginWizard(null)}
+            onBack={() => dialogs.setLoginWizard({ ...wizard, stage: "baseURL" })}
           />
+          <WizardHints />
         </>
       ) : (
         <>
           <Text color={c("accent")} bold>
-            Login · 设置 keychain 口令（不回显；解锁本地 key 存储）
+            Login · 设置 keychain 口令（不回显；解锁本地 key 存储 · Esc 取消）
           </Text>
           {platform.secureStorageAvailable ? (
             <Text dimColor>Windows：口令留空回车 = 使用系统 DPAPI 免口令存储</Text>
           ) : null}
           <HiddenInput
             label="口令: "
+            onBack={() => dialogs.setLoginWizard({ ...wizard, stage: "apikey" })}
             onDone={(pass) => {
               const w = wizard;
               dialogs.setLoginWizard(null);
@@ -130,6 +147,7 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
             }}
             onCancel={() => dialogs.setLoginWizard(null)}
           />
+          <WizardHints />
         </>
       )}
     </Box>

@@ -25,6 +25,7 @@ export function useKeybinds(deps: {
 }): void {
   const lastIdleEscAt = useRef(0);
   const lastCtrlCAt = useRef(0);
+  const escHintTimer = useRef<NodeJS.Timeout | undefined>(undefined);
   // 任一覆盖层打开时其余键位让行（同一时刻只有一个键位层生效；两浏览器互斥由 slice 保证）
   const overlayActive = (): boolean => {
     const { toolBrowser, taskBrowser, historySearchOpen } = deps.ui.getState();
@@ -58,9 +59,23 @@ export function useKeybinds(deps: {
       const now = Date.now();
       if (now - lastIdleEscAt.current < 600) {
         lastIdleEscAt.current = 0;
+        if (escHintTimer.current !== undefined) {
+          clearTimeout(escHintTimer.current);
+          escHintTimer.current = undefined;
+        }
+        deps.ui.getState().setNotice(null);
         deps.openRewindPicker();
       } else {
         lastIdleEscAt.current = now;
+        // 隐藏机制亮出来（对齐批）：单击无反馈曾让 Esc 显得"无效"——600ms 双击窗口不可见
+        deps.ui.getState().setNotice("⎋ 再按一次 Esc 回退到之前某轮");
+        if (escHintTimer.current !== undefined) {
+          clearTimeout(escHintTimer.current);
+        }
+        escHintTimer.current = setTimeout(() => {
+          deps.ui.getState().setNotice(null);
+          escHintTimer.current = undefined;
+        }, 2_500);
       }
     },
     { isActive: deps.interactive && !deps.menuOccupied },

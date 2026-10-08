@@ -19,6 +19,8 @@ export function OptionsMenu(props: {
   multi?: boolean;
   /** 初始高亮项（危险操作默认停在取消项） */
   initialIndex?: number;
+  /** 取消语义标签（默认"Esc 取消"；工具审批面板传"Esc = 拒绝"——取消的对象是工具执行） */
+  cancelLabel?: string;
   /** 选中项联动渲染（B5：ask_user 的 preview 展示） */
   footer?: (selectedIndex: number) => ReactNode;
   onPick: (indices: number[]) => void;
@@ -84,7 +86,7 @@ export function OptionsMenu(props: {
       <Text dimColor>
         {props.multi === true
           ? " ↑↓ 移动 · 空格勾选 · 回车确认 · Esc 取消"
-          : " ↑↓/数字 选择 · 回车确认 · Esc 取消"}
+          : ` ↑↓/数字 选择 · 回车确认 · ${props.cancelLabel ?? "Esc 取消"}`}
       </Text>
     </Box>
   );
