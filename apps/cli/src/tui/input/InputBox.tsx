@@ -4,6 +4,7 @@ import { previousBoundary, nextBoundary } from "../terminal/width.js";
 import { onHomeEnd, patchStdinReadForKeys } from "../terminal/home-end-tee.js";
 import { appendInputLog } from "../terminal/input-log.js";
 import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
+import { UndoStack } from "./undo.js";
 import { c } from "../theme/theme.js";
 import type { CommandInfo } from "./builtin-commands.js";
 
@@ -79,9 +80,39 @@ export function InputBox(props: {
     setCursor(at !== undefined ? { for: v, at } : null);
   };
 
+  // N3G-2 undo/redo：快照双栈 + 100ms 合并。所有值变化（含外部：提交清空/
+  // 编辑器替换）都经此 effect 记录；undo/redo 自身改值时置 skip 不记录。
+  const undoStack = useRef(new UndoStack()).current;
+  const skipRecord = useRef(false);
+  /** 边界事件标记（提交/多字符插入/历史回填）：下一跳变跳过合并窗口 */
+  const boundary = useRef(false);
+  const prevValue = useRef(props.value);
+  useEffect(() => {
+    if (props.value === prevValue.current) {
+      return;
+    }
+    if (!skipRecord.current) {
+      undoStack.push(prevValue.current, boundary.current);
+    }
+    skipRecord.current = false;
+    boundary.current = false;
+    prevValue.current = props.value;
+  }, [props.value, undoStack]);
+  const applyUndoValue = (v: string | null): void => {
+    if (v === null || v === props.value) {
+      return;
+    }
+    skipRecord.current = true;
+    setValue(v);
+  };
+
   // 终端没有可靠的 DOM composition 事件：保留收到的文字，不猜拼音，不丢数字。
   const insertText = (str: string): void => {
     const text = str.replace(/\r\n?/g, "\n");
+    // 多字符一次到位 = 粘贴或 IME 上屏：各自成撤销单元（IME 组合过程终端不上报）
+    if (text.length > 1) {
+      boundary.current = true;
+    }
     setValue(props.value.slice(0, pos) + text + props.value.slice(pos), pos + text.length);
   };
   const menuOpen =
@@ -136,6 +167,16 @@ export function InputBox(props: {
         } catch {}
       }
 
+      // N3G-2：Ctrl+Z 撤销 / Ctrl+Y 与 Ctrl+Shift+Z（能区分的终端）重做——
+      // 必须在通用 ctrl 早退之前；全局 keybinds 未占用这三个组合
+      if (key.ctrl && (ch === "z" || ch === "Z" || ch === "y")) {
+        if (ch === "z") {
+          applyUndoValue(undoStack.undo(props.value));
+        } else {
+          applyUndoValue(undoStack.redo(props.value));
+        }
+        return;
+      }
       if (key.ctrl) {
         return; // 组合键（Ctrl+C 等）由 App 层处理
       }
@@ -175,6 +216,7 @@ export function InputBox(props: {
             setValue(`/${picked.name} `);
           }
         } else if (key.escape) {
+          boundary.current = true; // 菜单 Esc 清空：整段草稿一个撤销单元
           setValue("");
         } else if (key.backspace) {
           if (pos > 0) {
@@ -201,14 +243,17 @@ export function InputBox(props: {
         } else if (index.current > 0) {
           index.current -= 1;
         }
+        boundary.current = true; // 历史回填是大跳变：独立撤销单元（误触方向键可找回草稿）
         props.onChange(props.history[index.current] ?? "");
       } else if (key.downArrow) {
         if (index.current === -1) return;
         if (index.current < props.history.length - 1) {
           index.current += 1;
+          boundary.current = true;
           props.onChange(props.history[index.current] ?? "");
         } else {
           index.current = -1;
+          boundary.current = true;
           props.onChange(draft.current);
         }
       } else if (key.leftArrow) {
@@ -232,6 +277,7 @@ export function InputBox(props: {
           // 行尾反斜杠 + 回车 = 续行（shell 习惯）：\ 换成换行符，不提交
           setValue(`${props.value.slice(0, -1)}\n`, pos);
         } else {
+          boundary.current = true; // 提交后外部清空是独立撤销单元（误触回车可 Ctrl+Z 找回草稿）
           props.onSubmit(props.value);
         }
       } else if (ch !== "" && !key.escape && !key.tab) {
