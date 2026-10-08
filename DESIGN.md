@@ -26,8 +26,8 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
              → N3 通道扩展（host ✅ · 凭证边界 ✅ · Web/中继 ✅ · Desktop 待 · 插件 hash ✅）→ N4 生态与云（市场/账户/调度/电脑控制）
              ↘ N3C CLI 入口层/TUI 交互快赢批 ✅（①–⑦ 全落地）
              ↘ N3D 子代理异步化与消息互通（两期，§8.4c：一期后台+通知+落盘+并行组 ~1.5 周；二期 TurnPhase 前置+steer+SendMessage 1.5-2.5 周）
-             ↘ N3E 执行层体验批（§8.4d：bash 三段预算/cd 项目边界/配置覆盖层/kcode update/凭证指纹回退/idle 微压缩，~1.5 周）
-             ↘ N3F/G/H CLI 体验三期（§8.4e：终端打磨/输入补全/深度交互，F≈1 周→G≈1 周→H 后排）
+             ↘ N3E 执行层体验批 ✅（§8.4d：bash 三段预算/cd 项目边界/配置覆盖层/kcode update/凭证指纹回退/idle 微压缩，6/6）
+             ↘ N3F/G/H CLI 体验三期（§8.4e：终端打磨 ✅ 8/8 → 输入补全 G → 深度交互 H 后排）
 ```
 
 **一条重要判断**：单进程 CLI 与桌面/Web 不矛盾。ZCode 用**同一套 stdio 协议同时服务 CLI 与 Electron**，而不是给桌面另起一套。因此 kcode 保留单进程为默认形态，把"进程边界"做成**可选宿主**（§3.3），不为尚未开始的桌面预置常驻进程。
@@ -463,15 +463,15 @@ export interface IPlatformService {
 
 | ID | 项 | 设计要点（机制 → 落点 → 对标 → 取舍） | 量级 |
 |---|---|---|---|
-| N3F-1 | OSC 8 可点击链接（**一期只做结构化链接**——复审修订） | 机制：`\x1b]8;;file:///<abs>#L<line>\x1b\\<label>\x1b]8;;\x1b\\` 零宽序列包裹。**一期只覆盖结构性位置**（路径是已知值零误报）：工具 argsPreview、bash 三段预算 artifact 路径、task_output 日志路径、检查点/子代理会话路径——CC/OC 的链接同样来自结构位而非文本扫描。二期（可选）才扩展 assistant 正文，且**仅限 Markdown code span 内**（markdownToLines 已产出 span 边界，检测面缩 95%；全文正则扫路径的误报——版本号/URL/盘符——是 CC/OC 都不走的死路）。**两个坑**：① `truncateVisual` 可能切掉 OSC8 闭合序列造成悬空链接——截断必须链接感知（先截 label 再包序列）；② Ink 宽度计量 POC 先行（宽度回归测试再铺开）。**支持面诚实化**：`file://` 点了开编辑器仅 VS Code 集成终端成立（iTerm2/WezTerm 走系统默认应用），独立 WT 会丢给浏览器——默认仅 `TERM_PROGRAM=vscode` 等已知良好终端发射，其余 `KCODE_LINKS=1` 手动开 | 1 天（含 POC） |
-| N3F-2 | 终端标题栏进度 | 机制：OSC 0 `\x1b]0;kcode ⏳ <activity>\x07`；busy 或 activityLabel 变化时写，空闲/卸载复位为 `kcode`。落点：新建 `tui/terminal/title.ts`（写序列 + isTTY 门 + KCODE_TITLE=0 门），App 挂一行 effect（逻辑全在模块——App 行数红线）。对标：CC 同款。取舍：终端不自动还原标题，卸载时复位常量即可 | 0.5 天 |
-| N3F-3 | 任务完成 bell | 机制：busy 下降沿且本轮耗时 >10s → 写 `\a` 一次；后台完成通知同触发。落点：`tui/terminal/notify.ts`（bell + 耗时判定 + KCODE_BELL=0 门）。对标：CC hooks 通知/bell 同语义。取舍：不做系统级通知（OS 通知属 N4 桌面） | 0.5 天 |
-| N3F-4 | respond 通知显示瑕疵修复 | 机制：`buildRespondToCoordinatorTool` 的 notify 载荷统一加 `SUBAGENT_NOTIFICATION_HEADER` 前缀（与完成通知同头）→ TUI 既有 📩 分支直接命中，XML 载荷随头之后。对标：zcode 入站消息统一防伪头（`incoming-message.ts:9`）。取舍：改载荷而非改 TUI 分支——单一事实源 | 10 分钟 |
-| N3F-5 | `--model <provider/model>` 旗标 | 机制：args.ts 增旗标；main.tsx 覆盖 `modelRef`（contracts modelRef 格式校验 + provider 存在性检查，未知 provider fail-fast 列可用清单）；TUI 与 headless 同一生效点。对标：CC `--model`。取舍：不另建配置层——这是 N3E-3 三层之上的第四层（CLI 覆盖，优先级最高），与 zcode `ConfigScope.Cli=50` 同位 | 0.5 天 |
-| N3F-6 | `kcode mcp` 子命令 | 机制：`list`（名称/transport）/ `add <name> -- <stdio 命令>` 或 `add <name> <url> --transport http` / `remove <name>` / `test <name>`（单服务器连接探针，复用 `connectMcpServers` + 10s 超时）。落点：新 `apps/cli/src/mcp-cmd.ts`（镜像 doctor.ts 的 print/exit 约定）；写 `~/.kcode/mcp.json` 前 zod 校验 + tmp/rename 原子写。对标：CC `claude mcp add/list/remove`。取舍：不做 add-json（手改文件仍是逃生门）。**复审注**：项目级 MCP 配置（zcode 五级含 mcp.servers、CC --scope project）是已知缺口——但项目 mcp.json 能注入"启动即执行"的 stdio 命令，**实作前提是 /trust 门控**（同 hooks 项目级），排 N3H 之后 | 1.5–2 天 |
-| N3F-7 | headless 流式文本 | 机制：`-p` 非 `--json` 时 onDelta 直写 stdout，50ms/64 字符合帧（防逐 token 系统调用抖动）；流式模式末尾换行收尾不重复摘要。落点：headless.ts 增 onDelta 通道 + 微缓冲。对标：CC `--print` 流式 | 1 天 |
+| N3F-1 | OSC 8 可点击链接（**一期只做结构化链接**——复审修订；**已落地**：`tui/terminal/links.ts` + truncateVisual 链接感知） | 机制：`\x1b]8;;file:///<abs>#L<line>\x1b\\<label>\x1b]8;;\x1b\\` 零宽序列包裹。**一期只覆盖结构性位置**（路径是已知值零误报）：工具 argsPreview、bash 三段预算 artifact 路径、task_output 日志路径、检查点/子代理会话路径——CC/OC 的链接同样来自结构位而非文本扫描。二期（可选）才扩展 assistant 正文，且**仅限 Markdown code span 内**（markdownToLines 已产出 span 边界，检测面缩 95%；全文正则扫路径的误报——版本号/URL/盘符——是 CC/OC 都不走的死路）。**两个坑**：① `truncateVisual` 可能切掉 OSC8 闭合序列造成悬空链接——截断必须链接感知（先截 label 再包序列）；② Ink 宽度计量 POC 先行（宽度回归测试再铺开）。**支持面诚实化**：`file://` 点了开编辑器仅 VS Code 集成终端成立（iTerm2/WezTerm 走系统默认应用），独立 WT 会丢给浏览器——默认仅 `TERM_PROGRAM=vscode` 等已知良好终端发射，其余 `KCODE_LINKS=1` 手动开 | 1 天（含 POC） |
+| N3F-2 | 终端标题栏进度（**已落地**：`tui/terminal/title.ts`，KCODE_TITLE=0 门） | 机制：OSC 0 `\x1b]0;kcode ⏳ <activity>\x07`；busy 或 activityLabel 变化时写，空闲/卸载复位为 `kcode`。落点：新建 `tui/terminal/title.ts`（写序列 + isTTY 门 + KCODE_TITLE=0 门），App 挂一行 effect（逻辑全在模块——App 行数红线）。对标：CC 同款。取舍：终端不自动还原标题，卸载时复位常量即可 | 0.5 天 |
+| N3F-3 | 任务完成 bell（**已落地**：`tui/terminal/notify.ts`，KCODE_BELL=0 门；后台完成同触发、respond 中间消息不响） | 机制：busy 下降沿且本轮耗时 >10s → 写 `\a` 一次；后台完成通知同触发。落点：`tui/terminal/notify.ts`（bell + 耗时判定 + KCODE_BELL=0 门）。对标：CC hooks 通知/bell 同语义。取舍：不做系统级通知（OS 通知属 N4 桌面） | 0.5 天 |
+| N3F-4 | respond 通知显示瑕疵修复（**已落地**：载荷统一防伪头，常量移 agent-messaging 防循环引用） | 机制：`buildRespondToCoordinatorTool` 的 notify 载荷统一加 `SUBAGENT_NOTIFICATION_HEADER` 前缀（与完成通知同头）→ TUI 既有 📩 分支直接命中，XML 载荷随头之后。对标：zcode 入站消息统一防伪头（`incoming-message.ts:9`）。取舍：改载荷而非改 TUI 分支——单一事实源 | 10 分钟 |
+| N3F-5 | `--model <provider/model>` 旗标（**已落地**：第四层覆盖，contracts isModelRef 同源校验+provider fail-fast） | 机制：args.ts 增旗标；main.tsx 覆盖 `modelRef`（contracts modelRef 格式校验 + provider 存在性检查，未知 provider fail-fast 列可用清单）；TUI 与 headless 同一生效点。对标：CC `--model`。取舍：不另建配置层——这是 N3E-3 三层之上的第四层（CLI 覆盖，优先级最高），与 zcode `ConfigScope.Cli=50` 同位 | 0.5 天 |
+| N3F-6 | `kcode mcp` 子命令（**已落地**：`mcp-cmd.ts` list/add/remove/test，tmp+rename 原子写，损坏文件拒覆盖） | 机制：`list`（名称/transport）/ `add <name> -- <stdio 命令>` 或 `add <name> <url> --transport http` / `remove <name>` / `test <name>`（单服务器连接探针，复用 `connectMcpServers` + 10s 超时）。落点：新 `apps/cli/src/mcp-cmd.ts`（镜像 doctor.ts 的 print/exit 约定）；写 `~/.kcode/mcp.json` 前 zod 校验 + tmp/rename 原子写。对标：CC `claude mcp add/list/remove`。取舍：不做 add-json（手改文件仍是逃生门）。**复审注**：项目级 MCP 配置（zcode 五级含 mcp.servers、CC --scope project）是已知缺口——但项目 mcp.json 能注入"启动即执行"的 stdio 命令，**实作前提是 /trust 门控**（同 hooks 项目级），排 N3H 之后 | 1.5–2 天 |
+| N3F-7 | headless 流式文本（**已落地**：DeltaWriter 64B/50ms 微缓冲，流式收尾不重复摘要） | 机制：`-p` 非 `--json` 时 onDelta 直写 stdout，50ms/64 字符合帧（防逐 token 系统调用抖动）；流式模式末尾换行收尾不重复摘要。落点：headless.ts 增 onDelta 通道 + 微缓冲。对标：CC `--print` 流式 | 1 天 |
 
-| N3F-8 | 搜索后端可配置 | 机制：web_search 现硬编码 DDG HTML 抓取；Env 白名单加 `KCODE_SEARCH`（duckduckgo|searxng|none）+ searxng 实例 URL 参数。对标：CC 服务端搜索（kcode 保持本地免 key 优先）。取舍：不做 API-key 搜索引擎（需要者可自配 MCP） | 0.5 天 |
+| N3F-8 | 搜索后端可配置（**已落地**：KCODE_SEARCH=duckduckgo|searxng|none + KCODE_SEARXNG_URL；none 不注册工具） | 机制：web_search 现硬编码 DDG HTML 抓取；Env 白名单加 `KCODE_SEARCH`（duckduckgo|searxng|none）+ searxng 实例 URL 参数。对标：CC 服务端搜索（kcode 保持本地免 key 优先）。取舍：不做 API-key 搜索引擎（需要者可自配 MCP） | 0.5 天 |
 
 **N3G 输入补全批（Tab 补全单独立批——要动 InputBox 补全状态机，值得专注）**
 
@@ -587,6 +587,10 @@ export interface IPlatformService {
 ---
 
 ## 11. 变更记录
+
+### v6（2026-10-08）
+
+- **N3F 终端打磨批落地（8/8，§8.4e 表已标注）**：① N3F-4 respond 载荷统一 `SUBAGENT_NOTIFICATION_HEADER` 防伪头（TUI 📩 分支同源命中；常量移 agent-messaging.ts 防 subagent↔agent-messaging 循环引用，subagent.ts 转出口保持导入路径）；② N3F-5 `--model <provider/model>` 第四层覆盖（N3E-3 三层之上优先级最高，给了即不需 default；contracts 导出 `isModelRef` 同源校验 + 未知 provider fail-fast 列可用清单，裸模型名沿 default 的 provider 与路由同规则；TUI/headless 单一生效点）；③ N3F-2/3 标题栏+完成铃（`tui/terminal/title.ts` OSC 0 busy/活动变化写、空闲/卸载复位；`notify.ts` busy 下降沿 ≥10s 响 BEL，`bellOnEdge` 纯函数；session 导出 `isBackgroundCompletionNotice`——后台完成（含中断/失败）同触发、respond 中间消息同头不响；KCODE_TITLE/KCODE_BELL=0 门；App 各一行 effect，activityLabel 上移保 hook 规则）；④ N3F-8 搜索后端可配（`KCODE_SEARCH=duckduckgo|searxng|none` + `KCODE_SEARXNG_URL`；none 时工具组不注册 web_search——模型不可见即不可误用；非法值/缺 URL fail-fast；SearXNG 走实例 JSON API，实例地址来自 env 不经模型输入无 SSRF 面扩大）；⑤ N3F-1 OSC8 结构化链接一期（**POC 提前探路**：string-width 5.1.2 对 ST/BEL 终止的 OSC8 均计 0 宽（Ink 布局安全），但 slice-ansi 截断丢闭合序列、grapheme 逐簇拆碎序列——结论固化进宽度回归测试；`truncateVisual` 改链接感知：序列零宽直通、预算只耗 label、截中补闭合；`links.ts` hyperlinksEnabled 默认仅 `TERM_PROGRAM=vscode`+TTY（file:// 点击直达编辑器仅 VS Code 成立），KCODE_LINKS=1 手动开/0 强制关；结构位=工具 argsPreview 路径（read 带 #L 行锚）+三段落盘注记+后台任务日志行（自家常量格式零误报，非文本扫描）；检查点/子代理会话路径 TUI 不显示原始路径，如实未接；二期可选才扩 assistant 正文 code span）；⑥ N3F-6 `kcode mcp` 子命令（`mcp-cmd.ts` 镜像 doctor 的 print/exit 约定；add 双形态 stdio `--` 后命令/远程 url+--transport http|sse；写 mcp.json 前 zod 校验 + tmp/rename 原子写，损坏文件拒覆盖提示手动修复；test 复用 connectMcpServers+10s 超时（定时器 unref+clear 不拖进程退出）；同名拒加/未知名列清单；项目级 MCP 缺口维持复审结论——/trust 门控前不实作）；⑦ N3F-7 headless 流式文本（`-p` 非 --json onDelta 直写 stdout：DeltaWriter 64 字节/50ms 先到即冲刷防逐 token 系统调用抖动；**先冲刷再分支**——流式末尾换行收尾（已有换行不补）不重复摘要行，无正文回退一行摘要；main 传独立原始写通道（print 逐次补 \n 会碎正文）；--json 纯 NDJSON 不变）。全套 22 文件 476 用例通过（+52）。下一批 N3G 输入补全。
 
 ### v5（2026-09-29）
 
