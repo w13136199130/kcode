@@ -11,6 +11,7 @@ import { TaskBrowser } from "../tasks/TaskBrowser.js";
 import { HistorySearch } from "./HistorySearch.js";
 import { openInExternalEditor } from "./external-editor.js";
 import { readClipboardImageToFile } from "./clipboard-image.js";
+import { appendMemoryLine } from "../memory.js";
 import { c } from "../theme/theme.js";
 import { kcodeHome } from "../../bootstrap.js";
 
@@ -122,6 +123,32 @@ export function InputArea(props: {
         value={props.value}
         onChange={props.onChange}
         onSubmit={(v) => {
+          // N3G-3：# 开头拦截——追加项目 AGENTS.md（下次会话生效），不进模型不进历史。
+          // busy 中同样可用（写文件与会话上下文无争用）
+          if (v.startsWith("#")) {
+            const note = v.slice(1).trim();
+            const state = props.ui.getState();
+            props.onChange("");
+            if (note === "") {
+              state.pushBlock({ kind: "info", tone: "warn", text: "（# 后没有要记住的内容）" });
+              return;
+            }
+            void appendMemoryLine(props.cwd, note).then(
+              (path) =>
+                state.pushBlock({
+                  kind: "info",
+                  tone: "ok",
+                  text: `📝 已记入 ${path}（下次会话装载，不进本轮上下文）`,
+                }),
+              (err) =>
+                state.pushBlock({
+                  kind: "info",
+                  tone: "warn",
+                  text: `✗ 写入 AGENTS.md 失败：${err instanceof Error ? err.message : String(err)}`,
+                }),
+            );
+            return;
+          }
           // 附件只随空闲提交发送：排队不带图（附件保留，避免静默丢失）；
           // 清空时机在 App submit 的守卫之后——exit/空输入不应丢掉已贴的图
           const state = props.ui.getState();

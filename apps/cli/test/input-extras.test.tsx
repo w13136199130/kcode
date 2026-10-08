@@ -62,6 +62,8 @@ function InputAreaHarness(props: {
   ui: ReturnType<typeof createUiStore>;
   onSubmit(v: string, images?: string[]): void;
   history: string[];
+  /** # 记忆等落盘行为的根目录（默认 .；测试传临时目录） */
+  cwd?: string;
 }) {
   const [value, setValue] = useState("");
   return (
@@ -77,7 +79,7 @@ function InputAreaHarness(props: {
       }}
       history={props.history}
       commands={[]}
-      cwd="."
+      cwd={props.cwd ?? "."}
       onCjkCommit={() => {}}
     />
   );
@@ -257,5 +259,46 @@ describe("剪贴板读图（仅 Windows 实跑；无剪贴板服务环境自动�
       return;
     }
     expect(await readClipboardImageToFile(join(home, "tmp"))).toBeNull();
+  });
+});
+
+describe("N3G-3 # 快捷记忆", () => {
+  it("# 开头：不进模型不进历史，写 AGENTS.md 并清空输入；📝 通知", async () => {
+    const home = await mkdtemp(join(tmpdir(), "kcode-hashmem-"));
+    const store = createUiStore();
+    const submits: string[] = [];
+    const { stdin, settle } = mountProbe(
+      <InputAreaHarness ui={store} onSubmit={(v) => submits.push(v)} history={[]} cwd={home} />,
+    );
+    stdin.write("# 构建统一用 pnpm");
+    await settle();
+    stdin.write("\r");
+    await settle(250);
+    expect(submits).toEqual([]); // 不进模型
+    expect(await readFile(join(home, "AGENTS.md"), "utf8")).toBe("构建统一用 pnpm\n");
+    expect(store.getState().blocks.some((b) => b.kind === "info" && b.text.includes("📝 已记入"))).toBe(true);
+    // 输入已清空（后续再输入正常）
+    stdin.write("正常提问");
+    await settle();
+    stdin.write("\r");
+    await settle(200);
+    expect(submits.at(-1)).toBe("正常提问");
+    await rm(home, { recursive: true, force: true });
+  });
+
+  it("裸 # ：提示无内容，不写文件不提交", async () => {
+    const home = await mkdtemp(join(tmpdir(), "kcode-hashmem2-"));
+    const store = createUiStore();
+    const submits: string[] = [];
+    const { stdin, settle } = mountProbe(
+      <InputAreaHarness ui={store} onSubmit={(v) => submits.push(v)} history={[]} cwd={home} />,
+    );
+    stdin.write("#");
+    await settle();
+    stdin.write("\r");
+    await settle(200);
+    expect(submits).toEqual([]);
+    expect(store.getState().blocks.some((b) => b.kind === "info" && b.text.includes("没有要记住的内容"))).toBe(true);
+    await rm(home, { recursive: true, force: true });
   });
 });
