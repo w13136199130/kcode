@@ -78,6 +78,7 @@ export interface ComposedSession {
   contextStats(): {
     model: string;
     contextWindow: number;
+    windowKnown: boolean;
     historyTokens: number;
     historyBudget: number;
     systemTokens: number;

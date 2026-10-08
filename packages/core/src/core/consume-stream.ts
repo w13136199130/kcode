@@ -24,11 +24,12 @@ export async function consumeStream(dep: {
   signal?: AbortSignal;
   runUsage: UsageAccumulator;
   ts: () => number;
-}): Promise<{ text: string; reasoning: string; streamError?: string; calls: PendingCall[] }> {
+}): Promise<{ text: string; reasoning: string; streamError?: string; calls: PendingCall[]; lastInputTokens?: number }> {
   let text = "";
   let reasoning = "";
   let streamError: string | undefined;
   const calls: PendingCall[] = [];
+  let lastInputTokens: number | undefined;
   try {
     dep.runUsage.calls++;
     for await (const chunk of dep.llm.stream({
@@ -66,6 +67,9 @@ export async function consumeStream(dep: {
         if (chunk.usage !== undefined) {
           dep.runUsage.inputTokens += chunk.usage.inputTokens;
           dep.runUsage.outputTokens += chunk.usage.outputTokens;
+          // provider 回报的本轮输入侧总量 = 该请求的上下文真值（system+工具 schema+历史全量），
+          // loop 以最近一次值校准压缩判据（N3 对齐批：估算降为兜底）
+          lastInputTokens = chunk.usage.inputTokens;
         }
       }
     }
@@ -76,6 +80,6 @@ export async function consumeStream(dep: {
       throw err;
     }
   }
-  return { text, reasoning, streamError, calls };
+  return { text, reasoning, streamError, calls, lastInputTokens };
 }
 

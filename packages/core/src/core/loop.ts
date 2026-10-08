@@ -14,11 +14,14 @@ import {
 } from "@kcode/contracts";
 import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
-import { contextWindowFor, deriveBudget, historyTokens, type Budget } from "../context/budget.js";
+import { contextWindowFor, deriveBudget, historyTokens, modelWindowKnown, type Budget } from "../context/budget.js";
 import { runCompaction, type CompactionResult } from "../context/compact.js";
+
+/** 自动压缩熔断阈值：连续失败这么多轮后停手（zcode circuit_breaker 同款防风暴） */
+const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
 import type { Tool } from "@kcode/contracts";
 import { ToolPipeline, type AuditSink, auditWithPermissionEvents } from "./pipeline.js";
-import { TurnExecutor, type PendingCall } from "./executor.js";
+import { TurnExecutor } from "./executor.js";
 import { TurnMachine, TurnPhase } from "./turn-state.js";
 import { consumeStream } from "./consume-stream.js";
 import { settleToolResults } from "./settle-results.js";
@@ -98,6 +101,12 @@ export class AgentLoop {
   private contextWindow: number;
   /** B3：跨压缩保真锚点（已批准的执行计划） */
   private pinnedAnchor?: ChatMessage;
+  /** 自动压缩连续失败计数（熔断用；成功即清零） */
+  private compactFailures = 0;
+  /** provider 校准（N3 对齐批）：最近一次请求回报的输入总量与当时的历史长度——
+   * 压缩判据优先用它（provider 自己算的上下文真值），估算只做兜底/增量 */
+  private providerInput: number | null = null;
+  private providerInputLen: number | null = null;
   /** 单轮显式状态机（N3D-2 前置）：run() 内推进，非法迁移即刻抛错 */
   private readonly machine: TurnMachine;
   /** steer 注入队列（N3D-2）：运行中收到的外部消息，在下一模型步边界以 user 消息进入当前轮 */
@@ -184,12 +193,26 @@ export class AgentLoop {
     return this.maybeCompact(true);
   }
 
-  /** 上下文占用（/context 可视化数据源） */
-  contextStats(): { model: string; contextWindow: number; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean } {
+  /** 上下文占用（/context 可视化数据源与压缩判据）：provider 校准 + 其后增量估算；
+   * 无校准（首轮前/压缩刚重置/端点不回报 usage）退全量估算 */
+  private contextUsed(): number {
+    const len = this.providerInputLen;
+    if (this.providerInput === null || len === null || len > this.history.length) {
+      return historyTokens(this.history);
+    }
+    if (len === this.history.length) {
+      return this.providerInput;
+    }
+    const incremental = this.history.slice(len).reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    return this.providerInput + incremental;
+  }
+
+  contextStats(): { model: string; contextWindow: number; windowKnown: boolean; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean } {
     return {
       model: this.model,
       contextWindow: this.contextWindow,
-      historyTokens: historyTokens(this.history),
+      windowKnown: modelWindowKnown(this.model),
+      historyTokens: this.contextUsed(),
       historyBudget: this.budget.history,
       systemTokens: estimateTokens(this.systemPrompt),
       pinnedAnchor: this.pinnedAnchor !== undefined,
@@ -203,16 +226,36 @@ export class AgentLoop {
   /**
    * 上下文压缩：历史超预算时，把较早消息交给摘要器生成结构化摘要，
    * 以「任务锚点 + 摘要 + 近期原文」替换原历史；未配置摘要器时退化为计数占位。
+   * 失败隔离 + 熔断（对标 zcode circuit_breaker）：自动压缩抛错降级为不压（不再
+   * 打断整轮——历史虽长但请求仍可能成功），连续 3 次失败后停手防压缩风暴；
+   * 手动 /compact（force）不受熔断限制且错误照常上抛——用户显式动作必须看到失败。
    */
   private async maybeCompact(force = false): Promise<CompactionResult | null> {
-    const result = await runCompaction(this.history, this.budget, force, {
-      sessionId: this.sessionId,
-      summarizer: this.summarizer,
-      pinnedAnchor: this.pinnedAnchor,
-      gatePreCompact: (invoke) => this.gateHook(invoke),
-    });
+    if (!force && this.compactFailures >= MAX_CONSECUTIVE_COMPACT_FAILURES) {
+      return null;
+    }
+    let result: { summary: string; dropped: number; covered: number; history: ChatMessage[] } | null;
+    try {
+      result = await runCompaction(this.history, this.budget, force, {
+        sessionId: this.sessionId,
+        summarizer: this.summarizer,
+        pinnedAnchor: this.pinnedAnchor,
+        gatePreCompact: (invoke) => this.gateHook(invoke),
+        measuredTokens: this.contextUsed(),
+      });
+    } catch (err) {
+      if (force) {
+        throw err;
+      }
+      this.compactFailures += 1;
+      return null;
+    }
     if (result !== null) {
       this.history = result.history;
+      this.compactFailures = 0;
+      // 历史已被摘要替换，旧校准失效——退回估算直到下一次请求重新校准
+      this.providerInput = null;
+      this.providerInputLen = null;
     }
     return result;
   }
@@ -335,7 +378,8 @@ export class AgentLoop {
         });
 
         this.machine.transition(TurnPhase.Streaming);
-        const { text, reasoning, streamError, calls } = await consumeStream({
+        const histLenBeforeRequest = this.history.length;
+        const { text, reasoning, streamError, calls, lastInputTokens } = await consumeStream({
           llm: this.llm,
           model: this.model,
           sessionId: this.sessionId,
@@ -348,6 +392,12 @@ export class AgentLoop {
           runUsage,
           ts,
         });
+        // provider 校准（N3 对齐批）：本轮回报的输入总量即请求时上下文真值，
+        // 其后新增消息（本轮回复/工具结果/用户新输入）按估算叠加
+        if (lastInputTokens !== undefined) {
+          this.providerInput = lastInputTokens;
+          this.providerInputLen = histLenBeforeRequest;
+        }
         if (signal?.aborted) {
           this.machine.transition(TurnPhase.AggregatingResults);
           if (text !== "" || reasoning !== "") {

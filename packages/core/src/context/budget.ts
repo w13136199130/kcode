@@ -33,14 +33,28 @@ export function contextWindowFor(model: string): number {
   return DEFAULT_CONTEXT_WINDOW;
 }
 
+/** 窗口是否命中静态表（/context 据此注记"按默认估算"——静默回退曾让小众大窗模型被冤枉早压） */
+export function modelWindowKnown(model: string): boolean {
+  return MODEL_WINDOW_HINTS.some((hint) => hint.re.test(model));
+}
+
+/** 输出预留（zcode 同款结论：窗口是输入输出共享，压缩只能让出输入侧；上限 21k） */
+export const OUTPUT_RESERVE_TOKENS = 21_000;
+/** 压缩缓冲：摘要生成本身 + 响应的余量（绝对值——这两项开销不随窗口缩放） */
+export const COMPACT_BUFFER_TOKENS = 13_000;
+
 /**
- * 由上下文窗口派生预算：history 取 60%（早压——社区实践共识：接近上限才压会频繁打断任务），
- * 为系统提示/工具 schema/输出留余量；toolResult 8k 对应 micro 截断线。
+ * 由上下文窗口派生预算（对齐批修订：早压→晚压）。
+ * 旧式 history = 窗口×60% 的比例预留在大窗上压缩过早、小窗上余量失真；
+ * 预留物（输出侧/摘要/缓冲）都是绝对 token 量，公式改为 窗口 − 绝对预留。
+ * 落点：128k→73% 触发、200k→83%、1M→97%（CC ~83%、zcode 窗口−34k 同区间）。
+ * 守卫：预留不超过窗口一半（极小窗口不至于无历史可用）。
  */
 export function deriveBudget(contextWindow: number): Budget {
+  const reserve = Math.min(OUTPUT_RESERVE_TOKENS + COMPACT_BUFFER_TOKENS, Math.floor(contextWindow / 2));
   return {
     system: 4096,
-    history: Math.floor(contextWindow * 0.6),
+    history: Math.max(0, contextWindow - reserve),
     toolResult: 8192,
   };
 }

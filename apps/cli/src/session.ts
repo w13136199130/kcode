@@ -67,6 +67,8 @@ export interface SessionHandle {
   context(): Promise<{
     model: string;
     contextWindow: number;
+    /** 窗口是否命中静态表（false = 按默认 128k 估算，界面注记提醒） */
+    windowKnown: boolean;
     historyTokens: number;
     historyBudget: number;
     systemTokens: number;

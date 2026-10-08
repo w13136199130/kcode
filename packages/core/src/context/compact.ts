@@ -29,8 +29,16 @@ export interface CompactionResult {
  * 计算压缩方案：历史超预算且足够长时，切分为「待摘要区 + 近期保留区」。
  * force=true 跳过预算判定（/compact 手动压缩），仍保留最短历史守卫。
  */
-export function planCompaction(history: ChatMessage[], budget: Budget, force = false): CompactionPlan | null {
-  if ((!force && !exceedsBudget(history, budget)) || history.length < COMPACTION_MIN_MESSAGES) {
+export function planCompaction(
+  history: ChatMessage[],
+  budget: Budget,
+  force = false,
+  measuredTokens?: number,
+): CompactionPlan | null {
+  // measuredTokens（provider 校准值）优先——压缩判据用真实占用而非纯估算；
+  // 未提供时退 exceedsBudget 的全量估算
+  const over = measuredTokens !== undefined ? measuredTokens > budget.history : exceedsBudget(history, budget);
+  if ((!force && !over) || history.length < COMPACTION_MIN_MESSAGES) {
     return null;
   }
   // 保留区起点默认取末尾 KEEP_TAIL 条；若落在 tool 消息上，向左回退到它所属的
@@ -89,9 +97,11 @@ export async function runCompaction(
     gatePreCompact: (
       invoke: (hooks: HookRunner) => Promise<HookPreOutcome> | undefined,
     ) => Promise<HookPreOutcome>;
+    /** 实测占用（provider usage 校准）：优先于内部估算触发判定 */
+    measuredTokens?: number;
   },
 ): Promise<{ summary: string; dropped: number; covered: number; history: ChatMessage[] } | null> {
-  const plan = planCompaction(history, budget, force);
+  const plan = planCompaction(history, budget, force, deps.measuredTokens);
   if (plan === null) {
     return null;
   }

@@ -367,7 +367,9 @@ ${servers
         ctx.pushBlock({
           kind: "info",
           text:
-            `Context · 模型 ${stats.model}（窗口 ${(stats.contextWindow / 1000).toFixed(0)}k）
+            `Context · 模型 ${stats.model}（窗口 ${(stats.contextWindow / 1000).toFixed(0)}k${
+              stats.windowKnown ? "" : "，未在窗口表内按默认估算——实际更大请反馈补表"
+            }）
 ` +
             `历史 ${fmt(stats.historyTokens)} / ${fmt(stats.historyBudget)} tok（${pct}%）
 ` +
