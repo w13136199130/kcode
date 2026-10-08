@@ -18,8 +18,9 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 
 1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
 2. **CLI 入口层与 TUI 交互补全（N3C，P1 快赢批，§8.4b）**：headless flag 组（`-p/--mode/--json` 等）、`doctor`、管理子命令、状态栏常驻信息与逐卡展开等交互件——用户最可感、成本最低、无依赖可插队的一批。
-3. **通道收尾（N3-4/5）**：Desktop 与插件加载期 hash 校验。
-4. **生态与云（N4）**：插件市场、账户 IdP、调度、长期 Memory、遥测。
+3. **CLI 桌面前收尾（N3I，P1，§8.4f；2026-10-08 自查驱动）**：原子写、放行参数级粒度、hooks 一期、token 预算、会话导出等 9 项——N3-4 开工前的内功收口 + 0.2.0 发版节点。
+4. **通道收尾（N3-4/5）**：Desktop（已选定 Electron 为主线，2026-10-08）与插件加载期 hash 校验。
+5. **生态与云（N4）**：插件市场、账户 IdP、调度、长期 Memory、遥测。
 
 ```
 N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台抽象/排队/UI 拆包/发行链 ✅
@@ -494,6 +495,43 @@ export interface IPlatformService {
 **维持不做**：原地编辑历史消息（Static 约束）、会话分享（N4-2）、终端内图片显示、自定义键位（见 N3H-3 取舍）。
 
 **复审结论（2026-09-29，对本节设计的二次审查）**：① 修订七处——N3F-1 改结构化链接先行+截断链接感知+支持面诚实化（VS Code 终端为主战场）、N3G-4 数字快捷填入、N3H-1 量级修正+一致性验收、N3H-3 自定义命令入面板+OptionsMenu 合并注、N3F-6 项目级 MCP 缺口与安全前提、新增 N3F-8 搜索后端可配、N3H-4 语义取舍（修订稿经 $EDITOR 多一跳模型往返，换 plan_submit 机制复用）；② 覆盖度判断：F+G 落地后 CLI 交互面达"无明显高频摩擦"——与 CC 剩余差距集中在 **IDE 集成**（VS Code 扩展：选中上下文/IDE diff/状态显示，最大单项差距，随 N3-4/N4 排期）与生态（N4 范畴），不再是 CLI 本身；③ 已知未排期小项：hooks 拒绝原因内联渲染打磨（现 notice 够用，观察后再说）。
+
+### 8.4f 阶段 N3I：桌面前收尾批（2026-10-08 自查驱动；N3-4 Electron 已选定为主线，本批为开工前 CLI 内功收口）
+
+> 审计口径：本批起于**自查**（缺失/鸡肋/必优化三维盘点，不对外对标），设计校准以 zcode 本地克隆源码为唯一参照（引用指向 `E:/space/my_space/MyProject/zcode/apps/zcode-cli/`）。排序原则：风险消除 → 权限结构 → 信息完整 → 平台能力（hooks）→ 发版。量级小计 ≈ 10–12 天。
+
+**I 快赢对（风险消除 + 模型可见性）**
+
+| ID | 项 | 设计要点（机制 → 落点 → zcode 参照 → 取舍） | 量级 |
+|---|---|---|---|
+| N3I-1 | write/edit 原子写 | 机制：tmp+rename 原子替换——同目录临时文件写入、继承原文件 mode、rename 替换、失败清理临时文件并降级直写。落点：新 `packages/tools/src/util/atomic-write.ts`（write.ts/edit.ts 共用；`apps/cli/src/mcp-cmd.ts` 的 tmp/rename 是同款雏形，上移为工具层公共件）。zcode 参照：`adapters/src/fs/index.ts:700-755`（atomicWrite：lstat 拒穿符号链接 + O_EXCL|O_NOFOLLOW + fsync + chmod 继承 + rename，737-754 失败降级直写；edit/write 均 atomic:true 默认）。取舍：不做 expectedRevision 乐观并发（zcode `mtime:size` revision 防丢更新——kcode 单会话单写者场景收益小，观察后排）；fsync 保留（断电语义） | 0.5 天 |
+| N3I-2 | 技能描述对模型可见 | 机制：skill 工具描述从纯名字清单改为 `name（description 截断 80 字符）` 逐行；总预算 2K 字符，超限降级仅名字（预算分级防技能膨胀撑爆工具描述）。落点：`packages/session/src/skill-tool.ts` description 构造（metadata 已含 description，只是没进描述）。zcode 参照：`core/src/context/sections/skills.ts:17-79`（`- name: description - whenToUse` 注入 meta-user reminder，250 字符/条、20K 总预算、超限降级名字-only——分级预算思路照搬；注入位不同：zcode 走 meta-user 附件层，kcode 工具描述即常驻清单，少引一个概念）。取舍：whenToUse 不做（kcode 技能 frontmatter 无此字段） | 2 小时 |
+| N3I-3 | /model 菜单窗口注记 | 机制：菜单项 `id · 200k`，窗口取 `core/context/budget.ts` 内置表；表外模型标 `· ?`（不猜——与 /context 的 windowKnown 注记同源诚实化）。落点：commands.ts /model 菜单构造 + session.availableModels 回传窗口（provider listModels 无窗口字段，仅表命中者标注）。zcode 参照：zcode 菜单刻意极简不显示窗口（`tui/src/app-model-suggestion-panel.tsx:176-184` 仅 label+current+provider；contextWindow 字段在 `zcode-protocol/index.ts:797-810` schema 里但不进菜单）——kcode 反向取舍：窗口直接决定压缩阈值与价位感知，BYOK 多厂商切换是关键决策信息，值得占一列 | 0.5 天 |
+| N3I-4 | 命令面收敛（hidden 机制） | 机制：`CommandInfo` 增 `hidden?: true`——菜单/补全不列，输入仍识别执行（隐藏别名）。三个应用：`/plan`（= /mode plan，菜单去重）、`/trust`（已信任项目隐藏）、`/sessions`（并入 /resume 菜单，菜单去重）。落点：builtin-commands.ts 字段 + InputBox 菜单 filter + commands.ts（/resume 无参已开菜单吸收列表形态）。zcode 参照：zcode 20 个内置命令无一隐藏（`shared/src/zcode-slash-command-help.ts:9-200`），无此机制——kcode 主动收敛（19 入口 → 16，菜单扫描成本下降）。取舍：/cost、/context 与 /status 信息重叠在可接受域，**不动** | 0.5–1 天 |
+
+**II 权限结构（本批最值单项）**
+
+| ID | 项 | 设计要点 | 量级 |
+|---|---|---|---|
+| N3I-5 | 持久放行参数级粒度 v2 | 机制：模式串 `tool` 或 `tool:content`——content 三档匹配：`前缀:*`（词边界前缀：等于前缀或以 `前缀+空格` 开头）/ 含 `*` 通配（转正则全锚定）/ 整串精确。bash 的 content=命令串；复合命令（&&/;/|）判定：统一前缀才建议前缀规则，否则建议整串精确。ask 面板增第四选项「放行此类命令（本项目）」（仅 bash/edit/write；edit/write content=文件路径前缀）。落点：`packages/extensions/src/permissions/store.ts` patterns 升级为模式串（v1 工具名串读取兼容）+ `engine.ts` matchTool 扩展 + `session/composition.ts` ask 应答 + AskPanel 选项。zcode 参照：`contracts/src/interfaces/permission.port.ts:19-31`（{toolName, ruleContent?} 双字段）+ `core/src/permission/service.ts:307-320`（三档匹配引擎）+ `core/src/tool/handlers/bash-command-rule-evaluator.ts:13-50`（复合命令 allow=每个非只读 invocation 均被覆盖 every/some 语义）。取舍：**不移植 shell AST 解析与 BASH_COMMAND_REGISTRY**（zcode generated 注册表+解析器数千行）——kcode 朴素空格分词 + 首 1-2 token 前缀建议，解析可疑（含 $/引号嵌套/续行）只给整串精确选项；高危根命令（rm/sudo/chmod/del/format）不生成前缀规则（zcode `bash-command-permission-policy.ts:19-36` 同款黑名单，只给精确或拒绝） | 2–3 天 |
+
+**III 信息通道**
+
+| ID | 项 | 设计要点 | 量级 |
+|---|---|---|---|
+| N3I-6 | /export 会话导出 | 机制：`/export [path]`——会话 JSONL 事件流格式化 Markdown（`## 🧑 用户`/`## 🤖 助手`，工具调用折叠 `> 🔧 bash`+结果截断 200 字，info 块原样）；缺省 `./kcode-session-<id8>.md`。落点：新 `apps/cli/src/tui/export.ts`（纯函数 blocks→md 可单测）+ commands.ts 注册。zcode 参照：**zcode 无导出**（20 命令无 export/share，会话存 SQLite 非用户可读——`adapters/src/storage/session-store.ts`）——净新增无对标包袱；kcode JSONL 全文在盘反而占优 | 1 天 |
+| N3I-7 | /mcp 操作指引与工具清单 | 机制：/mcp 状态尾加指引行（`增删：kcode mcp add/remove（退出后终端执行）`）+ 新 `/mcp tools <name>` 列单个已连接服务器的工具名清单。落点：commands.ts /mcp 分支 + session mcp 句柄扩展。zcode 参照：zcode /mcp 支持 list/connect/disconnect（`cli/src/command-center/handlers/mcp.ts:7-83`）但同样不 add/remove——共识：TUI 内做配置写入交互成本高；kcode 先指引+工具清单，connect/disconnect 观察 hooks 二期后再排 | 0.5 天 |
+
+**IV 护栏与平台能力**
+
+| ID | 项 | 设计要点 | 量级 |
+|---|---|---|---|
+| N3I-8 | 会话 token 预算护栏 | 机制：配置 `budget.maxSessionTokens`（三层配置可设；0/缺省=关）；/status 与 /context 显示 `预算 45k/100k`；跨过阈值 → ask_user「本会话 token 已达预算上限，继续/停止」——选停止则本轮收尾后不再发新请求（不 kill 进行中的流）。落点：loop usage 累计处（已有 contextStats/usage）+ ask 通道 + /status、/context 输出。zcode 参照：**zcode 无会话预算**（全库无 budget/cost cap，仅 provider 错误码 `organization_spend_limit_exceeded` 兜底 + modelAnomalyGuard 软提醒 `runtime/helpers/model-anomaly.ts:23-91` + rapid-refill 熔断 `turn-loop-state.ts:21-22`）——kcode 已有 run_limit 与压缩失败熔断两道硬闸，本项补「用户可设的经济闸」；token 口径不做金额（BYOK 各厂价格未知，算钱是伪精确）。取舍：不移植 modelAnomalyGuard 重复调用软提醒（run_limit 已覆盖主要失控形态） | 1–2 天 |
+| N3I-9 | hooks 一期（用户级） | 机制：`~/.kcode/hooks.json` 用户级先行（项目级需 /trust 门控+内容指纹，列二期）；事件 5 个：SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop；matcher 三档（`""`/`"*"` 全匹配、`\|` 分隔精确名单、正则）；阻断双通道：exit 2 = block（脚本友好）+ stdout JSON `{decision:"block"\|"approve", reason?, systemMessage?}`（deny>approve 合并）；超时 60s **fail-open**（hook 坏不挡主业）；hook 进程收 stdin JSON `{event, session_id, tool_name, tool_input, cwd}` + `KCODE_PROJECT_DIR` env；输出截断 32K。落点：新 `packages/core/src/hooks/`（runner+output 解析 ≈300 行）+ executor PreToolUse/PostToolUse 挂点 + loop UserPromptSubmit/Stop/SessionStart 挂点 + /hooks 查看。zcode 参照：契约 `contracts/src/hooks/index.ts:377-430`（7 事件取 5）+ 阻断语义 `core/src/hooks/configured-runner-callback.ts:123-146`（exit 2/JSON 双通道）+ 超时 fail-open `core/src/hooks/runner.ts:334-379` + matcher `core/src/hooks/output.ts:98-112`。取舍：**不做 updatedInput 改写**（zcode `call-runner.ts:269-288` 允许 hook 改工具入参再校验——攻击面大，一期只读判定）；**不做 PermissionRequest 竞速**（与用户审批窗并跑复杂度高，PreToolUse deny 已覆盖阻断需求）；项目级信任 zcode 是 sha256 声明指纹+三档策略状态机（`contracts/src/hooks/workspace-hook-trust.ts:31-130`），kcode 二期简化为 /trust 时记录 hooks 内容 hash、变更即告警重审 | 3–4 天 |
+
+**执行顺序与发版节点**：N3I-1+2（快赢对）→ N3I-3+4 → N3I-5（权限 v2）→ N3I-6+7 → N3I-8 → N3I-9（hooks 一期）→ **0.2.0 发版**（本批 + 已积压 ~35 项，release.mjs 就绪）→ **N3-4 Electron 开工**（多窗口=每窗口一 host、桌面 diff 视图、自动更新复用 latest.json）。N3H 维持 N3-4 之后不变。
+
+**自查结论补记（2026-10-08）**：鸡肋项经核仅三处入口级冗余（/plan、/trust、/sessions——N3I-4 收敛），无功能级废物；工具面 13 个、命令面 19 个均实际承载需求。已知未排期小项不变：斜杠命令别名（N3I-4 hidden 机制即雏形）、per-model contextWindow 配置（表外模型手动补窗，随 N3I-3 顺手可做）、models.dev 目录（维持不做——zcode 亦用内置目录非第三方源）。
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
