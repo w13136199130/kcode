@@ -9,9 +9,9 @@ import type { PermissionMode } from "@kcode/contracts";
  */
 
 /** 子命令种类：首 token 命中即短路，后续 token 原样透传给对应处理函数 */
-type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update";
+type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update" | "mcp";
 
-const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update"];
+const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update", "mcp"];
 
 const MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "fullAccess"];
 
@@ -46,7 +46,7 @@ export function usageText(): string {
     "      --json                   无 TUI：NDJSON 输出会话事件流（脚本/CI 消费）",
     "      --cwd <路径>              以指定目录为工作区启动",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
-    "子命令：kcode key add|list · kcode plugin install|list|remove|enable|disable · kcode doctor · kcode skills list · kcode commands list",
+    "子命令：kcode key add|list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
   ].join("\n");
 }
 

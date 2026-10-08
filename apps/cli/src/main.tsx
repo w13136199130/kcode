@@ -23,6 +23,7 @@ import {
 import { KcodeApp } from "./tui/App.js";
 import { parseCliArgs, usageText } from "./args.js";
 import { doctorCommand } from "./doctor.js";
+import { mcpCommand } from "./mcp-cmd.js";
 import { runHeadless } from "./headless.js";
 import { commandsListCommand, skillsListCommand } from "./inspect.js";
 import { updateCommand } from "./update.js";
@@ -179,6 +180,9 @@ async function main(): Promise<void> {
     }
     if (kind === "doctor") {
       process.exit((await doctorCommand(platform, print)) ? 0 : 1);
+    }
+    if (kind === "mcp") {
+      process.exit((await mcpCommand(sub, print)) ? 0 : 1);
     }
     if (kind === "update") {
       process.exit((await updateCommand(sub, print)) ? 0 : 1);
