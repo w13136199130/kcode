@@ -54,7 +54,10 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
             Login · 选择模型厂商（Esc 取消）
           </Text>
           <OptionsMenu
-            options={LOGIN_PRESETS.map((p) => ({ key: p.key, label: p.label }))}
+            options={[
+              ...LOGIN_PRESETS.map((p) => ({ key: p.key, label: p.label })),
+              { key: "q", label: "取消" },
+            ]}
             onPick={(indices) => {
               const preset = LOGIN_PRESETS[indices[0] ?? 0];
               if (preset === undefined) {

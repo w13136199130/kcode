@@ -189,3 +189,39 @@ describe("B3 OptionsMenu 滚动窗与计数", () => {
     t.unmount();
   });
 });
+
+describe("login 方法段显式取消（对齐批补）", () => {
+  it("菜单含 q 取消项；按 q 直接关闭向导（不依赖 Esc）", async () => {
+    const ui = createUiStore();
+    const closes: unknown[] = [];
+    const t = mount(
+      <ServicesProvider
+        services={{
+          platform: { secureStorageAvailable: false, probe: async () => false, saveKey: async () => {} },
+          ui,
+          getSession: () => null,
+          dialogs: { setLoginWizard: (v: unknown) => closes.push(v) } as never,
+        }}
+      >
+        <LoginWizardPanel
+          wizard={{
+            stage: "method",
+            providerName: "",
+            presetBaseURL: "",
+            presetModel: "",
+            baseURL: "",
+            apiKey: "",
+            model: "",
+          }}
+        />
+      </ServicesProvider>,
+    );
+    await sleep(120);
+    const frame = t.frameWith("取消");
+    expect(frame).toContain("取消"); // 显式取消项在菜单里
+    t.stdin.write("q");
+    await sleep(150);
+    expect(closes).toEqual([null]);
+    t.unmount();
+  });
+});
