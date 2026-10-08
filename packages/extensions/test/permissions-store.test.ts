@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,8 +23,9 @@ describe("ProjectGrantStore（项目级持久放行）", () => {
     await store.grant("write");
     expect(await store.matches("write")).toBe(true);
     expect(await store.matches("edit")).toBe(false);
-    const raw = JSON.parse(await readFile(file, "utf8")) as { projects: Record<string, string[]> };
-    expect(raw.projects[join(root, "proj-a")]).toEqual(["write"]);
+    // N3I-5 v2：条目为对象形态（字符串 grant 归一为 { tool }）
+    const raw = JSON.parse(await readFile(file, "utf8")) as { projects: Record<string, unknown[]> };
+    expect(raw.projects[join(root, "proj-a")]).toEqual([{ tool: "write" }]);
   });
 
   it("项目隔离：另一项目的放行不命中", async () => {
@@ -83,5 +84,39 @@ describe("ProjectGrantStore（项目级持久放行）", () => {
     await s.grant("mcp__fs__read_file");
     expect(await s.matches("mcp__fs__read_file")).toBe(true);
     expect(await s.matches("mcp__fs__write")).toBe(false);
+  });
+});
+
+describe("ProjectGrantStore v2（N3I-5 参数级粒度）", () => {
+  it("对象条目按主体匹配；整命令精确条目不命中其他命令", async () => {
+    const file = join(root, "v2.json");
+    const store = ProjectGrantStore.open(file, join(root, "proj-v2"));
+    await store.grant({ tool: "bash", content: "npm install:*" });
+    await store.grant({ tool: "bash", content: "rm -rf build" });
+    expect(await store.matches("bash", "npm install")).toBe(true);
+    expect(await store.matches("bash", "npm install --force")).toBe(true);
+    expect(await store.matches("bash", "npm test")).toBe(false);
+    expect(await store.matches("bash", "rm -rf build")).toBe(true);
+    expect(await store.matches("bash", "rm -rf dist")).toBe(false); // 危险命令只放行那条整命令
+    expect(await store.matches("edit", "npm install")).toBe(false);
+  });
+
+  it("v1 字符串条目兼容：整工具放行（任意主体命中）", async () => {
+    const file = join(root, "v1-compat.json");
+    const projDir = join(root, "proj-v1c");
+    await mkdir(projDir, { recursive: true });
+    await writeFile(file, JSON.stringify({ v: 1, projects: { [projDir]: ["web_fetch"] } }), "utf8");
+    const store = ProjectGrantStore.open(file, projDir);
+    expect(await store.matches("web_fetch", "https://any")).toBe(true);
+    expect(await store.list()).toEqual(["web_fetch"]);
+  });
+
+  it("对象条目去重（幂等）；list 展示形态带 content", async () => {
+    const file = join(root, "v2-dedupe.json");
+    const store = ProjectGrantStore.open(file, join(root, "proj-v2d"));
+    await store.grant({ tool: "write", content: "src/*" });
+    await store.grant({ tool: "write", content: "src/*" });
+    await store.grant("write");
+    expect(await store.list()).toEqual(["write:src/*", "write"]);
   });
 });

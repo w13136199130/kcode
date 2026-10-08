@@ -21,6 +21,8 @@ import {
   MutablePermissionEngine,
   ProcessHookRunner,
   ProjectGrantStore,
+  grantSubject,
+  suggestGrant,
   buildExtensionRoots,
   loadHookConfigs,
 } from "@kcode/extensions";
@@ -158,7 +160,8 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
       ? undefined
       : {
           confirm: async (call: ToolCallRef) => {
-            if (await grantStore.matches(call.tool)) {
+            // N3I-5：参数级匹配——bash 按命令主体、edit/write 按路径主体命中模式
+            if (await grantStore.matches(call.tool, grantSubject(call.args))) {
               return { allowed: true, scope: "project" };
             }
             const answer = normalizePermissionAnswer(await baseAsker.confirm(call));
@@ -166,7 +169,8 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
               permissions.grant(call.tool);
             }
             if (answer.allowed && answer.scope === "project") {
-              await grantStore.grant(call.tool);
+              // 参数级建议规则（bash 子命令前缀 / edit·write 目录前缀）；无建议回落整工具名
+              await grantStore.grant(suggestGrant(call) ?? call.tool);
             }
             return answer;
           },

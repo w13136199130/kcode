@@ -5,6 +5,7 @@ import { c } from "../theme/theme.js";
 import { truncateVisual } from "../terminal/width.js";
 import { markdownToLines } from "../transcript/markdown.js";
 import { OptionsMenu, type MenuOption } from "./OptionsMenu.js";
+import { formatGrantPattern, suggestGrant } from "@kcode/extensions";
 import { DiffPreview } from "./DiffPreview.js";
 import type { CliServices } from "../state/services.js";
 import type { AskState, QuestionState, PlanApprovalState, RewindPoint } from "../state/interactions.js";
@@ -20,6 +21,13 @@ function useDialogs(): CliServices["dialogs"] {
 export function AskPanel(props: { ask: AskState }) {
   const dialogs = useDialogs();
   const { ask } = props;
+  // N3I-5：bash/edit/write 的「本项目」档自动升级为参数级并展示将保存的规则
+  // （zcode 单键体验：不给第五选项，规则范围在选项文案里看得见）
+  const suggestion = suggestGrant({ tool: ask.call.tool, args: ask.call.args });
+  const projectLabel =
+    suggestion !== null
+      ? `允许此类，本项目不再询问 · ${formatGrantPattern(suggestion)}`
+      : "允许，本项目不再询问（持久）";
   return (
     <Box flexDirection="column">
       <Text color={c("accent")}>
@@ -31,7 +39,7 @@ export function AskPanel(props: { ask: AskState }) {
         options={[
           { key: "y", label: "允许" },
           { key: "s", label: "允许，本会话不再询问" },
-          { key: "p", label: "允许，本项目不再询问（持久）" },
+          { key: "p", label: projectLabel },
           { key: "n", label: "拒绝" },
         ]}
         onPick={(indices) => {
@@ -55,7 +63,7 @@ export function AskPanel(props: { ask: AskState }) {
                 : picked === 1
                   ? "允许（本会话）"
                   : picked === 2
-                    ? "允许（本项目持久）"
+                    ? `允许（本项目持久${suggestion !== null ? ` · ${formatGrantPattern(suggestion)}` : ""}）`
                     : "拒绝"
             } · ${ask.call.tool}`,
           });

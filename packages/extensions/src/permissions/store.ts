@@ -2,13 +2,18 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createServiceLogger } from "@kcode/shared";
 import { matchTool } from "./engine.js";
+import { formatGrantPattern, matchGrantPattern, parseGrantPattern, type GrantPattern } from "./grant-patterns.js";
 
 const log = createServiceLogger("permissions.store");
 
-/** 持久放行文件结构：按项目绝对路径分键（克隆来的仓库无法伪造自己的放行清单） */
+/**
+ * 持久放行文件结构：按项目绝对路径分键（克隆来的仓库无法伪造自己的放行清单）。
+ * 条目两形态（N3I-5 v2）：字符串（v1 工具名 = 整工具放行，兼容读取）与
+ * `{ tool, content? }` 对象（参数级：content 三档匹配，见 grant-patterns.ts）。
+ */
 interface PermissionsFile {
   v: 1;
-  projects: Record<string, string[]>;
+  projects: Record<string, Array<string | GrantPattern>>;
 }
 
 /**
@@ -34,24 +39,27 @@ export class ProjectGrantStore {
     return new ProjectGrantStore(file, projectDir);
   }
 
-  /** 当前项目是否持久放行了该工具（按工具名模式，复用权限规则通配语义） */
-  async matches(toolName: string): Promise<boolean> {
-    const patterns = await this.list();
-    return patterns.some((p) => matchTool(p, toolName));
+  /** 当前项目是否持久放行了该调用（工具名 + 可选参数主体——bash 命令/文件路径） */
+  async matches(toolName: string, subject?: string): Promise<boolean> {
+    const patterns = (await this.readRaw()).map((entry) => normalizeEntry(entry));
+    return patterns.some((p) => matchGrantPattern(p, toolName, subject));
   }
 
-  /** 当前项目的持久放行清单（文件缺失/损坏 → 空） */
+  /** 当前项目的持久放行清单（展示形态：`bash:npm install:*` / `write`） */
   async list(): Promise<string[]> {
-    const doc = await this.read();
-    return doc.projects[this.projectDir] ?? [];
+    const entries = (await this.readRaw()).map((entry) => normalizeEntry(entry));
+    return entries.map((p) => formatGrantPattern(p));
   }
 
-  /** 追加一条持久放行（幂等；立即落盘） */
-  async grant(toolName: string): Promise<void> {
+  /** 追加一条持久放行（幂等；立即落盘）。参数级模式传对象，整工具传字符串 */
+  async grant(entry: string | GrantPattern): Promise<void> {
+    const normalized = normalizeEntry(entry);
+    const key = JSON.stringify(normalized);
     const doc = await this.read();
     const current = doc.projects[this.projectDir] ?? [];
-    if (!current.includes(toolName)) {
-      doc.projects[this.projectDir] = [...current, toolName];
+    const exists = current.some((e) => JSON.stringify(normalizeEntry(e)) === key);
+    if (!exists) {
+      doc.projects[this.projectDir] = [...current, normalized];
       await this.write(doc);
     }
   }
@@ -66,6 +74,10 @@ export class ProjectGrantStore {
     delete doc.projects[this.projectDir];
     await this.write(doc);
     return current.length;
+  }
+
+  private async readRaw(): Promise<Array<string | GrantPattern>> {
+    return (await this.read()).projects[this.projectDir] ?? [];
   }
 
   private async read(): Promise<PermissionsFile> {
@@ -83,10 +95,13 @@ export class ProjectGrantStore {
         (parsed as PermissionsFile).v === 1 &&
         typeof (parsed as PermissionsFile).projects === "object"
       ) {
-        const projects: Record<string, string[]> = {};
-        for (const [dir, patterns] of Object.entries((parsed as PermissionsFile).projects)) {
-          if (Array.isArray(patterns)) {
-            projects[dir] = patterns.filter((p): p is string => typeof p === "string");
+        const projects: Record<string, Array<string | GrantPattern>> = {};
+        for (const [dir, entries] of Object.entries((parsed as PermissionsFile).projects)) {
+          if (Array.isArray(entries)) {
+            projects[dir] = entries.filter(
+              (e): e is string | GrantPattern =>
+                typeof e === "string" || (typeof e === "object" && e !== null && typeof (e as GrantPattern).tool === "string"),
+            );
           }
         }
         return { v: 1, projects };
@@ -107,4 +122,9 @@ export class ProjectGrantStore {
     await mkdir(dirname(this.file), { recursive: true });
     await writeFile(this.file, `${JSON.stringify(doc, null, 2)}\n`, "utf8");
   }
+}
+
+/** 条目归一：字符串是 v1 工具名（含通配）或 v2 展示形态（`tool:content`）——统一为对象 */
+function normalizeEntry(entry: string | GrantPattern): GrantPattern {
+  return typeof entry === "string" ? parseGrantPattern(entry) : entry;
 }

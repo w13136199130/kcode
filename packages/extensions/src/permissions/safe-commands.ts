@@ -30,7 +30,8 @@ const UNSAFE_GIT_FLAGS = /(^|\s)-(d|D|m|M|e|edit|drop|pop|clear|apply|save)\b/;
 const UNSAFE_FIND_FLAGS = /(^|\s)-(delete|exec|execdir|ok|okdir|fprint|fprintf|fls)\b/;
 
 /** shell 控制结构：出现任意一个即视为复合/重定向命令，不直跑（引号内同样拒绝——不解析引号，宁可误问） */
-const CONTROL_OPERATORS = /&&|\|\||;|\||>|>>|<|`|\$\(/;
+/** 复合/重定向判定（grant-patterns 复用：复合命令需分段判前缀） */
+export const CONTROL_OPERATORS = /&&|\|\||;|\||>|>>|<|`|\$\(/;
 
 export function isSafeBashCommand(command: string): boolean {
   const text = command.trim();
