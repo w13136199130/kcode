@@ -119,16 +119,6 @@ export function InputArea(props: {
   }
   return (
     <Fragment>
-      {starters !== undefined && (
-        <Box flexDirection="column" marginBottom={1}>
-          {starters.map((s, i) => (
-            <Text key={i} dimColor>
-              {["①", "②", "③"][i] ?? "·"} {s}
-            </Text>
-          ))}
-          <Text dimColor>按 1/{starters.length} 快速填入（回车发送）</Text>
-        </Box>
-      )}
       {pendingImages.length > 0 && (
         <Box marginLeft={2}>
           <Text color={c("warning")}>📎 {pendingImages.length} 张图片附件将随下一条消息发送（Ctrl+V 继续添加）</Text>
@@ -179,6 +169,16 @@ export function InputArea(props: {
         starters={starters}
         onCjkCommit={props.onCjkCommit}
       />
+      {starters !== undefined && (
+        <Box flexDirection="column" marginTop={1}>
+          {starters.map((s, i) => (
+            <Text key={i} dimColor>
+              {["①", "②", "③"][i] ?? "·"} {s}
+            </Text>
+          ))}
+          <Text dimColor>按 1/{starters.length} 快速填入（回车发送）</Text>
+        </Box>
+      )}
     </Fragment>
   );
 }

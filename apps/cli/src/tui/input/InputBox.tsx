@@ -418,8 +418,9 @@ export function InputBox(props: {
     return props.commands.find((cmd) => cmd.name === name)?.argsHint ?? null;
   })();
 
-  // 布局对标 Claude Code：菜单在上方 → ── 分隔线 → 输入行（必须是帧的最后一行，
-  // 帧渲染后光标锚定回输入行，IME 组合窗随之显示在 > 后面）
+  // 布局对标 Claude Code 下拉形态：── 分隔线 → 输入行 → ── 分隔线 → 菜单（往下展开）。
+  // 光标锚定不依赖行序：可见光标是自绘 █ 块（硬件光标本就停在 Ink 帧末尾、状态栏之后），
+  // 菜单只在 ASCII 输入（/ 命令名、路径补全）时出现，IME 组合不受影响
   // 输入行渲染为纯扁平字符串（before + █ 光标 + after）：
   // 嵌套 <Text inverse> 子节点在快速连续变更（退格→上屏）下触发 Ink 内部丢失 CJK（已最小复现），
   // 扁平字符串路径经同一复现用例验证无恙。多行时按 \n 拆行、每行独立扁平 <Text>（续行缩进两格）。
@@ -438,13 +439,30 @@ export function InputBox(props: {
       acc += line.length + 1;
     }
   }
-  // 布局：菜单（上方）→ 上分割线 → 输入行（可多行）→ 下分割线。
+  // 布局：上分割线 → 输入行（可多行）→ 下分割线 → 菜单/参数提示（CC 下拉形态）。
   const { stdout: out } = useStdout();
   const separator = "─".repeat(Math.max(20, (out.columns ?? 80) - 1));
   return (
     <Box flexDirection="column">
+      <Text dimColor>{separator}</Text>
+      <Box flexDirection="column">
+        {lines.map((line, i) => {
+          const active = i === cursorLine;
+          const content = active
+            ? `${line.slice(0, cursorCol)}█${line.slice(cursorCol)}`
+            : line;
+          return (
+            <Box key={i}>
+              <Text dimColor>{i === 0 ? "> " : "  "}</Text>
+              <Text>{content.length > 0 ? content : " "}</Text>
+              {active && props.value === "" && <Text dimColor>{GHOST_HINT}</Text>}
+            </Box>
+          );
+        })}
+      </Box>
+      <Text dimColor>{separator}</Text>
       {showMenu && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1}>
           {visibleMatches.map((cmd, i) => {
             const highlighted = visibleStart + i === clamped;
             // 描述列对齐：命令名 pad 到本批最长（封顶 20 列）——中文名长短差被全角放大，
@@ -469,7 +487,7 @@ export function InputBox(props: {
         </Box>
       )}
       {fileMenu !== null && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1}>
           {fileMenu.items.map((f, i) => (
             <Text key={f} color={i === fileMenu.index ? c("brand") : undefined} bold={i === fileMenu.index}>
               {i === fileMenu.index ? "❯ @" : "  @"}
@@ -480,7 +498,7 @@ export function InputBox(props: {
         </Box>
       )}
       {pathMenu !== null && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1}>
           {pathMenu.items.map((f, i) => (
             <Text key={f} color={i === pathMenu.index ? c("brand") : undefined} bold={i === pathMenu.index}>
               {i === pathMenu.index ? "❯ " : "  "}
@@ -491,27 +509,12 @@ export function InputBox(props: {
         </Box>
       )}
       {argsHint !== null && (
-        <Text dimColor>
-          {`❒ /${props.value.slice(1, props.value.indexOf(" "))} 参数：${argsHint}`}
-        </Text>
+        <Box marginTop={1}>
+          <Text dimColor>
+            {`❒ /${props.value.slice(1, props.value.indexOf(" "))} 参数：${argsHint}`}
+          </Text>
+        </Box>
       )}
-      <Text dimColor>{separator}</Text>
-      <Box flexDirection="column">
-        {lines.map((line, i) => {
-          const active = i === cursorLine;
-          const content = active
-            ? `${line.slice(0, cursorCol)}█${line.slice(cursorCol)}`
-            : line;
-          return (
-            <Box key={i}>
-              <Text dimColor>{i === 0 ? "> " : "  "}</Text>
-              <Text>{content.length > 0 ? content : " "}</Text>
-              {active && props.value === "" && <Text dimColor>{GHOST_HINT}</Text>}
-            </Box>
-          );
-        })}
-      </Box>
-      <Text dimColor>{separator}</Text>
     </Box>
   );
 }
