@@ -5,6 +5,7 @@ import { onHomeEnd, patchStdinReadForKeys } from "../terminal/home-end-tee.js";
 import { appendInputLog } from "../terminal/input-log.js";
 import { filterFileCandidates, listProjectFiles } from "./file-complete.js";
 import { UndoStack } from "./undo.js";
+import { GHOST_HINT } from "./suggestions.js";
 import { c } from "../theme/theme.js";
 import type { CommandInfo } from "./builtin-commands.js";
 
@@ -40,6 +41,8 @@ export function InputBox(props: {
   commands: CommandInfo[];
   /** @ 补全的项目根目录 */
   cwd: string;
+  /** 空态起步建议（N3G-4）：非空且输入为空时数字键 1..n 直接填入（填入不提交） */
+  starters?: readonly string[];
   onCjkCommit?: () => void;
 }) {
   const draft = useRef("");
@@ -280,6 +283,15 @@ export function InputBox(props: {
           boundary.current = true; // 提交后外部清空是独立撤销单元（误触回车可 Ctrl+Z 找回草稿）
           props.onSubmit(props.value);
         }
+      } else if (
+        props.starters !== undefined &&
+        props.value === "" &&
+        (ch === "1" || ch === "2" || ch === "3") &&
+        Number(ch) <= props.starters.length
+      ) {
+        // N3G-4：空态数字快捷填入（填入不提交——过目后回车）
+        boundary.current = true;
+        setValue(props.starters[Number(ch) - 1]!);
       } else if (ch !== "" && !key.escape && !key.tab) {
         // 可打印字符 / IME 提交的整串
         insertText(ch);
@@ -350,6 +362,7 @@ export function InputBox(props: {
             <Box key={i}>
               <Text dimColor>{i === 0 ? "> " : "  "}</Text>
               <Text>{content.length > 0 ? content : " "}</Text>
+              {active && props.value === "" && <Text dimColor>{GHOST_HINT}</Text>}
             </Box>
           );
         })}

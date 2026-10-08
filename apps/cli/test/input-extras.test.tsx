@@ -28,7 +28,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-function mountProbe(element: JSX.Element): { stdin: FakeTtyStdin; frame(): string; settle(ms?: number): Promise<void> } {
+function mountProbe(element: JSX.Element): { stdin: FakeTtyStdin; frame(): string; frameWith(sub: string): string; settle(ms?: number): Promise<void> } {
   const stdin = new FakeTtyStdin();
   const frames: string[] = [];
   const stdout = Object.assign(new EventEmitter(), {
@@ -53,6 +53,8 @@ function mountProbe(element: JSX.Element): { stdin: FakeTtyStdin; frame(): strin
   return {
     stdin,
     frame: () => frames.at(-1) ?? "",
+    /** 从后往前找含某子串的帧（末次 write 可能是光标控制序列而非整帧） */
+    frameWith: (sub: string): string => [...frames].reverse().find((f) => f.includes(sub)) ?? "",
     settle: (ms = 120) => new Promise((r) => setTimeout(r, ms)),
   };
 }
@@ -300,5 +302,45 @@ describe("N3G-3 # 快捷记忆", () => {
     expect(submits).toEqual([]);
     expect(store.getState().blocks.some((b) => b.kind === "info" && b.text.includes("没有要记住的内容"))).toBe(true);
     await rm(home, { recursive: true, force: true });
+  });
+});
+
+describe("N3G-4 空态建议与 ghost", () => {
+  it("空态渲染 ①②③ 与 ghost；数字键填入不提交；ghost 输入即让位", async () => {
+    const store = createUiStore();
+    const submits: string[] = [];
+    const { stdin, frame, frameWith, settle } = mountInputArea(store, (v) => submits.push(v));
+    await settle(250);
+    const f0 = frameWith("①");
+    expect(f0).toContain("②");
+    expect(f0).toContain("快速填入");
+    expect(f0).toContain("# 记住偏好"); // ghost
+
+    stdin.write("2"); // 数字快捷填入：不提交
+    await settle(250);
+    expect(submits).toEqual([]);
+    const f1 = frameWith("审查最近一次改动");
+    expect(f1).not.toContain("①"); // 建议列表让位
+    expect(f1.includes("# 记住偏好")).toBe(false); // ghost 让位
+
+    stdin.write("1"); // 已有输入：数字是普通字符
+    await settle();
+    stdin.write("\r");
+    await settle(200);
+    expect(submits.at(-1)).toBe("审查最近一次改动，指出潜在问题与改进建议1");
+  });
+
+  it("转写出现内容块后建议不再渲染；非空态数字键正常输入", async () => {
+    const store = createUiStore();
+    store.getState().pushBlock({ kind: "user", text: "hi" });
+    const submits: string[] = [];
+    const { stdin, frame, settle } = mountInputArea(store, (v) => submits.push(v));
+    await settle();
+    expect(frame()).not.toContain("①");
+    stdin.write("1");
+    await settle();
+    stdin.write("\r");
+    await settle(200);
+    expect(submits.at(-1)).toBe("1");
   });
 });
