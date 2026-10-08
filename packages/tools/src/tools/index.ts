@@ -24,7 +24,7 @@ export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";
 export { buildAskPreview, renderDiff, type AskPreview } from "./ask-preview.js";
 export { extractTool, parsePageRange } from "./extract.js";
-export { webFetchTool, webSearchTool, createWebTools, type WebToolOptions } from "./web.js";
+export { webFetchTool, webSearchTool, createWebTools, resolveSearchBackend, type WebToolOptions, type SearchBackend } from "./web.js";
 // doctor 自检需要确认捆绑 rg 的落点：经包公共出口转出，避免 apps 直接依赖 @vscode/ripgrep
 export { rgPath } from "@vscode/ripgrep";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tool } from "@kcode/contracts";
-import { createWebTools } from "../src/tools/web.js";
+import { createWebTools, resolveSearchBackend } from "../src/tools/web.js";
 
 const ctx = (): { sessionId: string; cwd: string } => ({ sessionId: "s", cwd: "." });
 
@@ -139,5 +139,54 @@ describe("web 工具注册完整性", () => {
   it("两个工具均为只读", () => {
     expect(webFetch.definition.readOnly).toBe(true);
     expect(webSearch.definition.readOnly).toBe(true);
+  });
+});
+
+describe("N3F-8 搜索后端可配（KCODE_SEARCH）", () => {
+  it("resolveSearchBackend：默认/duckduckgo/none/searxng（URL 去尾斜杠）", () => {
+    expect(resolveSearchBackend({})).toEqual({ kind: "duckduckgo" });
+    expect(resolveSearchBackend({ KCODE_SEARCH: "duckduckgo" })).toEqual({ kind: "duckduckgo" });
+    expect(resolveSearchBackend({ KCODE_SEARCH: " NONE " })).toEqual({ kind: "none" });
+    expect(resolveSearchBackend({ KCODE_SEARCH: "searxng", KCODE_SEARXNG_URL: "https://sex.test/" })).toEqual({
+      kind: "searxng",
+      base: "https://sex.test",
+    });
+  });
+
+  it("非法值/缺实例 URL fail-fast", () => {
+    expect(() => resolveSearchBackend({ KCODE_SEARCH: "google" })).toThrow(/duckduckgo \| searxng \| none/);
+    expect(() => resolveSearchBackend({ KCODE_SEARCH: "searxng" })).toThrow(/KCODE_SEARXNG_URL/);
+    expect(() => resolveSearchBackend({ KCODE_SEARCH: "searxng", KCODE_SEARXNG_URL: "notaurl" })).toThrow(
+      /KCODE_SEARXNG_URL/,
+    );
+  });
+
+  it("none：工具组不含 web_search（模型不可见即不可误用）", () => {
+    const tools = createWebTools({ env: { KCODE_SEARCH: "none" } });
+    expect(tools.map((t) => t.definition.name)).toEqual(["web_fetch"]);
+  });
+
+  it("searxng：JSON API 请求形态与结果格式", async () => {
+    const seen: string[] = [];
+    const search = createWebTools({
+      env: { KCODE_SEARCH: "searxng", KCODE_SEARXNG_URL: "https://searx.test" },
+      fetch: (async (input: unknown) => {
+        seen.push(String(input));
+        return new Response(
+          JSON.stringify({
+            results: [
+              { title: "Rust 手册", url: "https://doc.rust-lang.org/", content: "The Rust  Book" },
+              { title: "二手", url: "https://example.com", content: "略" },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch,
+    })[1]!;
+    const r = await search.execute({ query: "rust book", maxResults: 2 }, ctx());
+    expect(r.ok).toBe(true);
+    expect(seen[0]).toBe("https://searx.test/search?q=rust%20book&format=json");
+    expect(r.ok && r.output).toContain("1. Rust 手册");
+    expect(r.ok && r.output).toContain("https://doc.rust-lang.org/");
   });
 });

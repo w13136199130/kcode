@@ -12,6 +12,8 @@ const BROWSER_UA =
 export interface WebToolOptions {
   /** 测试注入；生产用全局 fetch */
   fetch?: typeof globalThis.fetch;
+  /** 搜索后端来源 env（测试注入；默认 process.env） */
+  env?: NodeJS.ProcessEnv;
 }
 
 const FetchArgs = z.object({
@@ -196,6 +198,28 @@ export function webFetchTool(doFetch: typeof globalThis.fetch): Tool {
   };
 }
 
+/** 搜索后端（N3F-8）：KCODE_SEARCH 白名单 duckduckgo|searxng|none；默认 DDG 本地免 key */
+export type SearchBackend = { kind: "duckduckgo" } | { kind: "searxng"; base: string } | { kind: "none" };
+
+/** 解析搜索后端配置：非法值/缺实例 URL 当场抛错（fail-fast，与 --mode 同哲学） */
+export function resolveSearchBackend(env: NodeJS.ProcessEnv = process.env): SearchBackend {
+  const value = (env["KCODE_SEARCH"] ?? "").trim().toLowerCase();
+  if (value === "" || value === "duckduckgo") {
+    return { kind: "duckduckgo" };
+  }
+  if (value === "none") {
+    return { kind: "none" };
+  }
+  if (value === "searxng") {
+    const base = (env["KCODE_SEARXNG_URL"] ?? "").trim().replace(/\/+$/, "");
+    if (!/^https?:\/\/.+/.test(base)) {
+      throw new Error("KCODE_SEARCH=searxng 需要 KCODE_SEARXNG_URL 指定实例地址（如 https://searx.example.org）");
+    }
+    return { kind: "searxng", base };
+  }
+  throw new Error(`KCODE_SEARCH 只能是 duckduckgo | searxng | none（收到 "${value}"）`);
+}
+
 /** DDG 跳转链接解码：//duckduckgo.com/l/?uddg=<encoded> → 真实 URL */
 function unwrapDdgHref(href: string): string {
   try {
@@ -208,12 +232,12 @@ function unwrapDdgHref(href: string): string {
 }
 
 /** web_search：DuckDuckGo HTML 端点搜索（无 key、尽力而为；限流时明确报错） */
-export function webSearchTool(doFetch: typeof globalThis.fetch): Tool {
+export function webSearchTool(doFetch: typeof globalThis.fetch, backend: SearchBackend = { kind: "duckduckgo" }): Tool {
   return {
     definition: {
       name: "web_search",
       description:
-        "联网搜索（DuckDuckGo），返回标题/链接/摘要列表；拿到链接后用 web_fetch 抓全文。中文关键词效果好。只读。",
+        "联网搜索（后端可配 KCODE_SEARCH：默认 DuckDuckGo，可切自建 SearXNG），返回标题/链接/摘要列表；拿到链接后用 web_fetch 抓全文。中文关键词效果好。只读。",
       parameters: {
         type: "object",
         properties: {
@@ -232,44 +256,82 @@ export function webSearchTool(doFetch: typeof globalThis.fetch): Tool {
         return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
       }
       const max = parsed.data.maxResults ?? 5;
-      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(parsed.data.query)}`;
-      try {
-        const r = await fetchText(doFetch, url);
-        if (r.status === 403 || r.status === 429) {
-          return { ok: false, output: "", error: "搜索引擎限流（DuckDuckGo），请稍后再试或缩小查询" };
-        }
-        if (r.status >= 400) {
-          return { ok: false, output: "", error: `搜索失败：HTTP ${r.status}` };
-        }
-        const mod = (await import("node-html-parser")) as unknown as {
-          parse?: (html: string) => HtmlNode;
-          default?: { parse: (html: string) => HtmlNode };
-        };
-        const parse = mod.parse ?? mod.default?.parse;
-        if (parse === undefined) {
-          return { ok: false, output: "", error: "node-html-parser 未正确加载" };
-        }
-        const root = parse(r.text);
-        const anchors = root.querySelectorAll("a.result__a");
-        if (anchors.length === 0) {
-          return { ok: true, output: `（无结果：${parsed.data.query}）` };
-        }
-        const lines: string[] = [];
-        for (const a of anchors.slice(0, max)) {
-          const href = a.getAttribute("href") ?? "";
-          const title = a.text.replace(/\s+/g, " ").trim();
-          // 摘要在结果的 .result__snippet
-          const container = a.closest(".result") ?? a.parentNode;
-          const snippet = container?.querySelector(".result__snippet")?.text.replace(/\s+/g, " ").trim() ?? "";
-          lines.push(`${lines.length + 1}. ${title}\n   ${unwrapDdgHref(href)}\n   ${snippet.slice(0, 200)}`);
-        }
-        return { ok: true, output: `搜索「${parsed.data.query}」前 ${lines.length} 条：\n\n${lines.join("\n\n")}` };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return { ok: false, output: "", error: `搜索失败: ${msg}` };
+      if (backend.kind === "searxng") {
+        return searchSearxng(doFetch, backend.base, parsed.data.query, max);
       }
+      return searchDdg(doFetch, parsed.data.query, max);
     },
   };
+}
+
+/** SearXNG JSON API（自建实例信任其配置；实例地址来自 env 不经模型输入，无 SSRF 面扩大） */
+async function searchSearxng(
+  doFetch: typeof globalThis.fetch,
+  base: string,
+  query: string,
+  max: number,
+): Promise<ToolOutput> {
+  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json`;
+  try {
+    const r = await fetchText(doFetch, url);
+    if (r.status >= 400) {
+      return { ok: false, output: "", error: `搜索失败：HTTP ${r.status}（SearXNG 实例 ${base}——format=json 需要实例开启）` };
+    }
+    const data = JSON.parse(r.text) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    const results = data.results ?? [];
+    if (results.length === 0) {
+      return { ok: true, output: `（无结果：${query}）` };
+    }
+    const lines = results.slice(0, max).map((item, i) => {
+      const title = (item.title ?? "").replace(/\s+/g, " ").trim();
+      const snippet = (item.content ?? "").replace(/\s+/g, " ").trim();
+      return `${i + 1}. ${title}\n   ${item.url ?? ""}\n   ${snippet.slice(0, 200)}`;
+    });
+    return { ok: true, output: `搜索「${query}」前 ${lines.length} 条：\n\n${lines.join("\n\n")}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, output: "", error: `搜索失败: ${msg}` };
+  }
+}
+
+/** DuckDuckGo HTML 端点解析（默认后端） */
+async function searchDdg(doFetch: typeof globalThis.fetch, query: string, max: number): Promise<ToolOutput> {
+  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  try {
+    const r = await fetchText(doFetch, url);
+    if (r.status === 403 || r.status === 429) {
+      return { ok: false, output: "", error: "搜索引擎限流（DuckDuckGo），请稍后再试或缩小查询" };
+    }
+    if (r.status >= 400) {
+      return { ok: false, output: "", error: `搜索失败：HTTP ${r.status}` };
+    }
+    const mod = (await import("node-html-parser")) as unknown as {
+      parse?: (html: string) => HtmlNode;
+      default?: { parse: (html: string) => HtmlNode };
+    };
+    const parse = mod.parse ?? mod.default?.parse;
+    if (parse === undefined) {
+      return { ok: false, output: "", error: "node-html-parser 未正确加载" };
+    }
+    const root = parse(r.text);
+    const anchors = root.querySelectorAll("a.result__a");
+    if (anchors.length === 0) {
+      return { ok: true, output: `（无结果：${query}）` };
+    }
+    const lines: string[] = [];
+    for (const a of anchors.slice(0, max)) {
+      const href = a.getAttribute("href") ?? "";
+      const title = a.text.replace(/\s+/g, " ").trim();
+      // 摘要在结果的 .result__snippet
+      const container = a.closest(".result") ?? a.parentNode;
+      const snippet = container?.querySelector(".result__snippet")?.text.replace(/\s+/g, " ").trim() ?? "";
+      lines.push(`${lines.length + 1}. ${title}\n   ${unwrapDdgHref(href)}\n   ${snippet.slice(0, 200)}`);
+    }
+    return { ok: true, output: `搜索「${query}」前 ${lines.length} 条：\n\n${lines.join("\n\n")}` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, output: "", error: `搜索失败: ${msg}` };
+  }
 }
 
 /** node-html-parser 最小接口 */
@@ -282,8 +344,13 @@ interface HtmlNode {
   closest(selector: string): HtmlNode | null;
 }
 
-/** 会话 web 工具组（composition 注入；fetch 可测试替换） */
+/** 会话 web 工具组（composition 注入；fetch/env 可测试替换）。KCODE_SEARCH=none 时不含 web_search */
 export function createWebTools(opts: WebToolOptions = {}): Tool[] {
   const doFetch = opts.fetch ?? globalThis.fetch;
-  return [webFetchTool(doFetch), webSearchTool(doFetch)];
+  const backend = resolveSearchBackend(opts.env ?? process.env);
+  const tools: Tool[] = [webFetchTool(doFetch)];
+  if (backend.kind !== "none") {
+    tools.push(webSearchTool(doFetch, backend));
+  }
+  return tools;
 }
