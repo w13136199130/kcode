@@ -121,11 +121,30 @@ export function InputBox(props: {
   const menuOpen =
     props.value.startsWith("/") && !props.value.includes(" ") && props.value.length >= 1;
   const needle = props.value.slice(1).toLowerCase();
+  // 匹配两级：前缀命中优先，子串次之（zcode 同款 includes；/con 可达 context/compact）
   const matches = menuOpen
-    ? props.commands.filter((c) => c.name.toLowerCase().startsWith(needle))
+    ? [
+        ...props.commands.filter((c) => c.name.toLowerCase().startsWith(needle)),
+        ...props.commands.filter(
+          (c) => !c.name.toLowerCase().startsWith(needle) && c.name.toLowerCase().includes(needle),
+        ),
+      ]
     : [];
-  const showMenu = matches.length > 0;
+  // Esc 关闭菜单但保留输入：记录被关掉时的 needle，输入变化（needle 改变）即重新打开
+  const [dismissedNeedle, setDismissedNeedle] = useState<string | null>(null);
+  const showMenu = matches.length > 0 && dismissedNeedle !== needle;
   const clamped = Math.min(menuIndex, Math.max(0, matches.length - 1));
+  // 滚动窗口（修复可达性：候选不再被 8 条截断——选中项滚入视野，zcode 同款算法）
+  const MENU_VISIBLE = 8;
+  const visibleStart = Math.min(
+    Math.max(0, clamped - MENU_VISIBLE + 1),
+    Math.max(0, matches.length - MENU_VISIBLE),
+  );
+  const visibleMatches = matches.slice(visibleStart, visibleStart + MENU_VISIBLE);
+  // 过滤词一变，旧高亮索引失去意义（zcode reconcileSlashSelection 同义：重置到首项）
+  useEffect(() => {
+    setMenuIndex(0);
+  }, [needle]);
   /** @ 文件补全（B4）：光标前「@query」触发；菜单与命令补全互斥（命令态以 / 开头） */
   const [fileMenu, setFileMenu] = useState<{ items: string[]; index: number } | null>(null);
   const fileList = useRef<string[] | null>(null);
@@ -278,14 +297,20 @@ export function InputBox(props: {
           setMenuIndex((s) => (s - 1 + matches.length) % matches.length);
         } else if (key.downArrow) {
           setMenuIndex((s) => (s + 1) % matches.length);
-        } else if (key.tab || (key.return && ch !== "\n")) {
+        } else if (key.return && ch !== "\n") {
+          // Enter = 执行高亮命令（CC/zcode 语义：提交直达，不再"补全后再回车"多一跳）
+          const picked = matches[clamped] ?? matches[0];
+          if (picked !== undefined) {
+            boundary.current = true; // 提交后外部清空是独立撤销单元
+            props.onSubmit(`/${picked.name}`);
+          }
+        } else if (key.tab) {
           const picked = matches[clamped] ?? matches[0];
           if (picked !== undefined) {
             setValue(`/${picked.name} `);
           }
         } else if (key.escape) {
-          boundary.current = true; // 菜单 Esc 清空：整段草稿一个撤销单元
-          setValue("");
+          setDismissedNeedle(needle); // 关菜单保留输入（"/he" 文本不动）；输入变化即重开
         } else if (key.backspace) {
           if (pos > 0) {
             setValue(`${props.value.slice(0, previousBoundary(props.value, pos))}${props.value.slice(pos)}`, previousBoundary(props.value, pos));
@@ -417,18 +442,19 @@ export function InputBox(props: {
     <Box flexDirection="column">
       {showMenu && (
         <Box flexDirection="column">
-          {matches.slice(0, 8).map((cmd, i) => (
-            <Text
-              key={cmd.name}
-              color={i === clamped ? c("brand") : undefined}
-              bold={i === clamped}
-            >
-              {i === clamped ? "❯ /" : "  /"}
-              {cmd.name}
-              <Text dimColor={i !== clamped}>  {cmd.desc}</Text>
-            </Text>
-          ))}
-          <Text dimColor>↑↓ 选择 · Tab/回车 补全 · Esc 关闭 · ↑↓(无菜单) 翻历史</Text>
+          {visibleMatches.map((cmd, i) => {
+            const highlighted = visibleStart + i === clamped;
+            return (
+              <Text key={cmd.name} color={highlighted ? c("brand") : undefined} bold={highlighted}>
+                {highlighted ? "❯ /" : "  /"}
+                {cmd.name}
+                <Text dimColor={!highlighted}>  {cmd.desc}</Text>
+              </Text>
+            );
+          })}
+          <Text dimColor>
+            {`↑↓ 选择（${clamped + 1}/${matches.length}）· Tab 补全 · 回车 执行 · Esc 关闭`}
+          </Text>
         </Box>
       )}
       {fileMenu !== null && (
