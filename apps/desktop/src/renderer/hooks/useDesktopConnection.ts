@@ -14,6 +14,7 @@ declare global {
       onMessage(callback: (data: string) => void): void;
       send(data: string): void;
       onHostExit(callback: (code: number) => void): void;
+      getDefaultModel(): Promise<string | null>;
     };
   }
 }

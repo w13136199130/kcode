@@ -66,8 +66,10 @@ export class HostServer {
   async #dispatch(method: string, params: unknown): Promise<unknown> {
     switch (method) {
       case "session/create": {
+        // 幂等（M1 实测修订）：reload/StrictMode 重挂后 renderer 会重复 create——
+        // 每会话一进程（注 D）语义下宿主会话不重建，直接返回既有会话（对话上下文在宿主侧未丢）
         if (this.#session !== null) {
-          throw new Error("本宿主已持有会话（每会话一进程，注 D）");
+          return this.#session.describe();
         }
         const p = params as SessionCreateParams;
         this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);

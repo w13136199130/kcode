@@ -36,4 +36,8 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   onHostExit(callback: (code: number) => void): void {
     ipcRenderer.on("kcode:host-exit", (_event, code: number) => callback(code));
   },
+  /** 用户级配置的默认模型引用（主进程读 config.json——renderer 无文件访问） */
+  getDefaultModel(): Promise<string | null> {
+    return ipcRenderer.invoke("kcode:default-model");
+  },
 });

@@ -1,6 +1,9 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { spawnHost, type HostHandle } from "./host.js";
 import { runSmoke } from "./smoke.js";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 /**
  * kcode 桌面主进程（N3-4 M1）：窗口 + 每窗口一个 utilityProcess host。
@@ -81,6 +84,18 @@ function joinRendererIndex(): string {
 }
 
 app.whenReady().then(() => {
+  // 用户级配置的默认模型（renderer 建会话用；host 侧才是 key/凭证边界）
+  ipcMain.handle("kcode:default-model", async () => {
+    try {
+      const cfg = JSON.parse(await readFile(join(homedir(), ".kcode", "config.json"), "utf8")) as {
+        models?: { default?: string };
+      };
+      return cfg.models?.default ?? null;
+    } catch {
+      return null;
+    }
+  });
+
   if (isSmoke) {
     void runSmoke()
       .then((ok) => app.exit(ok ? 0 : 1))

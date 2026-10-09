@@ -19,7 +19,14 @@ interface Block {
   tone?: "ok" | "deny" | "warn";
 }
 
-export function Chat({ conn }: { conn: HostConnection }) {
+export function Chat({
+  conn,
+  modelDefault = "test/echo",
+}: {
+  conn: HostConnection;
+  /** 默认模型引用（桌面端注入用户级配置的 default；Web 端保持 test/echo 演示默认） */
+  modelDefault?: string;
+}) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [streamText, setStreamText] = useState("");
   const [input, setInput] = useState("");
@@ -129,7 +136,7 @@ export function Chat({ conn }: { conn: HostConnection }) {
 
   useEffect(() => {
     if (conn.status === "ready" && sessionId === null) {
-      const model = new URLSearchParams(window.location.search).get("model") ?? "test/echo";
+      const model = new URLSearchParams(window.location.search).get("model") ?? modelDefault;
       createSession(model);
     }
   }, [conn.status, sessionId, createSession, conn]);
@@ -180,7 +187,7 @@ export function Chat({ conn }: { conn: HostConnection }) {
 
       case "clear":
         if (busy) { pushBlock({ kind: "info", text: "运行中不能清屏", tone: "warn" }); return true; }
-        createSession(new URLSearchParams(window.location.search).get("model") ?? "test/echo");
+        createSession(new URLSearchParams(window.location.search).get("model") ?? modelDefault);
         pushBlock({ kind: "info", text: "已开启全新会话" });
         return true;
 
@@ -281,7 +288,7 @@ export function Chat({ conn }: { conn: HostConnection }) {
         mode={mode}
         busy={busy}
         onModeChange={(m) => { setMode(m); void conn.send("session/set_mode", { mode: m }); }}
-        onResume={(id) => createSession(new URLSearchParams(window.location.search).get("model") ?? "test/echo", id)}
+        onResume={(id) => createSession(new URLSearchParams(window.location.search).get("model") ?? modelDefault, id)}
         onInterrupt={interrupt}
       />
 

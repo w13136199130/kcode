@@ -112,6 +112,12 @@ export class HostSession {
     return { sessionId: composed.sessionId, epoch: this.#epoch };
   }
 
+  /** 既有会话描述（session/create 幂等命中时返回——与 create 同形） */
+  describe(): { sessionId: string; epoch: number } {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return { sessionId: this.#composed.sessionId, epoch: this.#epoch };
+  }
+
   submit(params: SessionSubmitParams): { queued: boolean; position?: number } {
     if (this.#composed === null || this.#queue === null) throw new Error("会话未创建");
     if (this.#reservation) {

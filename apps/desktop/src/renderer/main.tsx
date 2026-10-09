@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { webCssTheme } from "@kcode/design";
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { Chat } from "@web/components/Chat.js";
 import { useDesktopConnection } from "./hooks/useDesktopConnection.js";
 
@@ -16,6 +16,11 @@ document.head.appendChild(styleEl);
 
 function DesktopApp() {
   const conn = useDesktopConnection();
+  const [modelDefault, setModelDefault] = useState<string | null>(null);
+  // 用户级配置的默认模型（preload IPC 取；null = 未配置，Chat 回落演示默认并显示错误）
+  useEffect(() => {
+    void window.kcodeHost?.getDefaultModel().then(setModelDefault);
+  }, []);
   if (conn.status === "error") {
     return <div style={{ padding: 24, fontFamily: "system-ui" }}>⚠ 宿主连接失败：{conn.error}</div>;
   }
@@ -27,7 +32,7 @@ function DesktopApp() {
       </div>
     );
   }
-  return <Chat conn={conn} />;
+  return <Chat conn={conn} modelDefault={modelDefault ?? "test/echo"} />;
 }
 
 const root = createRoot(document.getElementById("root")!);
