@@ -106,11 +106,11 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "user") {
-    // 用户消息：> 前缀，CC 同款纯白不染色（不 dim——dim 压暗是旧问题来源之一）
+    // 用户消息：> 前缀，CC 同款纯白不染色。marginTop 不加——上一块的 marginBottom 已留单空行
     void stdout;
     const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 4);
     return (
-      <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Box flexDirection="column" marginBottom={1}>
         {lines.map((l, j) => (
           <Text key={j} wrap="wrap">
             {j === 0 ? "> " : "  "}
@@ -121,52 +121,57 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "assistant") {
-    // 助手正文：CC 同款无前缀纯文本（● 前缀与 markdown 列表符叠加成 "● •" 是排版反馈实测）。
-    // 空正文块（思考模型直发工具调用时的空 assistant 事件）不渲染——孤零零的 ● 是噪音
+    // 助手正文：CC 同款 ● 首行前缀（白，与正文同色）+ 续行 2 格缩进。
+    // 首个内容行是列表项时 ● 独占一行——● • 双重列表符号是排版反馈实测。
+    // 空正文块（思考模型直发工具调用）不渲染。
     const lines: MdLine[] =
       process.env["KCODE_NO_MD"] === "1"
         ? block.text.split("\n").map((l) => ({ segments: [{ text: l }] }))
         : markdownToLines(block.text);
-    const hasContent = lines.some((l) => l.segments.map((s) => s.text).join("").trim() !== "");
-    if (!hasContent) {
+    const firstContentIdx = lines.findIndex((l) => l.segments.map((s) => s.text).join("").trim() !== "");
+    if (firstContentIdx === -1) {
       return null;
     }
+    const firstText = lines[firstContentIdx]!.segments.map((s) => s.text).join("").trimStart();
+    const listStart = /^(•|☐|☑|\d+\.)\s/.test(firstText);
     return (
       <Box flexDirection="column" marginBottom={1}>
-        {lines.map((line, j) => (
-          <Box key={j}>
-            <Text>
-              {line.segments.map((s, k) => (
-                <Text
-                  key={k}
-                  color={s.color}
-                  bold={s.bold}
-                  italic={s.italic}
-                  dimColor={s.dimColor}
-                  strikethrough={s.strikethrough}
-                >
-                  {s.text}
-                </Text>
-              ))}
-            </Text>
-          </Box>
-        ))}
+        {listStart ? <Text>{"●"}</Text> : null}
+        {lines.map((line, j) => {
+          const isFirst = j === firstContentIdx;
+          return (
+            <Box key={j}>
+              {isFirst && !listStart ? <Text>{"● "}</Text> : isFirst ? null : <Text>{"  "}</Text>}
+              <Text>
+                {line.segments.map((s, k) => (
+                  <Text
+                    key={k}
+                    color={s.color}
+                    bold={s.bold}
+                    italic={s.italic}
+                    dimColor={s.dimColor}
+                    strikethrough={s.strikethrough}
+                  >
+                    {s.text}
+                  </Text>
+                ))}
+              </Text>
+            </Box>
+          );
+        })}
       </Box>
     );
   }
   if (block.kind === "reasoning") {
-    // 思考行：muted 灰（zcode textMuted #94a3b8——"稍微暗"的稳定一档，不用 ANSI dim）
+    // 思考行 CC 同款：过去式 + 展开提示（Thought for 1s (ctrl+o to expand)），muted 灰
     const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
     if (props.verbose === true) {
       const lines = block.text.split("\n").slice(0, VERBOSE_REASONING_LINES);
       return (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color={c("foregroundSubtle")} italic>
-            {"  ✻ Thinking"}
-            {timing}
-          </Text>
+          <Text color={c("foregroundSubtle")}>{`  Thought for${timing} (ctrl+o to collapse)`}</Text>
           {lines.map((line, j) => (
-            <Text key={j} color={c("foregroundSubtle")} italic wrap="truncate-end">
+            <Text key={j} color={c("foregroundSubtle")} wrap="truncate-end">
               {"    "}
               {truncateVisual(line, 120)}
             </Text>
@@ -176,10 +181,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     }
     return (
       <Box marginBottom={1}>
-        <Text color={c("foregroundSubtle")} italic>
-          {"  ✻ Thinking"}
-          {timing}
-        </Text>
+        <Text color={c("foregroundSubtle")}>{`  Thought for${timing} (ctrl+o to expand)`}</Text>
       </Box>
     );
   }
@@ -191,12 +193,10 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           ? c("destructive")
           : block.tone === "warn"
             ? c("warning")
-            : undefined;
+            : c("foregroundSubtle");
     return (
       <Box marginLeft={2} marginBottom={1}>
-        <Text color={color} dimColor={block.tone === undefined}>
-          {block.text}
-        </Text>
+        <Text color={color}>{block.text}</Text>
       </Box>
     );
   }

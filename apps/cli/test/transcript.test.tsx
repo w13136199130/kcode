@@ -88,7 +88,7 @@ describe("BlockView 版式（对标主流 CLI）", () => {
     expect(frame).toContain("kcode");
     expect(frame).toContain("glm/glm-5.3");
     expect(frame).toContain("E:/demo");
-    expect(frame).toContain("✻ Thinking 5.2s");
+    expect(frame).toContain("Thought for 5.2s (ctrl+o to expand)");
     expect(frame).not.toContain("内部推演");
   });
 

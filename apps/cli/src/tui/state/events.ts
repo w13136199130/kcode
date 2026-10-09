@@ -4,6 +4,21 @@ import type { UiStore } from "@kcode/ui";
 import { SUBAGENT_NOTIFICATION_HEADER, isBackgroundCompletionNotice } from "@kcode/session";
 import { formatToolPreview } from "../transcript/Transcript.js";
 import { ringBell } from "../terminal/notify.js";
+
+/** 轮尾注脚动词池（CC 同款趣味过去分词） */
+const TURN_VERBS = ["Baked", "Churned", "Pondered", "Mused", "Brewed", "Simmered", "Crafted", "Spun"] as const;
+
+/** 轮耗时形态：CC 同款（2.4s / 87s / 1m 27s） */
+function turnDuration(ms: number): string {
+  const s = ms / 1000;
+  if (s < 10) return `${s.toFixed(1)}s`;
+  if (s < 60) return `${Math.round(s)}s`;
+  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+}
+
+function clockHm(now: Date): string {
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
 import type { StreamController } from "./stream.js";
 
 /**
@@ -92,6 +107,13 @@ export function makeEventHandler(deps: {
           stream.flushStream();
           const labels = { failed: "本轮执行失败", aborted: "已取消本轮执行", limit_reached: "已达到运行上限，任务可能未完成", rejected: "输入被 user_prompt_submit 钩子拒绝" };
           pushBlock({ kind: "info", tone: "warn", text: labels[event.reason] + (event.detail ? "：" + event.detail : "") });
+        }
+        // CC 同款轮尾注脚：✻ <动词> for <耗时> · done <HH:MM>——给每轮一个可扫视的收束节奏
+        {
+          const startedAt = ui.getState().busySince;
+          if (startedAt !== null) {
+            pushBlock({ kind: "info", text: `✻ ${TURN_VERBS[Math.floor(Math.random() * TURN_VERBS.length)]} for ${turnDuration(Date.now() - startedAt)} · done ${clockHm(new Date())}` });
+          }
         }
         break;
       case "todo_update":
