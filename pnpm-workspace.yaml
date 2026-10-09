@@ -11,3 +11,6 @@ allowBuilds:
   "@vscode/ripgrep": true
   canvas: false
   electron: true
+  "electron-builder": true
+  app-builder-bin: true
+  electron-winstaller: true

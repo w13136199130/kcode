@@ -1,4 +1,4 @@
-import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
+import { app, MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from "electron";
 import { join } from "node:path";
 
 /**
@@ -11,9 +11,13 @@ import { join } from "node:path";
  *   这里兜底强杀防进程树孤儿——zcode 同款参数）
  */
 
-/** host 入口产物（@kcode/host build 产出的单文件 CJS） */
+/** host 入口产物（@kcode/host build 产出的单文件 CJS）。
+ * dev：apps/desktop/dist → ../host/dist；打包：extraResources 的 resources/host（asar 外——
+ * utilityProcess 加载非 asar 模块最稳，且 host 需解析 @vscode/ripgrep 依赖） */
 function hostBundlePath(): string {
-  return join(__dirname, "../../host/dist/port.cjs");
+  return app.isPackaged
+    ? join(process.resourcesPath, "host", "port.cjs")
+    : join(__dirname, "../../host/dist/port.cjs");
 }
 
 export interface HostHandle {

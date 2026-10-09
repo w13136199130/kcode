@@ -1,18 +1,21 @@
 {
   "name": "@kcode/desktop",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
+  "main": "dist/main.cjs",
   "scripts": {
-    "build": "pnpm --filter @kcode/host build && tsup",
+    "build": "pnpm --filter @kcode/host build && tsup && vite build",
     "dev": "node scripts/dev.mjs",
     "smoke": "pnpm run build && electron dist/main.cjs --kcode-smoke",
+    "dist": "pnpm run build && node scripts/stage-rg.mjs && electron-builder --win",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
-    "@kcode/extensions": "workspace:*",
     "@kcode/design": "workspace:*",
+    "@kcode/extensions": "workspace:*",
+    "@vscode/ripgrep": "^1.18.0",
     "@tanstack/react-virtual": "^3.14.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -23,6 +26,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^37.2.0",
+    "electron-builder": "^26.15.3",
     "tsup": "^8.3.5",
     "typescript": "^5.7.0",
     "vite": "^6.0.7"

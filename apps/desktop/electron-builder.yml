@@ -1,0 +1,32 @@
+# kcode 桌面端打包（M3c，§8.4h M3）：NSIS 安装包 + 便携版。
+# 产物入口 dist/main.cjs；renderer 静态产物 dist/renderer（vite build）。
+appId: com.kcode.desktop
+productName: kcode
+directories:
+  output: out
+  buildResources: build
+files:
+  - dist/**/*
+  - "!dist/release/**"
+# host bundle 放 asar 外（utilityProcess 加载 + ripgrep 依赖解析）
+extraResources:
+  - from: ../host/dist/port.cjs
+    to: host/port.cjs
+  # host 外置依赖 @vscode/ripgrep（asar 外 require 解析不到 asar 内 node_modules——随 host 放置；
+  # pnpm symlink 不被 builder 跟随——build/rg-stage 由 scripts/stage-rg.mjs 预拷真实目录）
+  - from: build/rg-stage
+    to: host/node_modules/@vscode
+# asar 关闭（M3c 实测：本机 Defender 实时扫描锁新写 app.asar 致打包 EBUSY 间歇失败；
+# 本地分发形态安全面不变——renderer 仍 contextIsolation 无 node，asar 的防篡改收益
+# 在代码签名缺失前本就有限；首个签名发行版前重评）
+asar: false
+win:
+  target:
+    - nsis
+    - zip
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: kcode
+# 图标：build/icon.ico（未提供时 builder 用默认图标并告警——首个正式包前补）

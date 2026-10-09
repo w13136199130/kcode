@@ -35,3 +35,9 @@ Desktop.ini
 .idea/
 .vscode/
 .zcode/
+# 桌面打包产物/暂存
+apps/desktop/build/
+apps/desktop/out/
+apps/desktop/release/
+apps/desktop/release-build/
+apps/desktop/dist-release/
