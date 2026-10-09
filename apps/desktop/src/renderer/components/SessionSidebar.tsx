@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MessageSquare, Plus, Settings } from "lucide-react";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 
 /**
@@ -77,14 +78,14 @@ export function SessionSidebar(props: {
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <span>kcode</span>
+        <span className="sidebar-brand">kcode</span>
         <button
           type="button"
           className="sidebar-new"
-          title="新建会话（新窗口）"
+          title="新建会话（Ctrl+N）"
           onClick={() => window.kcodeHost?.newWindow()}
         >
-          ＋
+          <Plus size={15} strokeWidth={1.75} />
         </button>
       </div>
       <div className="sidebar-list">
@@ -99,7 +100,10 @@ export function SessionSidebar(props: {
                 onClick={() => props.onOpen?.(s.sessionId)}
                 role="button"
               >
-                <div className="sidebar-item-preview">{s.preview === "" ? "（空会话）" : s.preview}</div>
+                <div className="sidebar-item-preview">
+              <MessageSquare size={12} strokeWidth={1.75} className="sidebar-item-icon" />
+              <span>{s.preview === "" ? "（空会话）" : s.preview}</span>
+            </div>
                 <div className="sidebar-item-meta">
                   {relativeTime(s.modifiedAt)} · {s.turns} 轮
                 </div>
@@ -111,7 +115,8 @@ export function SessionSidebar(props: {
       </div>
       <div className="sidebar-foot">
         <button type="button" className="sidebar-settings" onClick={() => props.onOpenSettings?.()}>
-          ⚙ 设置
+          <Settings size={14} strokeWidth={1.75} />
+          设置
         </button>
       </div>
     </aside>

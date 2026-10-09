@@ -1,4 +1,20 @@
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
+import {
+  CircleHelp,
+  FileSpreadsheet,
+  FileText,
+  FolderSearch,
+  Globe,
+  ListTodo,
+  PenLine,
+  FilePlus2,
+  Search,
+  Sparkles,
+  SquareTerminal,
+  Maximize2,
+  Workflow,
+  Wrench,
+} from "lucide-react";
 import type { Row } from "./projection.js";
 import { toolArgsPreview } from "./projection.js";
 
@@ -8,27 +24,27 @@ import { toolArgsPreview } from "./projection.js";
  */
 
 interface ToolRenderer {
-  icon: string;
+  icon: ComponentType<{ size?: number | string; strokeWidth?: number }>;
   /** 展开态详情（输出折叠 + 工具专属区） */
   detail?: (args: unknown) => React.ReactNode;
 }
 
 const REGISTRY: Record<string, ToolRenderer> = {
-  bash: { icon: "$", detail: (a) => <code className="tool-code">{str(a, "command")}</code> },
-  read: { icon: "◧", detail: (a) => <code className="tool-code">{str(a, "path")}</code> },
-  write: { icon: "✎", detail: (a) => <WriteDetail args={a} /> },
-  edit: { icon: "✂", detail: (a) => <EditDetail args={a} /> },
-  grep: { icon: "⌕", detail: (a) => <code className="tool-code">{str(a, "pattern")}</code> },
-  glob: { icon: "❑", detail: (a) => <code className="tool-code">{str(a, "pattern")}</code> },
-  web_search: { icon: "⌕", detail: (a) => <code className="tool-code">{str(a, "query")}</code> },
-  web_fetch: { icon: "→", detail: (a) => <code className="tool-code">{str(a, "url")}</code> },
-  todo: { icon: "☑" },
-  ask_user: { icon: "?" },
-  skill: { icon: "✦" },
-  extract: { icon: "▤", detail: (a) => <code className="tool-code">{str(a, "path")}</code> },
-  task: { icon: "⑃" },
+  bash: { icon: SquareTerminal, detail: (a) => <code className="tool-code">{str(a, "command")}</code> },
+  read: { icon: FileText, detail: (a) => <code className="tool-code">{str(a, "path")}</code> },
+  write: { icon: FilePlus2, detail: (a) => <WriteDetail args={a} /> },
+  edit: { icon: PenLine, detail: (a) => <EditDetail args={a} /> },
+  grep: { icon: Search, detail: (a) => <code className="tool-code">{str(a, "pattern")}</code> },
+  glob: { icon: FolderSearch, detail: (a) => <code className="tool-code">{str(a, "pattern")}</code> },
+  web_search: { icon: Search, detail: (a) => <code className="tool-code">{str(a, "query")}</code> },
+  web_fetch: { icon: Globe, detail: (a) => <code className="tool-code">{str(a, "url")}</code> },
+  todo: { icon: ListTodo },
+  ask_user: { icon: CircleHelp },
+  skill: { icon: Sparkles },
+  extract: { icon: FileSpreadsheet, detail: (a) => <code className="tool-code">{str(a, "path")}</code> },
+  task: { icon: Workflow },
 };
-const FALLBACK: ToolRenderer = { icon: "▪" };
+const FALLBACK: ToolRenderer = { icon: Wrench };
 
 function str(args: unknown, key: string): string {
   const v = (args as Record<string, unknown> | null)?.[key];
@@ -87,7 +103,7 @@ export function ToolCallRowView({
         onClick={() => hasBody && setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
-        <span className="tool-icon">{renderer.icon}</span>
+        <renderer.icon className="tool-icon" size={14} strokeWidth={1.75} />
         <span className="tool-name">{row.tool}</span>
         <span className="tool-args">{toolArgsPreview(row.tool, row.args)}</span>
         <span className={`tool-status ${statusClass}`}>
@@ -103,7 +119,7 @@ export function ToolCallRowView({
               onOpenDiff(row);
             }}
           >
-            ⤢
+            <Maximize2 size={12} strokeWidth={1.75} />
           </span>
         ) : null}
         {hasBody ? <span className="tool-chevron">{expanded ? "▾" : "▸"}</span> : null}

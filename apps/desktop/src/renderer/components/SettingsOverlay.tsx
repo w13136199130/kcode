@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Monitor, Moon, Sun } from "lucide-react";
 
 /**
  * 设置覆盖层（M3b 最小版，zcode 覆盖层模式——主界面保留不卸载）：
@@ -61,9 +62,10 @@ export function SettingsOverlay(props: { onClose(): void; appVersion: string; mo
               <button
                 key={t}
                 type="button"
-                className={`ask-btn ${theme === t ? "allow" : ""}`}
+                className={`ask-btn theme-btn ${theme === t ? "allow" : ""}`}
                 onClick={() => setTheme(t)}
               >
+                {t === "system" ? <Monitor size={14} strokeWidth={1.75} /> : t === "light" ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
                 {t === "system" ? "跟随系统" : t === "light" ? "亮色" : "暗色"}
               </button>
             ))}

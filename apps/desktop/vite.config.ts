@@ -13,6 +13,9 @@ export default defineConfig({
     alias: {
       "@web": resolve(__dirname, "../web/src"),
     },
+    // 跨包别名（@web）+ 预打包依赖（lucide-react）会走两条 react 解析路径——
+    // dev 模式双 React 实例 = Invalid hook call（M4 实测），dedupe 收敛到单份
+    dedupe: ["react", "react-dom"],
   },
   build: {
     outDir: "../../dist/renderer",

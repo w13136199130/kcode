@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ArrowUp, Square } from "lucide-react";
 import type { PermissionMode } from "@kcode/contracts";
 
 /** 模式四档的 composer 选择器元数据（与 CLI MODE_META 同语义） */
@@ -89,8 +90,8 @@ export function Composer(props: {
               </span>
             ) : null}
             {props.busy ? (
-              <button type="button" className="composer-stop" onClick={props.onStop} title="中断当前运行">
-                ■ 停止
+              <button type="button" className="composer-stop" onClick={props.onStop} title="中断当前运行（Esc）">
+                <Square size={13} strokeWidth={2} />
               </button>
             ) : (
               <button
@@ -98,8 +99,9 @@ export function Composer(props: {
                 className="composer-send"
                 disabled={text.trim() === "" || props.disabled}
                 onClick={send}
+                title="发送（Enter）"
               >
-                发送
+                <ArrowUp size={16} strokeWidth={2} />
               </button>
             )}
           </div>

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { TimelineState } from "./projection.js";
 import { RowView } from "./rows.js";
-import { Markdown } from "@web/components/Markdown.js";
+import { RichMarkdown } from "./RichMarkdown.js";
 
 /**
  * 虚拟滚动时间线（M2a，§8.4h）：@tanstack/react-virtual 动态测高 + live-tail 拆分——
@@ -46,7 +46,7 @@ export function Timeline({
       <div className="row-thinking-live">💭 思考中…</div>
     ) : state.streamText !== "" ? (
       <div className="row-assistant live">
-        <Markdown text={state.streamText} />
+        <RichMarkdown text={state.streamText} />
       </div>
     ) : state.busy ? (
       <div className="row-busy">

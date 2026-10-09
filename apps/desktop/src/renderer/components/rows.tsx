@@ -1,4 +1,4 @@
-import { Markdown } from "@web/components/Markdown.js";
+import { RichMarkdown } from "./RichMarkdown.js";
 import type { Row } from "./projection.js";
 import { ToolCallRowView } from "./ToolCallRow.js";
 
@@ -25,7 +25,7 @@ export function RowView({
     case "assistant":
       return (
         <div className="row-assistant">
-          <Markdown text={row.text} />
+          <RichMarkdown text={row.text} />
         </div>
       );
     case "thinking":

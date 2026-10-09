@@ -769,3 +769,245 @@ body,
   background: var(--kcode-bg-subtle);
   color: var(--kcode-foreground);
 }
+
+/* ============================================================
+   M4 视觉打磨层（§8.4h 后续）：设计令牌 / 排版体系 / Markdown / 滚动条
+   （zcode styles.css 同源思路：字阶根变量 + color-mix 层次 + Lucide 1.75 线宽）
+   ============================================================ */
+:root {
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --shadow-1: 0 1px 3px rgb(0 0 0 / 8%);
+  --shadow-2: 0 8px 28px rgb(0 0 0 / 14%);
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  --focus-ring: color-mix(in srgb, var(--kcode-brand) 55%, transparent);
+}
+
+/* 细滚动条（全局面） */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--kcode-foreground-subtle) 30%, transparent);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--kcode-foreground-subtle) 50%, transparent);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===== 侧栏精修 ===== */
+.sidebar-brand {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.sidebar-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+.sidebar-item-preview {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.sidebar-item-icon {
+  color: var(--kcode-foreground-subtle);
+  flex-shrink: 0;
+}
+.sidebar-item.active {
+  background: color-mix(in srgb, var(--kcode-brand) 10%, var(--kcode-bg-subtle));
+  box-shadow: inset 2px 0 0 var(--kcode-brand);
+}
+.sidebar-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sidebar-group {
+  margin-top: 8px;
+}
+
+/* ===== Markdown 排版（RichMarkdown） ===== */
+.row-assistant .md-p,
+.row-assistant p {
+  margin: 0 0 6px;
+  line-height: 1.7;
+}
+.md-h1, .md-h2, .md-h3, .md-h4 {
+  font-weight: 650;
+  margin: 14px 0 8px;
+  line-height: 1.35;
+}
+.md-h1 { font-size: 1.3em; }
+.md-h2 { font-size: 1.18em; }
+.md-h3 { font-size: 1.08em; }
+.md-h4 { font-size: 1em; }
+.md-list {
+  margin: 4px 0 8px 22px;
+  line-height: 1.7;
+  padding-left: 4px;
+}
+.md-quote {
+  margin: 6px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--kcode-border);
+  color: var(--kcode-foreground-subtle);
+  background: var(--kcode-bg-subtle);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--kcode-border);
+  margin: 14px 0;
+}
+.row-assistant a {
+  color: var(--kcode-brand);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--kcode-brand) 35%, transparent);
+}
+.row-assistant a:hover {
+  border-bottom-color: var(--kcode-brand);
+}
+.row-assistant code,
+.md-quote code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--kcode-foreground-subtle) 12%, transparent);
+  border: 1px solid var(--kcode-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ===== 代码块（Shiki 宿主 + 头栏 + 复制） ===== */
+.md-code {
+  margin: 8px 0 12px;
+  border: 1px solid var(--kcode-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #161b26;
+}
+.md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px 5px 12px;
+  background: color-mix(in srgb, #000 22%, #161b26);
+  border-bottom: 1px solid #262d3d;
+}
+.md-code-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #8b93a7;
+  text-transform: lowercase;
+  letter-spacing: 0.03em;
+}
+.md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  color: #8b93a7;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.md-code-copy:hover {
+  background: rgb(255 255 255 / 8%);
+  color: #e5e7eb;
+}
+.md-code-body {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #e5e7eb;
+}
+.md-code-body.shiki-host pre {
+  margin: 0;
+  padding: 0 !important;
+  background: transparent !important;
+}
+.md-code-body.shiki-host code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* ===== Composer 精修：圆形图标按钮 ===== */
+.composer-send,
+.composer-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+}
+.composer-send:disabled {
+  opacity: 0.35;
+}
+
+/* ===== 工具卡精修 ===== */
+.tool-head {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.15s ease;
+}
+.tool-icon {
+  display: inline-flex;
+  color: var(--kcode-foreground-subtle);
+}
+.tool-open-pane {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ===== 弹层/面板阴影升级 ===== */
+.palette,
+.settings,
+.ask-panel {
+  box-shadow: var(--shadow-2);
+}
+.ask-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-md);
+}
+.theme-btn {
+  padding: 7px 16px;
+}
+
+/* ===== 顶栏精修 ===== */
+.workspace-header {
+  background: color-mix(in srgb, var(--kcode-bg-panel) 70%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+/* ===== 时间线留白节奏 ===== */
+.timeline {
+  padding: 20px 24px 28px;
+}
+.row-user {
+  margin: 18px 0;
+}
+.row-assistant {
+  margin: 14px 0;
+}

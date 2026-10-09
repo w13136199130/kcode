@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 
 /**
  * 三栏布局（M2a，§8.4h）：侧栏 + 主区（Side Pane 占位 M3）。
@@ -71,7 +72,7 @@ export function WorkspaceLayout(props: {
           <div className="side-pane-head">
             <span>详情</span>
             <button type="button" className="side-pane-close" onClick={props.onCloseSidePane} title="关闭">
-              ✕
+              <X size={14} strokeWidth={1.75} />
             </button>
           </div>
           <div className="side-pane-body">{props.sidePane}</div>

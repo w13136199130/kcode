@@ -15,10 +15,12 @@
     "@kcode/contracts": "workspace:*",
     "@kcode/design": "workspace:*",
     "@kcode/extensions": "workspace:*",
-    "@vscode/ripgrep": "^1.18.0",
     "@tanstack/react-virtual": "^3.14.13",
+    "@vscode/ripgrep": "^1.18.0",
+    "lucide-react": "^1.53.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "shiki": "^4.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
