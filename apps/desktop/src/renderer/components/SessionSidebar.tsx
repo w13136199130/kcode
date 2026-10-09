@@ -34,6 +34,8 @@ export function SessionSidebar(props: {
   currentId: string | null;
   /** 点击历史会话 → 续接（M2b） */
   onOpen?(sessionId: string): void;
+  /** 打开设置覆盖层（M3b） */
+  onOpenSettings?(): void;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
 
@@ -106,6 +108,11 @@ export function SessionSidebar(props: {
           </div>
         ))}
         {sessions.length === 0 ? <div className="sidebar-empty">暂无历史会话</div> : null}
+      </div>
+      <div className="sidebar-foot">
+        <button type="button" className="sidebar-settings" onClick={() => props.onOpenSettings?.()}>
+          ⚙ 设置
+        </button>
       </div>
     </aside>
   );

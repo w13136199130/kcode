@@ -100,6 +100,8 @@ app.whenReady().then(() => {
   });
   // 默认工作目录（M2a 先 homedir；工作区选择器随 M2b）
   ipcMain.handle("kcode:default-cwd", () => homedir());
+  // 应用版本（tsup define 注入）
+  ipcMain.handle("kcode:app-version", () => process.env["KCODE_VERSION"] ?? "dev");
 
   // 系统通知（M3a）：renderer 只在「窗口失焦」时发送（去重在 renderer 侧）；
   // 通知点击 → 聚焦窗口；同时任务栏闪烁（Windows flashFrame）

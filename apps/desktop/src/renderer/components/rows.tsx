@@ -7,7 +7,13 @@ import { ToolCallRowView } from "./ToolCallRow.js";
  * 助手正文走 web 端 Markdown（流式容错未闭合语法由直播区承担——落定行总是完整文本）。
  */
 
-export function RowView({ row }: { row: Row }) {
+export function RowView({
+  row,
+  onOpenDiff,
+}: {
+  row: Row;
+  onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+}) {
   switch (row.kind) {
     case "user":
       return (
@@ -30,7 +36,7 @@ export function RowView({ row }: { row: Row }) {
         </details>
       );
     case "tool":
-      return <ToolCallRowView row={row} />;
+      return <ToolCallRowView row={row} onOpenDiff={onOpenDiff} />;
     case "info":
       return <div className={`row-info tone-${row.tone ?? "plain"}`}>{row.text}</div>;
     case "separator":

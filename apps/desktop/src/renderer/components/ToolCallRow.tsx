@@ -65,7 +65,14 @@ function EditDetail({ args }: { args: unknown }): React.ReactNode {
   );
 }
 
-export function ToolCallRowView({ row }: { row: Extract<Row, { kind: "tool" }> }) {
+export function ToolCallRowView({
+  row,
+  onOpenDiff,
+}: {
+  row: Extract<Row, { kind: "tool" }>;
+  /** edit/write 在 Side Pane 打开完整 diff（M3b） */
+  onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const renderer = REGISTRY[row.tool] ?? FALLBACK;
   const status = row.status === "done" ? "✓" : row.status === "failed" ? "✗" : "⋯";
@@ -87,6 +94,18 @@ export function ToolCallRowView({ row }: { row: Extract<Row, { kind: "tool" }> }
           {status}
           {duration}
         </span>
+        {onOpenDiff !== undefined && (row.tool === "edit" || row.tool === "write") ? (
+          <span
+            className="tool-open-pane"
+            title="在侧面板查看 diff"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDiff(row);
+            }}
+          >
+            ⤢
+          </span>
+        ) : null}
         {hasBody ? <span className="tool-chevron">{expanded ? "▾" : "▸"}</span> : null}
       </button>
       {expanded ? (

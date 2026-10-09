@@ -11,6 +11,10 @@ export function WorkspaceLayout(props: {
   /** 受控折叠（Ctrl+B / 命令面板共用一个状态源） */
   collapsed?: boolean;
   onToggleSidebar?(): void;
+  /** Side Pane 右栏（M3b：diff 查看器等） */
+  sidePane?: ReactNode;
+  sidePaneOpen?: boolean;
+  onCloseSidePane?(): void;
 }) {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const effectiveCollapsed = props.collapsed ?? internalCollapsed;
@@ -62,6 +66,17 @@ export function WorkspaceLayout(props: {
         onDoubleClick={() => document.documentElement.style.setProperty("--workspace-sidebar-width", "264px")}
       />
       <div className="workspace-main">{props.main}</div>
+      {props.sidePane !== undefined && props.sidePaneOpen === true ? (
+        <aside className="side-pane">
+          <div className="side-pane-head">
+            <span>详情</span>
+            <button type="button" className="side-pane-close" onClick={props.onCloseSidePane} title="关闭">
+              ✕
+            </button>
+          </div>
+          <div className="side-pane-body">{props.sidePane}</div>
+        </aside>
+      ) : null}
     </div>
   );
 }

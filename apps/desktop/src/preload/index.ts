@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   notify(title: string, body: string): void {
     ipcRenderer.send("kcode:notify", { title, body });
   },
+  /** 应用版本（构建注入 KCODE_VERSION） */
+  getAppVersion(): Promise<string> {
+    return ipcRenderer.invoke("kcode:app-version");
+  },
 });
 
 /** preload 内部端口对象的类型（DOM MessagePort 的最小用面） */

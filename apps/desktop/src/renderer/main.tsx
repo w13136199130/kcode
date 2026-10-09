@@ -11,6 +11,9 @@ import { Composer } from "./components/Composer.js";
 import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
 import { applyEvent, initialTimeline, type TimelineState } from "./components/projection.js";
 import { CommandPalette } from "./components/CommandPalette.js";
+import { DiffViewer } from "./components/DiffViewer.js";
+import { SettingsOverlay } from "./components/SettingsOverlay.js";
+import type { Row } from "./components/projection.js";
 import "./styles.css";
 
 /**
@@ -45,6 +48,12 @@ function DesktopApp() {
   const [sessionVersion, setSessionVersion] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState("dev");
+  const [diffRow, setDiffRow] = useState<Extract<Row, { kind: "tool" }> | null>(null);
+  useEffect(() => {
+    void window.kcodeHost?.getAppVersion().then(setAppVersion);
+  }, []);
 
   // 系统通知（M3a）：仅在窗口失焦时发——任务完成 / 待审批（沿检测去重）
   const prevBusyRef = useRef(timeline.busy);
@@ -193,18 +202,22 @@ function DesktopApp() {
       <WorkspaceLayout
       collapsed={sidebarCollapsed}
       onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+      sidePane={diffRow !== null ? <DiffViewer row={diffRow} /> : undefined}
+      sidePaneOpen={diffRow !== null}
+      onCloseSidePane={() => setDiffRow(null)}
       sidebar={
         <SessionSidebar
           conn={conn}
           currentId={sessionId}
           onOpen={onResume}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       }
       main={
         <div className="main-column">
           <WorkspaceHeader title="kcode" model={modelDefault} mode={mode} />
           <div className="timeline-stack">
-            <Timeline state={timeline} />
+              <Timeline state={timeline} onOpenDiff={setDiffRow} />
             {ask !== null ? (
               <AskPanel
                 tool={ask.tool}
@@ -252,6 +265,14 @@ function DesktopApp() {
             setMode(m);
             void conn.send("session/set_mode", { mode: m }).catch(() => undefined);
           }}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <SettingsOverlay
+          onClose={() => setSettingsOpen(false)}
+          appVersion={appVersion}
+          model={modelDefault}
+          cwd={defaultCwd}
         />
       ) : null}
     </>

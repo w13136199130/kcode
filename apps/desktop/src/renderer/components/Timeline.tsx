@@ -9,7 +9,13 @@ import { Markdown } from "@web/components/Markdown.js";
  * 进行中的流式正文/思考渲染在虚拟列表之外的普通文档流（zcode 教训：running 单元
  * 移出虚拟列表，避免"先长高、下一帧才回填"的测高跳动）。滚动跟随：贴底时自动吸底。
  */
-export function Timeline({ state, onRetry }: { state: TimelineState; onRetry?: () => void }) {
+export function Timeline({
+  state,
+  onOpenDiff,
+}: {
+  state: TimelineState;
+  onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
@@ -59,7 +65,7 @@ export function Timeline({ state, onRetry }: { state: TimelineState; onRetry?: (
             ref={virtualizer.measureElement}
             style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
           >
-            <RowView row={rows[item.index]!} />
+            <RowView row={rows[item.index]!} onOpenDiff={onOpenDiff} />
           </div>
         ))}
       </div>
