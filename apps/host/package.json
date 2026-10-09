@@ -11,17 +11,20 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "build": "tsup"
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
     "@kcode/platform": "workspace:*",
     "@kcode/runtime": "workspace:*",
     "@kcode/session": "workspace:*",
-    "@kcode/shared": "workspace:*"
+    "@kcode/shared": "workspace:*",
+    "@vscode/ripgrep": "^1.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
     "typescript": "^5.7.0"
   }
 }

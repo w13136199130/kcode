@@ -555,7 +555,7 @@ export interface IPlatformService {
 
 | 里程碑 | 内容 | 验收 | 量级 |
 |---|---|---|---|
-| M1 骨架与对话 | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + attach/detach 一等操作 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 优雅退出无残留进程；**窗口刷新（reload）会话不丢（重挂端口）** | 1 周 |
+| M1 骨架与对话（**无窗口验收已通过 2026-10-09**：`--kcode-smoke` 模式——main fork host + MessagePortMain 直连走完整协议，真实模型流式 delta + session_end completed + host 优雅退出，SMOKE_EXIT=0；窗口视觉验收待用户跑 dev） | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + attach/detach 一等操作 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 优雅退出无残留进程；**窗口刷新（reload）会话不丢（重挂端口）** | 1 周 |
 | M2 交互闭环 | 审批往返（ask/request↔response、plan/approval 经 Dialogs）、/model·/login（platform RPC 经 host）、多窗口=多会话 | 桌面端完成一次带审批的写文件任务；双窗口两会话互不干扰 | 1 周 |
 | M3 桌面化收尾 | 系统通知（bell→OS 通知）、自动更新检查（主进程拉 latest.json 比对→提示+下载）、electron-builder 打包（NSIS+portable） | 打包产物可安装运行；更新检查可见 | 0.5–1 周 |
 
@@ -663,6 +663,7 @@ export interface IPlatformService {
 
 ### v6（2026-10-08）
 
+- **N3-4 M1 骨架落地（无窗口验收通过）**：① host port 入口 `apps/host/src/port.ts`（utilityProcess 版 stdio 入口——parentPort 收 MessagePort、attach 一等操作支持多端口重挂、全端口关闭 fail-closed 结算退出）+ host tsup 单文件 CJS 打包（5.5MB；noExternal 内联 workspace 依赖——其 exports 只导出 TS 源、外置 require 会炸，canvas/ripgrep 外置同 CLI；@vscode/ripgrep 补为 host 显式依赖，pnpm 严格 node_modules 不提升）；② `apps/desktop/`：main（每窗口一 host、did-finish-load 统一重挂端口——生命周期绑窗口不绑 renderer 加载周期、关窗 dispose 给 3.5s 优雅期）/ preload（contextBridge 只暴露端口桥+宿主退出通知）/ renderer（vite alias @web 直连 apps/web 组件层，Chat 零改动复用 + useDesktopConnection——MessagePort 版同帧协议同 HostConnection 接口）；③ smoke 模式（--kcode-smoke，无窗口 CI 可用）：握手 10s 快败 + waitForEvent 解 session/event 信封（循环事件被 host 包信封发，delta 顶层——实测教训）+ 60s 等对话完成；electron 37.10.3 经 npmmirror 安装（pnpm allowBuilds 放行）。**验收通过：真实模型 delta + completed + host code=0**。窗口视觉验收：`pnpm --filter @kcode/desktop dev`。
 - **accent 令牌去深紫**（反馈：菜单选中行中文描述是深紫色）：ANSI magenta 在 Windows Terminal 渲染成 ~#800080 深紫；终端映射换 CC 淡薰衣草紫 `#c4b5fd`（斜杠菜单选中描述/向导标题/审批标题全链路统一变浅；web 侧映射不动）。全套 551 过 1 跳。
 - **陈年分发 bug 修复 + 护栏**（测试反馈：`未知命令 /exit`）：① /mode 分发键自 3fdf2c3 拆分迁移起误写 `name === "ctx.mode"`——打 /mode 一直落到未知命令（潜伏数周，菜单却宣传它）；② /exit 从来只认不带斜杠的裸 exit（App.submit `text === "exit"`），菜单宣传的 /exit 形态从未生效——分发链补 exit/quit 处理器（DispatchContext 增 exitApp，App 注入 useApp().exit，排队排空路径同样可达）；③ 护栏测试 builtin-dispatch：BUILTIN_COMMANDS 逐名对账分发源码必须有 `name === "<名>"` 处理器 + 禁 `ctx.` 前缀脏键——整类"菜单宣传了但打出来未知"一次锁死；④ hooks 超时抖动例单测放宽 30s（全量并发下进程启动变慢曾三次误报）。全套 551 过 1 跳（+2）。
 - **状态栏 CC 样张化 + shift+tab 切模式**（反馈：状态栏不好看、ctx 不知所云）：① 模式段 CC 递进字形 `⏸ 只读 / ⏵ 变更确认 / ⏵⏵ 自动编辑 / ⏵⏵⏵ 完全访问`（MODE_META 增 glyph）+ 空闲态内联 `（shift+tab 切换）` 提示（忙时让位给 Ctrl+C/Ctrl+O）；② **新增 shift+tab 循环切模式键位**（keybinds，MODE_CYCLE 循环、fullAccess 不进循环保持显式确认制、当前 fullAccess 时回 plan；InputBox 四条 tab 分支加 !key.shift 防误触补全——Ink 原生解析 ESC[Z）；③ ctx 缩写换中文 `上下文 31%`；④ 分隔从 `—` 长划改 ` · ` 圆点、模型显示短名（省 provider 前缀）、整线去 dim 改层级色（模式白/其余 muted #94a3b8）。全套 549 过 1 跳。

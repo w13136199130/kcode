@@ -10,3 +10,4 @@ allowBuilds:
   esbuild: true
   "@vscode/ripgrep": true
   canvas: false
+  electron: true
