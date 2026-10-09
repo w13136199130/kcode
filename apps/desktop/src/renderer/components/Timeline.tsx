@@ -51,7 +51,6 @@ export function Timeline({
     ) : state.busy ? (
       <div className="row-busy">
         <span className="spinner" /> 工作中…
-        {onRetry !== undefined ? null : null}
       </div>
     ) : null;
 
