@@ -67,7 +67,8 @@ describe("ProcessHookRunner（钩子裁决协议）", () => {
     const outcomeFail = await makeRunner("fail", warnsFail).preToolUse(call);
     expect(outcomeFail.veto).toBe(false);
     expect(warnsFail.length).toBeGreaterThan(0);
-  }, 15_000); // 包含 Windows 进程树终止和第二次 PowerShell 启动；钩子自身仍限时 800ms。
+  }, 30_000); // 包含 Windows 进程树终止和第二次 PowerShell 启动；钩子自身仍限时 800ms。
+  // 全量并发下进程启动变慢曾三次抖动超时——单测放宽到 30s（钩子超时语义不受影响）
 
   it("postToolUse 与生命周期钩子正常执行不抛错", async () => {
     const warns: string[] = [];

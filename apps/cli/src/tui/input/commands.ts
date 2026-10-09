@@ -47,6 +47,8 @@ export interface DispatchContext {
   beginWork(): void;
   /** 复位中断已发标记（纯文本提交路径） */
   resetAbortSent(): void;
+  /** 退出应用（/exit /quit；排队排空路径同样可达——App 注入 useApp().exit） */
+  exitApp(): void;
   createSession(opts: LocalSessionOptions): Promise<SessionHandle>;
   handleEvent(event: SessionEvent): void;
   appendDelta(delta: string): void;
@@ -102,7 +104,11 @@ ${result.error}` : ""}`,
       const args = spaceIndex === -1 ? "" : body.slice(spaceIndex + 1).trim();
       ctx.setInput("");
 
-      if (name === "ctx.mode") {
+      if (name === "exit" || name === "quit") {
+        ctx.exitApp();
+        return;
+      }
+      if (name === "mode") {
         const target = args === "" ? undefined : (args as PermissionMode);
         if (target === undefined) {
           // 循环切换（跳过 fullAccess）

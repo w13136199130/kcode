@@ -372,6 +372,7 @@ export function KcodeApp(props: KcodeAppProps) {
         saveHistory,
         beginWork,
         resetAbortSent: () => { abortSent.current = false; },
+        exitApp: () => exit(),
         createSession,
         handleEvent,
         appendDelta: stream.appendDelta,
