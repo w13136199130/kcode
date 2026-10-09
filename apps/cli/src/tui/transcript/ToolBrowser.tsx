@@ -54,7 +54,7 @@ export function ToolBrowser(props: { ui: UiStore }) {
         const index = start + i;
         const isSelected = index === cursor;
         const icon = b.status === "running" ? "⚡" : b.status === "failed" ? "✗" : "✓";
-        const color = b.status === "failed" ? c("destructive") : b.status === "running" ? c("warning") : c("info");
+        const color = b.status === "failed" ? c("destructive") : b.status === "running" ? c("info") : c("success");
         return (
           <Box key={b.callId} flexDirection="column">
             <Text color={isSelected ? c("brand") : color} bold={isSelected}>

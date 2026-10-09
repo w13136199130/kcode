@@ -97,7 +97,7 @@ export function TaskBrowser(props: { ui: UiStore }) {
         const index = start + i;
         const isSelected = index === cursor;
         const icon = t.status === "running" ? "⚡" : t.status === "failed" ? "✗" : "✓";
-        const color = t.status === "failed" ? c("destructive") : t.status === "running" ? c("warning") : c("success");
+        const color = t.status === "failed" ? c("destructive") : t.status === "running" ? c("info") : c("success");
         return (
           <Box key={t.id} flexDirection="column">
             <Text color={isSelected ? c("brand") : color} bold={isSelected}>

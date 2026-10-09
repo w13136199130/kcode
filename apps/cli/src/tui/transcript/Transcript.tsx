@@ -106,13 +106,13 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "user") {
-    // 用户消息：> 前缀，颜色对标 Claude Code（不染色，只 dim 一档——干净不花哨）
+    // 用户消息：> 前缀，CC 同款纯白不染色（不 dim——dim 压暗是旧问题来源之一）
     void stdout;
     const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 4);
     return (
       <Box flexDirection="column" marginTop={1} marginBottom={1}>
         {lines.map((l, j) => (
-          <Text key={j} bold dimColor wrap="wrap">
+          <Text key={j} wrap="wrap">
             {j === 0 ? "> " : "  "}
             {l}
           </Text>
@@ -159,17 +159,18 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "reasoning") {
+    // 思考行：muted 灰（zcode textMuted #94a3b8——"稍微暗"的稳定一档，不用 ANSI dim）
     const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
     if (props.verbose === true) {
       const lines = block.text.split("\n").slice(0, VERBOSE_REASONING_LINES);
       return (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color="gray" italic>
+          <Text color={c("foregroundSubtle")} italic>
             {"  ✻ Thinking"}
             {timing}
           </Text>
           {lines.map((line, j) => (
-            <Text key={j} color="gray" italic wrap="truncate-end">
+            <Text key={j} color={c("foregroundSubtle")} italic wrap="truncate-end">
               {"    "}
               {truncateVisual(line, 120)}
             </Text>
@@ -179,7 +180,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     }
     return (
       <Box marginBottom={1}>
-        <Text color="gray" italic>
+        <Text color={c("foregroundSubtle")} italic>
           {"  ✻ Thinking"}
           {timing}
         </Text>
@@ -203,8 +204,10 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
       </Box>
     );
   }
+  // 工具卡（CC 配色模型）：图标+工具名承载状态色（柔和 hex——完成绿/失败红/运行天蓝，
+  // zcode statusColor 同款），参数与耗时 muted 灰；done 不再整行染饱和蓝（截图反馈"太深"根因）
   const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
-  const color = block.status === "failed" ? c("destructive") : block.status === "running" ? c("warning") : c("info");
+  const color = block.status === "failed" ? c("destructive") : block.status === "running" ? c("info") : c("success");
   const timing =
     block.status === "running" && block.startedAt !== undefined && props.now !== undefined
       ? ` (${formatMs(Math.max(0, props.now - block.startedAt))})`
@@ -213,9 +216,14 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         : "";
   return (
     <Box flexDirection="column" marginLeft={2} marginBottom={1}>
-      <Text color={color}>
-        {icon} {block.tool} <Text dimColor>{block.argsPreview}</Text>
-        {timing}
+      <Text>
+        <Text color={color}>
+          {icon} {block.tool}{" "}
+        </Text>
+        <Text color={c("foregroundSubtle")}>
+          {block.argsPreview}
+          {timing}
+        </Text>
       </Text>
       {props.verbose === true && block.output !== undefined && block.output !== "" ? (
         <Box flexDirection="column" marginLeft={2}>
@@ -223,7 +231,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             .split("\n")
             .slice(0, VERBOSE_TOOL_LINES)
             .map((line, j) => (
-              <Text key={j} dimColor wrap="truncate-end">
+              <Text key={j} color={c("foregroundSubtle")} wrap="truncate-end">
                 {"  "}
                 {truncateVisual(linkifyStructuredPaths(line), 120)}
               </Text>
@@ -233,7 +241,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         block.summary !== undefined &&
         block.summary !== "" && (
           <Box marginLeft={2}>
-            <Text dimColor>⎿ {linkifyStructuredPaths(block.summary)}</Text>
+            <Text color={c("foregroundSubtle")}>⎿ {linkifyStructuredPaths(block.summary)}</Text>
           </Box>
         )
       )}
