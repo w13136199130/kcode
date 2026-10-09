@@ -54,19 +54,15 @@ export function AskPanel(props: { ask: AskState }) {
                   : { allowed: false };
           ask.resolve(answer);
           dialogs.setAsk(null);
-          dialogs.pushBlock({
-            kind: "info",
-            tone: answer.allowed ? "ok" : "deny",
-            text: `❯ ${
-              picked === 0
-                ? "允许"
-                : picked === 1
-                  ? "允许（本会话）"
-                  : picked === 2
-                    ? `允许（本项目持久${suggestion !== null ? ` · ${formatGrantPattern(suggestion)}` : ""}）`
-                    : "拒绝"
-            } · ${ask.call.tool}`,
-          });
+          // CC 同款：放行不回显（工具卡本身就是结果——每步一条允许行是转写噪音）；
+          // 拒绝留痕（无工具卡兜底，拒绝是唯一可见结果）
+          if (!answer.allowed) {
+            dialogs.pushBlock({
+              kind: "info",
+              tone: "deny",
+              text: `❯ 拒绝 · ${ask.call.tool}`,
+            });
+          }
         }}
         onCancel={() => {
           ask.resolve({ allowed: false });

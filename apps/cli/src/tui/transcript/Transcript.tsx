@@ -121,24 +121,20 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     );
   }
   if (block.kind === "assistant") {
-    // 助手消息：对标 Claude Code——● 首行前缀 + 全文 2 格缩进
-    // 段落间距由 Markdown 源文本的空行决定（渲染器原样透传，不额外叠加）
+    // 助手正文：CC 同款无前缀纯文本（● 前缀与 markdown 列表符叠加成 "● •" 是排版反馈实测）。
+    // 空正文块（思考模型直发工具调用时的空 assistant 事件）不渲染——孤零零的 ● 是噪音
     const lines: MdLine[] =
       process.env["KCODE_NO_MD"] === "1"
         ? block.text.split("\n").map((l) => ({ segments: [{ text: l }] }))
         : markdownToLines(block.text);
-    // 找到首个非空行（标 ● 前缀），其余行一律 2 格缩进
-    let firstContentIdx = lines.findIndex((l) => l.segments.map((s) => s.text).join("").trim() !== "");
-    if (firstContentIdx === -1) firstContentIdx = 0;
+    const hasContent = lines.some((l) => l.segments.map((s) => s.text).join("").trim() !== "");
+    if (!hasContent) {
+      return null;
+    }
     return (
       <Box flexDirection="column" marginBottom={1}>
         {lines.map((line, j) => (
           <Box key={j}>
-            {j === firstContentIdx ? (
-              <Text color={c("foregroundSubtle")}>{"● "}</Text>
-            ) : (
-              <Text>{"  "}</Text>
-            )}
             <Text>
               {line.segments.map((s, k) => (
                 <Text
