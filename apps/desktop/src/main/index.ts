@@ -43,10 +43,18 @@ function createMainWindow(): void {
 
   // host 生命周期绑定**窗口**而非 renderer 加载周期（§8.4g 复审①）：
   // 每次加载完成（含 reload）都重挂新 MessageChannelMain 到同一 host，会话不动
+  win.webContents.on("console-message", (_e, _level, message) => {
+    process.stderr.write(`[renderer] ${message}\n`);
+  });
   win.webContents.on("did-finish-load", () => {
+    process.stdout.write("[main] did-finish-load → attachPort\n");
     const host = ensureHost(win);
     const port1 = host.attachPort();
     win.webContents.postMessage("kcode:host-port", null, [port1]);
+  });
+
+  win.webContents.on("did-fail-load", (_e, code, desc, url) => {
+    process.stderr.write(`[main] did-fail-load ${code} ${desc} ${url}\n`);
   });
 
   win.on("closed", () => {
@@ -83,6 +91,15 @@ app.whenReady().then(() => {
     return;
   }
   createMainWindow();
+  // 诊断模式：--kcode-diag N 秒后自动退出（收集 console 输出排查 renderer 问题）
+  const diagIdx = process.argv.indexOf("--kcode-diag");
+  if (diagIdx !== -1) {
+    const seconds = Number(process.argv[diagIdx + 1] ?? "15");
+    setTimeout(() => {
+      process.stdout.write("[diag] 到时自动退出\n");
+      app.exit(0);
+    }, seconds * 1000);
+  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
