@@ -29,7 +29,12 @@ function groupOf(ts: number | undefined): string {
   return "更早";
 }
 
-export function SessionSidebar(props: { conn: HostConnection; currentId: string | null }) {
+export function SessionSidebar(props: {
+  conn: HostConnection;
+  currentId: string | null;
+  /** 点击历史会话 → 续接（M2b） */
+  onOpen?(sessionId: string): void;
+}) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
 
   useEffect(() => {
@@ -88,7 +93,9 @@ export function SessionSidebar(props: { conn: HostConnection; currentId: string 
               <div
                 key={s.sessionId}
                 className={`sidebar-item ${s.sessionId === props.currentId ? "active" : ""}`}
-                title={`${s.preview}（${s.turns} 轮）`}
+                title={`${s.preview}（${s.turns} 轮）${props.onOpen !== undefined ? "——点击续接" : ""}`}
+                onClick={() => props.onOpen?.(s.sessionId)}
+                role="button"
               >
                 <div className="sidebar-item-preview">{s.preview === "" ? "（空会话）" : s.preview}</div>
                 <div className="sidebar-item-meta">

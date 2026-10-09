@@ -90,7 +90,7 @@ body,
 .sidebar-item {
   padding: 8px 10px;
   border-radius: 8px;
-  cursor: default;
+  cursor: pointer;
   margin-bottom: 2px;
 }
 .sidebar-item:hover {
@@ -165,6 +165,104 @@ body,
 .timeline-inner {
   position: relative;
 }
+/* 弹层停靠区：时间线 + 审批/提问面板共占主列剩余空间 */
+.timeline-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.timeline-stack .timeline {
+  flex: 1;
+}
+.ask-panel {
+  border-top: 1px solid var(--kcode-border);
+  background: var(--kcode-bg-panel);
+  padding: 14px 20px;
+  max-height: 45%;
+  overflow-y: auto;
+}
+.ask-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.ask-title code {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--kcode-warning);
+}
+.ask-args {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  background: var(--kcode-bg-subtle);
+  border: 1px solid var(--kcode-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0 0 10px;
+  color: var(--kcode-foreground-subtle);
+}
+.ask-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ask-btn {
+  border: 1px solid var(--kcode-border);
+  background: var(--kcode-bg-panel);
+  color: var(--kcode-foreground);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.ask-btn:hover {
+  border-color: color-mix(in srgb, var(--kcode-brand) 50%, var(--kcode-border));
+}
+.ask-btn.allow {
+  background: var(--kcode-brand);
+  border-color: var(--kcode-brand);
+  color: #fff;
+}
+.ask-btn.deny {
+  color: var(--kcode-destructive);
+}
+.ask-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ask-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.ask-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--kcode-border);
+  background: var(--kcode-bg-subtle);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ask-option.selected {
+  border-color: var(--kcode-brand);
+  background: color-mix(in srgb, var(--kcode-brand) 8%, var(--kcode-bg-subtle));
+}
+.ask-option-mark {
+  color: var(--kcode-brand);
+}
+.ask-option-desc {
+  color: var(--kcode-foreground-subtle);
+  font-size: 13px;
+}
+
 .row-user {
   margin: 16px 0;
 }

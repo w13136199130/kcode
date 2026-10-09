@@ -118,6 +118,16 @@ export class HostSession {
     return { sessionId: this.#composed.sessionId, epoch: this.#epoch };
   }
 
+  /**
+   * 转写重放（M2b）：当前会话 JSONL 的事件清单（reload 后 renderer 重建转写用）。
+   * 返回原始事件（含 user/assistant/tool/compact 等），renderer 侧投影。
+   */
+  async replay(): Promise<{ sessionId: string; events: SessionEvent[] }> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    const events = await loadSessionEvents(this.#composed.sessionId);
+    return { sessionId: this.#composed.sessionId, events };
+  }
+
   submit(params: SessionSubmitParams): { queued: boolean; position?: number } {
     if (this.#composed === null || this.#queue === null) throw new Error("会话未创建");
     if (this.#reservation) {

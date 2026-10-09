@@ -111,6 +111,9 @@ importers:
       '@kcode/design':
         specifier: workspace:*
         version: link:../../packages/design
+      '@kcode/extensions':
+        specifier: workspace:*
+        version: link:../../packages/extensions
       '@tanstack/react-virtual':
         specifier: ^3.14.13
         version: 3.14.13(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

@@ -75,6 +75,10 @@ export class HostServer {
         this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
         return this.#session.create(p);
       }
+      case "session/replay": {
+        if (this.#session === null) throw new Error("会话未创建");
+        return this.#session.replay();
+      }
       case "session/submit": {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.submit(params as SessionSubmitParams);
