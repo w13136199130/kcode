@@ -35,12 +35,12 @@ export function SettingsOverlay(props: { onClose(): void; appVersion: string; mo
         "--kcode-foreground-subtle": "#6b7280",
       };
       const darkMap: Record<string, string> = {
-        "--kcode-bg": "#0f1117",
-        "--kcode-bg-panel": "#161a22",
-        "--kcode-bg-subtle": "#1d2330",
-        "--kcode-border": "#2a3040",
-        "--kcode-foreground": "#e5e7eb",
-        "--kcode-foreground-subtle": "#94a3b8",
+        "--kcode-bg": "#161616",
+        "--kcode-bg-panel": "#202020",
+        "--kcode-bg-subtle": "rgba(255,255,255,0.05)",
+        "--kcode-border": "rgba(255,255,255,0.1)",
+        "--kcode-foreground": "#d4d4d4",
+        "--kcode-foreground-subtle": "rgba(212,212,212,0.6)",
       };
       const map = dark ? darkMap : light;
       const el = document.createElement("style");
