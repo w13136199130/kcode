@@ -19,7 +19,7 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
 2. **CLI 入口层与 TUI 交互补全（N3C，P1 快赢批，§8.4b）**：headless flag 组（`-p/--mode/--json` 等）、`doctor`、管理子命令、状态栏常驻信息与逐卡展开等交互件——用户最可感、成本最低、无依赖可插队的一批。
 3. **CLI 桌面前收尾（N3I，P1，§8.4f；2026-10-08 自查驱动）**：原子写、放行参数级粒度、hooks 一期、token 预算、会话导出等 9 项——N3-4 开工前的内功收口 + 0.2.0 发版节点。
-4. **通道收尾（N3-4/5）**：Desktop（已选定 Electron 为主线，2026-10-08）与插件加载期 hash 校验。
+4. **通道收尾（N3-4/5）**：Desktop Electron 主线（**0.2.0 已发，N3-4 设计定稿 §8.4g，开工中**，2026-10-09）与插件加载期 hash 校验。
 5. **生态与云（N4）**：插件市场、账户 IdP、调度、长期 Memory、遥测。
 
 ```
@@ -532,6 +532,34 @@ export interface IPlatformService {
 **执行顺序与发版节点**（2026-10-08 修订：N3I-9 撤销后缩短为 8 项）：N3I-1+2（快赢对）→ N3I-3+4 → N3I-5（权限 v2）→ N3I-6+7 → N3I-8 → **0.2.0 发版**（本批 + 已积压 ~35 项，release.mjs 就绪）——**N3I 批 8/8 全部落地（2026-10-08），下一步即发版**→ **N3-4 Electron 开工**（多窗口=每窗口一 host、桌面 diff 视图、自动更新复用 latest.json）。N3H 维持 N3-4 之后不变。
 
 **自查结论补记（2026-10-08）**：鸡肋项经核仅三处入口级冗余（/plan、/trust、/sessions——N3I-4 收敛），无功能级废物；工具面 13 个、命令面 19 个均实际承载需求。已知未排期小项不变：斜杠命令别名（N3I-4 hidden 机制即雏形）、per-model contextWindow 配置（表外模型手动补窗，随 N3I-3 顺手可做）、models.dev 目录（维持不做——zcode 亦用内置目录非第三方源）。
+
+### 8.4g 阶段 N3-4：Electron 桌面端（2026-10-09 设计定稿；注 F 形态兑现，0.2.0 已发后开工）
+
+> 复用面实测（设计依据，非预估）：HostServer 传输无关（`constructor(send)` + `handleFrame` 二接口——port 入口适配 ≈30 行）；host-protocol 词汇表齐备（hello/res/ev + session/submit + queue/change + delta/reasoning_delta + ask 往返 + plan/approval + interrupt + platform/probe + platform/save_key）；apps/web 组件层（Chat/Dialogs/Markdown/SessionBar + @kcode/ui store + @kcode/design）与 `useHostConnection` 三件套（status/events/send）已把传输抽象出来——桌面端换连接层即整层复用。
+
+**进程拓扑（注 F 定死）**
+
+```
+主进程（窗口/生命周期/更新检查）          utilityProcess（每窗口一个 = 每会话一 host，注 D）
+┌─ BrowserWindow ×N ────────────┐        ┌─ apps/host（node 侧：key/工具/会话全在这，N3-2 边界继承）┐
+│  renderer（sandbox，无 node）  │  port  │  port 入口（send/handleFrame 适配，~30 行）             │
+│  web 组件 + ui store           │◄─────► │  HostServer → HostSession → AgentLoop                  │
+│  useDesktopConnection(MessagePort)     │  stderr → 主进程诊断日志                                │
+└───────────────────────────────┘        └────────────────────────────────────────────────────────┘
+主进程 utilityProcess.fork(host 入口) + MessageChannelMain 双 port：一端 postMessage 转交 host 子进程，一端经 preload contextBridge 交 renderer——帧同 host-protocol（一消息一 JSON 帧），主进程不过桥（零中转拷贝）。
+```
+
+**目录与安全**：新 `apps/desktop/`——`src/main`（窗口、fork、端口转交、生命周期）、`src/preload`（contextBridge 只暴露 hostPort）、`src/renderer`（apps/web 组件经 vite alias 复用 + useDesktopConnection）。渲染层 contextIsolation+sandbox+无 nodeIntegration+ CSP；node 能力只在 host（key 不出宿主的既有边界零改动）。
+
+**生命周期语义（全部复用既有机制）**：关窗 → host utilityProcess 退出（未决 ask 一律 deny 结算，fail-closed 注 C 既有）；host 崩溃 → renderer 显示重连/新会话（ready 事件丢失检测）；kill -9 无幽灵写回（lease epoch 既有）。
+
+| 里程碑 | 内容 | 验收 | 量级 |
+|---|---|---|---|
+| M1 骨架与对话 | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 退出无残留进程 | 1 周 |
+| M2 交互闭环 | 审批往返（ask/request↔response、plan/approval 经 Dialogs）、/model·/login（platform RPC 经 host）、多窗口=多会话 | 桌面端完成一次带审批的写文件任务；双窗口两会话互不干扰 | 1 周 |
+| M3 桌面化收尾 | 系统通知（bell→OS 通知）、自动更新检查（主进程拉 latest.json 比对→提示+下载）、electron-builder 打包（NSIS+portable） | 打包产物可安装运行；更新检查可见 | 0.5–1 周 |
+
+**取舍**：① 不抽 web-ui 共享包——M1 renderer 经 vite alias 直连 apps/web/src，M2 后视耦合再决定抽包；② 自动更新只做"检查+提示+下载打开"，electron-updater 式静默替换二期（其 feed 格式与 kcode latest.json 不同构）；③ 不做 host 内多会话（注 D 既有），桌面多会话=多窗口多 host；④ 自定义菜单键位不做（与 CLI 同取舍）。
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
