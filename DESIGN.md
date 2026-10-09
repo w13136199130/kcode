@@ -555,11 +555,18 @@ export interface IPlatformService {
 
 | 里程碑 | 内容 | 验收 | 量级 |
 |---|---|---|---|
-| M1 骨架与对话 | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 退出无残留进程 | 1 周 |
+| M1 骨架与对话 | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + attach/detach 一等操作 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 优雅退出无残留进程；**窗口刷新（reload）会话不丢（重挂端口）** | 1 周 |
 | M2 交互闭环 | 审批往返（ask/request↔response、plan/approval 经 Dialogs）、/model·/login（platform RPC 经 host）、多窗口=多会话 | 桌面端完成一次带审批的写文件任务；双窗口两会话互不干扰 | 1 周 |
 | M3 桌面化收尾 | 系统通知（bell→OS 通知）、自动更新检查（主进程拉 latest.json 比对→提示+下载）、electron-builder 打包（NSIS+portable） | 打包产物可安装运行；更新检查可见 | 0.5–1 周 |
 
 **取舍**：① 不抽 web-ui 共享包——M1 renderer 经 vite alias 直连 apps/web/src，M2 后视耦合再决定抽包；② 自动更新只做"检查+提示+下载打开"，electron-updater 式静默替换二期（其 feed 格式与 kcode latest.json 不同构）；③ 不做 host 内多会话（注 D 既有），桌面多会话=多窗口多 host；④ 自定义菜单键位不做（与 CLI 同取舍）。
+
+**复审批注（2026-10-09，zcode packages/desktop 本地实测 + opencode/goose 开源调研后修订）**：骨架与三家最优交集一致（utilityProcess host / MessageChannelMain 直连绕过 main / renderer sandbox / key 只在 host——opencode 因 Tauri spawn 外部 CLI 之痛迁回 Electron 且同用 utilityProcess.fork；goose 每窗口一后端 lease 与 kcode 每窗口一 host 同型；直连 vs loopback HTTP/WS 的分岔仅因它们需 TUI/Web 共客户端，kcode Web 走既有中继无此约束）。吸收五处实战教训：
+- **① host 生命周期绑定窗口而非 renderer 加载周期**（zcode desktopWindowLifecycle.ts:136-166 痛点：reload 曾杀 host 连带会话消失）——attach/detach 端口从 M1 起即一等操作：刷新窗口只重挂新 MessageChannelMain，host 与会话不动。M1 验收追加「窗口刷新会话不丢」。
+- **② host 退出给 ≥3.5s 优雅期再强杀**（zcode desktopHostProcess.ts:799-809）——防 agent 进程树孤儿；kcode 两层拓扑（host 即 utilityProcess 直接跑 HostServer，比 zcode 三层少一跳）且天然复用 Electron 自带 Node 运行时（zcode 以 ELECTRON_RUN_AS_NODE 换 180MB→16MB，kcode 无独立 Node 分发问题）。
+- **③ main↔host 控制面从第一天就走 zod 校验的最小消息集**（zcode 教训：消息类型膨胀到 40+、main/host 单文件超 eslint 上限）——kcode 控制面天然极小（spawn/exit/attach 三类），契约版本化起步。
+- **④ renderer 生产加载源 M3 决定自定义协议（opencode oc:// 同款）vs file://**——dev 走 vite dev server，打包态自定义协议天然隔离 origin。
+- **⑤ 协议维持自研 host-protocol**（CLI/Web 中继/host 测试四端已复用），**ACP（Zed 开放协议，goose 采用）列为 N4 编辑器互操作观察项**——现在切换是无收益重写。
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
