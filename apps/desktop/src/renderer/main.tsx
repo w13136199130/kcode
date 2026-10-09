@@ -10,6 +10,7 @@ import { Timeline } from "./components/Timeline.js";
 import { Composer } from "./components/Composer.js";
 import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
 import { applyEvent, initialTimeline, type TimelineState } from "./components/projection.js";
+import { CommandPalette } from "./components/CommandPalette.js";
 import "./styles.css";
 
 /**
@@ -42,6 +43,44 @@ function DesktopApp() {
   const [defaultCwd, setDefaultCwd] = useState("");
   /** 会话版本号：切换/续接时 +1——触发投影重置与重放 */
   const [sessionVersion, setSessionVersion] = useState(0);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // 系统通知（M3a）：仅在窗口失焦时发——任务完成 / 待审批（沿检测去重）
+  const prevBusyRef = useRef(timeline.busy);
+  const prevAskRef = useRef<string | null>(null);
+  useEffect(() => {
+    const focused = document.hasFocus();
+    if (prevBusyRef.current === true && timeline.busy === false && !focused) {
+      window.kcodeHost?.notify("kcode", "任务已完成");
+    }
+    prevBusyRef.current = timeline.busy;
+    const askId = ask?.requestId ?? null;
+    if (askId !== null && prevAskRef.current !== askId && !focused) {
+      window.kcodeHost?.notify("kcode", `等待审批：${ask.tool}`);
+    }
+    prevAskRef.current = askId;
+  }, [timeline.busy, ask]);
+
+  // 全局快捷键（capture；命令面板 / 新窗口 / 侧栏）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (k === "n") {
+        e.preventDefault();
+        window.kcodeHost?.newWindow();
+      } else if (k === "b") {
+        e.preventDefault();
+        setSidebarCollapsed((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const createdRef = useRef(false);
   const processed = useRef(0);
 
@@ -150,7 +189,10 @@ function DesktopApp() {
   }
 
   return (
-    <WorkspaceLayout
+    <>
+      <WorkspaceLayout
+      collapsed={sidebarCollapsed}
+      onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
       sidebar={
         <SessionSidebar
           conn={conn}
@@ -199,6 +241,20 @@ function DesktopApp() {
         </div>
       }
     />
+      {paletteOpen ? (
+        <CommandPalette
+          mode={mode}
+          onClose={() => setPaletteOpen(false)}
+          onNewWindow={() => window.kcodeHost?.newWindow()}
+          onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
+          onInterrupt={onStop}
+          onModeChange={(m) => {
+            setMode(m);
+            void conn.send("session/set_mode", { mode: m }).catch(() => undefined);
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

@@ -5,8 +5,16 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
  * 侧栏宽度走 CSS 变量（窗口原生 resize 不触发 React 重渲——zcode 实测经验），
  * 自绘 resize 手柄：pointer 拖拽 + 双击复位；Ctrl/⌘+B 折叠。
  */
-export function WorkspaceLayout(props: { sidebar: ReactNode; main: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+export function WorkspaceLayout(props: {
+  sidebar: ReactNode;
+  main: ReactNode;
+  /** 受控折叠（Ctrl+B / 命令面板共用一个状态源） */
+  collapsed?: boolean;
+  onToggleSidebar?(): void;
+}) {
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const effectiveCollapsed = props.collapsed ?? internalCollapsed;
+  const setCollapsed = setInternalCollapsed;
   const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
@@ -28,7 +36,10 @@ export function WorkspaceLayout(props: { sidebar: ReactNode; main: ReactNode }) 
     dragState.current = null;
   };
 
-  const toggle = useCallback(() => setCollapsed((v) => !v), []);
+  const toggle = useCallback(() => {
+    if (props.onToggleSidebar !== undefined) props.onToggleSidebar();
+    else setCollapsed((v) => !v);
+  }, [props.onToggleSidebar]);
 
   return (
     <div
@@ -40,7 +51,7 @@ export function WorkspaceLayout(props: { sidebar: ReactNode; main: ReactNode }) 
         }
       }}
     >
-      <div className={`workspace-sidebar ${collapsed ? "collapsed" : ""}`}>{props.sidebar}</div>
+      <div className={`workspace-sidebar ${effectiveCollapsed ? "collapsed" : ""}`}>{props.sidebar}</div>
       <div
         className="sidebar-resizer"
         role="separator"

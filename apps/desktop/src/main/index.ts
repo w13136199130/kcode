@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, Notification, ipcMain } from "electron";
 import { spawnHost, type HostHandle } from "./host.js";
 import { runSmoke } from "./smoke.js";
 import { readFile } from "node:fs/promises";
@@ -100,6 +100,28 @@ app.whenReady().then(() => {
   });
   // 默认工作目录（M2a 先 homedir；工作区选择器随 M2b）
   ipcMain.handle("kcode:default-cwd", () => homedir());
+
+  // 系统通知（M3a）：renderer 只在「窗口失焦」时发送（去重在 renderer 侧）；
+  // 通知点击 → 聚焦窗口；同时任务栏闪烁（Windows flashFrame）
+  ipcMain.on("kcode:notify", (_e, payload: { title?: string; body?: string }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win !== undefined && !win.isFocused()) {
+      win.flashFrame(true);
+    }
+    if (!Notification.isSupported()) return;
+    const n = new Notification({
+      title: payload.title ?? "kcode",
+      body: payload.body ?? "",
+    });
+    n.on("click", () => {
+      const w = BrowserWindow.getAllWindows()[0];
+      if (w !== undefined) {
+        w.show();
+        w.focus();
+      }
+    });
+    n.show();
+  });
 
   // 新建会话 = 新窗口（每窗口一 host，注 D）
   ipcMain.on("kcode:new-window", () => createMainWindow());

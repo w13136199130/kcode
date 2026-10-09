@@ -55,6 +55,10 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   getDefaultCwd(): Promise<string> {
     return ipcRenderer.invoke("kcode:default-cwd");
   },
+  /** 系统通知（renderer 仅在窗口失焦时发送——去重纪律在调用侧） */
+  notify(title: string, body: string): void {
+    ipcRenderer.send("kcode:notify", { title, body });
+  },
 });
 
 /** preload 内部端口对象的类型（DOM MessagePort 的最小用面） */
