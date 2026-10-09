@@ -556,7 +556,7 @@ export interface IPlatformService {
 | 里程碑 | 内容 | 验收 | 量级 |
 |---|---|---|---|
 | M1 骨架与对话（**无窗口验收已通过 2026-10-09**：`--kcode-smoke` 模式——main fork host + MessagePortMain 直连走完整协议，真实模型流式 delta + session_end completed + host 优雅退出，SMOKE_EXIT=0；窗口视觉验收待用户跑 dev） | apps/desktop 三层骨架 + electron dev 脚本 + host port 入口 + port 转交 + attach/detach 一等操作 + renderer 复用 web 组件渲染只读会话流（发送→流式正文/思考/工具卡） | 桌面窗口内经真实模型完成一轮对话（含工具调用展示）；关窗 host 优雅退出无残留进程；**窗口刷新（reload）会话不丢（重挂端口）** | 1 周 |
-| M2 交互闭环 | 审批往返（ask/request↔response、plan/approval 经 Dialogs）、/model·/login（platform RPC 经 host）、多窗口=多会话 | 桌面端完成一次带审批的写文件任务；双窗口两会话互不干扰 | 1 周 |
+| M2 交互闭环（**已由 §8.4h 界面重建分期取代**——M2a 骨架与时间线 / M2b 交互闭环） | 审批往返（ask/request↔response、plan/approval 经 Dialogs）、/model·/login（platform RPC 经 host）、多窗口=多会话 | 桌面端完成一次带审批的写文件任务；双窗口两会话互不干扰 | 见 §8.4h |
 | M3 桌面化收尾 | 系统通知（bell→OS 通知）、自动更新检查（主进程拉 latest.json 比对→提示+下载）、electron-builder 打包（NSIS+portable） | 打包产物可安装运行；更新检查可见 | 0.5–1 周 |
 
 **取舍**：① 不抽 web-ui 共享包——M1 renderer 经 vite alias 直连 apps/web/src，M2 后视耦合再决定抽包；② 自动更新只做"检查+提示+下载打开"，electron-updater 式静默替换二期（其 feed 格式与 kcode latest.json 不同构）；③ 不做 host 内多会话（注 D 既有），桌面多会话=多窗口多 host；④ 自定义菜单键位不做（与 CLI 同取舍）。
@@ -567,6 +567,33 @@ export interface IPlatformService {
 - **③ main↔host 控制面从第一天就走 zod 校验的最小消息集**（zcode 教训：消息类型膨胀到 40+、main/host 单文件超 eslint 上限）——kcode 控制面天然极小（spawn/exit/attach 三类），契约版本化起步。
 - **④ renderer 生产加载源 M3 决定自定义协议（opencode oc:// 同款）vs file://**——dev 走 vite dev server，打包态自定义协议天然隔离 origin。
 - **⑤ 协议维持自研 host-protocol**（CLI/Web 中继/host 测试四端已复用），**ACP（Zed 开放协议，goose 采用）列为 N4 编辑器互操作观察项**——现在切换是无收益重写。
+
+### 8.4h 阶段 N3-4-UI：桌面端界面重建设计（2026-10-09 定稿；zcode renderer/ui 包实测 + Codex/Claude Code/Cursor/Conductor/Warp 公开形态调研）
+
+> 立项动因：M1 复用 Web Chat 只是临时形态，距 zcode 级桌面体验差距大。本节定目标形态与分期，替代 §8.4g 原 M2/M3 划分。
+> 调研结论摘要：**产品共识**——三栏骨架（会话列表+转写+右侧上下文面板）、diff 摘要徽标+专属面板、composer 旁权限模式选择器+打断式审批卡、工具调用折叠+全局详细度、内置终端/浏览器 pane、steering（排队/侧聊）、后台+系统通知；**两条翻车教训**（Codex/Cursor 实证）——侧栏列表必须虚拟化（否则 10-15 FPS 级卡顿）、布局一旦发布要稳定（频繁改版招众怒）。**zcode 可抄实现**——CSS 变量侧栏宽度+自绘 resize 手柄、两层 ResizablePanelGroup+动画折叠、虚拟滚动+行高缓存跨会话复用+live-tail 拆分（running 单元移出虚拟列表防测高跳动）、工具卡 renderer 注册制（一 kind 一文件）、快捷键单一事实源+capture 分发、streamdown 容错未闭合 markdown、思考行默认收起只显时长。
+
+**目标布局**（三栏骨架，zcode 骨架 + kcode 减法）：
+
+```
+┌─ 侧栏 264px（CSS 变量宽/自绘手柄/⌘B 折叠）─┬─ 主区 ─────────────────────────────┬─ Side Pane（后期）─┐
+│ 会话列表（sessions/list；按项目分组；虚拟化） │ WorkspaceHeader（项目名·模式选择器·模型选择器·上下文环）│ Diff 查看器       │
+│ + 新建会话                                    │ 转写时间线（虚拟滚动+live-tail）                      │ （终端/浏览器 N4） │
+│ + 底部设置入口                                 │ Composer（多行+斜杠菜单+@补全+发送状态机）            │                  │
+└──────────────────────────────────────────────┴──────────────────────────────────────────────────────┴──────────────────┘
+```
+
+**分期**（替代原 M2/M3）：
+
+| 期 | 内容 | 验收 | 量级 |
+|---|---|---|---|
+| M2a 骨架与时间线 | 三栏布局（侧栏/主区/Side Pane 占位）+ 虚拟滚动时间线（行高缓存+loadOlder+live-tail）+ 行分发器（用户/助手 streamdown/思考默认收起/工具卡 renderer 注册制/info/分隔线）+ 工具卡 inline diff（轻量 hunk 首帧+异步 Shiki）+ Composer 基础（多行 textarea+发送状态机） | 桌面窗口长会话（500+ 行）流畅滚动；工具卡折叠/展开/diff 渲染；流式正文无跳动 | 1.5–2 周 |
+| M2b 交互闭环 | PermissionDialog 四档（本项目档内联参数级规则——N3I-5 桌面呈现）+ plan/ask_user 弹层 + 模式选择器（四档同 CLI）+ 模型选择器（复用 /model 数据）+ **转写重放**（reload 按游标恢复历史——M1 幂等 create 的补全）+ 会话侧栏（列表/切换/新建/续接，虚拟化） | 桌面完成带审批的写文件任务；刷新窗口历史完整恢复；双窗口两会话互不干扰 | 1–1.5 周 |
+| M3 桌面化收尾 | 系统通知（终态/待审批，去重）+ badge + 托盘 + 快捷键面（⌘K 命令面板/⌘B 侧栏/⌘F 查找——单一事实源+capture 分发）+ 更新检查（latest.json）+ electron-builder 打包 + 设置页（覆盖层形态不卸载主界面）+ diff 专属面板（文件列表+split/inline） | 打包产物可安装；通知/角标/快捷键齐 | 1–1.5 周 |
+
+**明确不做**（减法取舍，防 zcode 式膨胀——其 v4 时间线单文件 2000+ 行×3、composer 2387 行）：Lexical 富文本（textarea+DOM 补全菜单够用，升级窗口保留）、多 workspace tab（窗口=会话已定）、远程 SSH workspace、内嵌浏览器 pane（N4）、语音输入、行内评论式 diff 审查/PR 流程（N4）、多 agent 并行看板（N4+）。**主题**：@kcode/design 双主题跟随系统（调研无一手证据表明任何竞品默认暗色——不预设）、`--ui-font-size` 根字号体系、CJK 字体栈显式回退、终端 ANSI 色与桌面同源令牌。
+
+**复用面**：@kcode/design 令牌（web/terminal 已同源）、host-protocol（sessions/list、ask 往返、set_mode 齐）、N3I-5 放行规则引擎（审批四档桌面呈现）、web Chat 的事件→状态投影逻辑（抽公共后时间线消费）。
 
 ### 8.5 阶段 N4：生态与云（P3+）
 
