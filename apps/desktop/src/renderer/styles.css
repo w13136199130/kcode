@@ -1,0 +1,423 @@
+/* kcode 桌面端样式（M2a，§8.4h）：消费 @kcode/design CSS 变量（webCssTheme 注入），
+   双主题跟随系统。布局宽度走 CSS 变量（窗口 resize 不触发 React 重渲——zcode 经验）。 */
+
+* {
+  box-sizing: border-box;
+}
+:root {
+  --workspace-sidebar-width: 264px;
+}
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  font-size: 14px;
+  font-family: system-ui, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  background: var(--kcode-bg);
+  color: var(--kcode-foreground);
+}
+
+/* ===== 三栏布局 ===== */
+.workspace-root {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.workspace-sidebar {
+  width: var(--workspace-sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--kcode-bg-panel);
+  border-right: 1px solid var(--kcode-border);
+  transition: margin-left 0.2s ease;
+}
+.workspace-sidebar.collapsed {
+  margin-left: calc(-1 * var(--workspace-sidebar-width));
+}
+.sidebar-resizer {
+  width: 4px;
+  margin-left: -2px;
+  cursor: col-resize;
+  z-index: 10;
+  flex-shrink: 0;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer:active {
+  background: color-mix(in srgb, var(--kcode-brand) 50%, transparent);
+}
+.workspace-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 侧栏 ===== */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px;
+  font-weight: 600;
+}
+.sidebar-new {
+  border: none;
+  background: transparent;
+  color: var(--kcode-foreground-subtle);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.sidebar-new:hover {
+  background: var(--kcode-bg-subtle);
+  color: var(--kcode-foreground);
+}
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+.sidebar-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: default;
+  margin-bottom: 2px;
+}
+.sidebar-item.active {
+  background: var(--kcode-bg-subtle);
+}
+.sidebar-item-preview {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-item-meta {
+  font-size: 11px;
+  color: var(--kcode-foreground-subtle);
+  margin-top: 2px;
+}
+.sidebar-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--kcode-foreground-subtle);
+}
+
+/* ===== 顶栏 ===== */
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--kcode-border);
+  -webkit-app-region: drag;
+}
+.workspace-title {
+  font-weight: 600;
+}
+.workspace-badges {
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+.badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--kcode-bg-subtle);
+  color: var(--kcode-foreground-subtle);
+  border: 1px solid var(--kcode-border);
+}
+
+/* ===== 时间线 ===== */
+.main-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.timeline-inner {
+  position: relative;
+}
+.row-user {
+  margin: 12px 0;
+}
+.row-user-text {
+  background: var(--kcode-bg-subtle);
+  border: 1px solid var(--kcode-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-left: 15%;
+  white-space: pre-wrap;
+}
+.row-assistant {
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.row-assistant.live {
+  opacity: 0.9;
+}
+.row-thinking {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--kcode-foreground-subtle);
+}
+.row-thinking summary {
+  cursor: pointer;
+  user-select: none;
+}
+.row-thinking pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--kcode-bg-subtle);
+  border-radius: 6px;
+}
+.row-thinking-live {
+  font-size: 12px;
+  color: var(--kcode-foreground-subtle);
+  padding: 4px 0;
+}
+.row-info {
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--kcode-foreground-subtle);
+}
+.row-info.tone-ok {
+  color: var(--kcode-success);
+}
+.row-info.tone-deny {
+  color: var(--kcode-destructive);
+}
+.row-info.tone-warn {
+  color: var(--kcode-warning);
+}
+.row-separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--kcode-foreground-subtle);
+  font-size: 12px;
+  margin: 16px 0;
+}
+.row-separator::before,
+.row-separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--kcode-border);
+}
+.row-busy {
+  color: var(--kcode-foreground-subtle);
+  font-size: 13px;
+  padding: 6px 0;
+}
+.spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--kcode-border);
+  border-top-color: var(--kcode-brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 工具卡 ===== */
+.tool-card {
+  margin: 6px 0;
+}
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--kcode-bg-panel);
+  border: 1px solid var(--kcode-border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.tool-head:hover {
+  border-color: color-mix(in srgb, var(--kcode-brand) 40%, var(--kcode-border));
+}
+.tool-icon {
+  color: var(--kcode-foreground-subtle);
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.tool-name {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.tool-args {
+  color: var(--kcode-foreground-subtle);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.tool-status {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.tool-ok {
+  color: var(--kcode-success);
+}
+.tool-fail {
+  color: var(--kcode-destructive);
+}
+.tool-run {
+  color: var(--kcode-info);
+}
+.tool-chevron {
+  color: var(--kcode-foreground-subtle);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.tool-body {
+  border: 1px solid var(--kcode-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 10px 12px;
+  background: var(--kcode-bg-subtle);
+}
+.tool-detail {
+  margin-bottom: 8px;
+}
+.tool-code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.tool-meta {
+  font-size: 12px;
+  color: var(--kcode-foreground-subtle);
+  margin-top: 4px;
+}
+.tool-diff {
+  margin: 6px 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.diff-line {
+  white-space: pre;
+  padding: 0 6px;
+}
+.diff-added {
+  color: var(--kcode-diff-added);
+  background: color-mix(in srgb, var(--kcode-diff-added) 10%, transparent);
+}
+.diff-removed {
+  color: var(--kcode-diff-removed);
+  background: color-mix(in srgb, var(--kcode-diff-removed) 10%, transparent);
+}
+.tool-error {
+  color: var(--kcode-destructive);
+  font-size: 12px;
+  margin-top: 6px;
+  white-space: pre-wrap;
+}
+.tool-output {
+  margin: 8px 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+  color: var(--kcode-foreground-subtle);
+}
+
+/* ===== Composer ===== */
+.composer {
+  padding: 12px 20px 16px;
+}
+.composer-queued {
+  font-size: 12px;
+  color: var(--kcode-warning);
+  padding: 4px 4px 8px;
+}
+.composer-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--kcode-bg-panel);
+  border: 1px solid var(--kcode-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.composer-box:focus-within {
+  border-color: color-mix(in srgb, var(--kcode-brand) 55%, var(--kcode-border));
+}
+.composer-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  max-height: 200px;
+}
+.composer-send,
+.composer-stop {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  cursor: pointer;
+  font: inherit;
+  flex-shrink: 0;
+}
+.composer-send {
+  background: var(--kcode-brand);
+  color: #fff;
+}
+.composer-send:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-stop {
+  background: var(--kcode-destructive);
+  color: #fff;
+}
+
+/* ===== 居中提示 ===== */
+.center-note {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 2;
+}
+.center-note .dim {
+  color: var(--kcode-foreground-subtle);
+  font-size: 13px;
+}

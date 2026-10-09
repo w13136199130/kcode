@@ -40,4 +40,12 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   getDefaultModel(): Promise<string | null> {
     return ipcRenderer.invoke("kcode:default-model");
   },
+  /** 新建会话 = 新窗口（窗口=会话的既定拓扑） */
+  newWindow(): void {
+    ipcRenderer.send("kcode:new-window");
+  },
+  /** 默认工作目录（M2a = homedir；工作区选择器 M2b） */
+  getDefaultCwd(): Promise<string> {
+    return ipcRenderer.invoke("kcode:default-cwd");
+  },
 });

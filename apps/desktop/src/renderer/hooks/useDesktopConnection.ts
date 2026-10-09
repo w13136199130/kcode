@@ -15,6 +15,8 @@ declare global {
       send(data: string): void;
       onHostExit(callback: (code: number) => void): void;
       getDefaultModel(): Promise<string | null>;
+      newWindow(): void;
+      getDefaultCwd(): Promise<string>;
     };
   }
 }

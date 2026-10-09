@@ -95,6 +95,11 @@ app.whenReady().then(() => {
       return null;
     }
   });
+  // 默认工作目录（M2a 先 homedir；工作区选择器随 M2b）
+  ipcMain.handle("kcode:default-cwd", () => homedir());
+
+  // 新建会话 = 新窗口（每窗口一 host，注 D）
+  ipcMain.on("kcode:new-window", () => createMainWindow());
 
   if (isSmoke) {
     void runSmoke()

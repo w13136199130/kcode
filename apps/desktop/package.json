@@ -12,6 +12,7 @@
   "dependencies": {
     "@kcode/contracts": "workspace:*",
     "@kcode/design": "workspace:*",
+    "@tanstack/react-virtual": "^3.14.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
