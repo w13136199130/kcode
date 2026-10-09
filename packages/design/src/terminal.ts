@@ -9,7 +9,9 @@ export const TERMINAL_COLORS: Record<SemanticColor, string | undefined> = {
   foreground: undefined,
   foregroundSubtle: "#94a3b8",
   brand: "cyan",
-  accent: "magenta",
+  // ANSI magenta 在 Windows Terminal 渲染成 ~#800080 深紫（截图反馈"太深"）；
+  // CC 选中菜单描述/面板标题是淡薰衣草紫——hex 恒定
+  accent: "#c4b5fd",
   success: "#86efac",
   warning: "#fbbf24",
   destructive: "#fca5a5",

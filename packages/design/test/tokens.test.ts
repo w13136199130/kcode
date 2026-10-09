@@ -5,7 +5,7 @@ describe("设计令牌与终端映射", () => {
   it("语义令牌映射到终端颜色；正文继承前景色", () => {
     // 状态色为柔和 hex（zcode 暗色主题同值——饱和 ANSI 蓝绿在深底"太深"，截图反馈实测）
     expect(terminalColor("brand")).toBe("cyan");
-    expect(terminalColor("accent")).toBe("magenta");
+    expect(terminalColor("accent")).toBe("#c4b5fd");
     expect(terminalColor("success")).toBe("#86efac");
     expect(terminalColor("warning")).toBe("#fbbf24");
     expect(terminalColor("destructive")).toBe("#fca5a5");
