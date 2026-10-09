@@ -24,9 +24,16 @@ ipcRenderer.on("kcode:host-port", (event) => {
 });
 
 contextBridge.exposeInMainWorld("kcodeHost", {
-  /** 宿主帧到达（一消息一 JSON 字符串，host-protocol） */
-  onMessage(callback: (data: string) => void): void {
+  /**
+   * 宿主帧到达（一消息一 JSON 字符串，host-protocol）。
+   * 返回退订函数——StrictMode 双挂载会重复订阅（每条事件处理两遍=界面全双份，M2a 实测），
+   * 订阅方必须在 cleanup 里退订。
+   */
+  onMessage(callback: (data: string) => void): () => void {
     messageHandlers.add(callback);
+    return () => {
+      messageHandlers.delete(callback);
+    };
   },
   /** 发送宿主帧（JSON 字符串） */
   send(data: string): void {
@@ -49,3 +56,9 @@ contextBridge.exposeInMainWorld("kcodeHost", {
     return ipcRenderer.invoke("kcode:default-cwd");
   },
 });
+
+/** preload 内部端口对象的类型（DOM MessagePort 的最小用面） */
+type MessagePort = {
+  postMessage(data: string): void;
+  onmessage: ((ev: { data: unknown }) => void) | null;
+};

@@ -12,6 +12,7 @@ export function RowView({ row }: { row: Row }) {
     case "user":
       return (
         <div className="row-user">
+          <div className="row-user-label">你</div>
           <div className="row-user-text">{row.text}</div>
         </div>
       );

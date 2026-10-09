@@ -1,14 +1,26 @@
 import { useRef, useState } from "react";
+import type { PermissionMode } from "@kcode/contracts";
+
+/** 模式四档的 composer 选择器元数据（与 CLI MODE_META 同语义） */
+const MODES: Array<{ value: PermissionMode; label: string }> = [
+  { value: "plan", label: "⏸ 只读" },
+  { value: "default", label: "⏵ 变更确认" },
+  { value: "acceptEdits", label: "⏵⏵ 自动编辑" },
+  { value: "fullAccess", label: "⏵⏵⏵ 完全访问" },
+];
 
 /**
- * Composer（M2a 基础版，§8.4h）：多行自适应输入 + 发送状态机
- * （canSend → 运行中变 Stop（中断））。Enter 发送 / Shift+Enter 换行；
- * 斜杠命令菜单与 @ 补全随 M2b 模式/模型选择器一批落地。
+ * Composer（M2a，zcode 布局对标）：多行输入 + 底部工具条
+ * （左：模式选择器——接 session/set_mode；右：模型名 + 发送/停止）。
+ * Enter 发送 / Shift+Enter 换行（IME 组词保护）。
  */
 export function Composer(props: {
   busy: boolean;
   disabled: boolean;
   queuedCount: number;
+  mode: PermissionMode;
+  model: string | null;
+  onModeChange(mode: PermissionMode): void;
   onSend(text: string): void;
   onStop(): void;
 }) {
@@ -29,6 +41,10 @@ export function Composer(props: {
     setText("");
     requestAnimationFrame(autoSize);
   };
+
+  const shortModel = props.model !== null && props.model.includes("/")
+    ? props.model.split("/").slice(1).join("/")
+    : props.model;
 
   return (
     <div className="composer">
@@ -52,20 +68,42 @@ export function Composer(props: {
             }
           }}
         />
-        {props.busy ? (
-          <button type="button" className="composer-stop" onClick={props.onStop} title="中断当前运行">
-            ■ 停止
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="composer-send"
-            disabled={text.trim() === "" || props.disabled}
-            onClick={send}
+        <div className="composer-toolbar">
+          <select
+            className="composer-mode"
+            value={props.mode}
+            disabled={props.disabled}
+            onChange={(e) => props.onModeChange(e.target.value as PermissionMode)}
+            title="权限模式"
           >
-            发送
-          </button>
-        )}
+            {MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <div className="composer-toolbar-right">
+            {shortModel !== null && shortModel !== "" ? (
+              <span className="composer-model" title={props.model ?? ""}>
+                {shortModel}
+              </span>
+            ) : null}
+            {props.busy ? (
+              <button type="button" className="composer-stop" onClick={props.onStop} title="中断当前运行">
+                ■ 停止
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="composer-send"
+                disabled={text.trim() === "" || props.disabled}
+                onClick={send}
+              >
+                发送
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

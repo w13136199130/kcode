@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import { spawnHost, type HostHandle } from "./host.js";
 import { runSmoke } from "./smoke.js";
 import { readFile } from "node:fs/promises";
@@ -84,6 +84,9 @@ function joinRendererIndex(): string {
 }
 
 app.whenReady().then(() => {
+  // 系统菜单栏移除（File/Edit/View… 是开发期遗留——桌面形态走应用内控件，zcode 同款减法）
+  Menu.setApplicationMenu(null);
+
   // 用户级配置的默认模型（renderer 建会话用；host 侧才是 key/凭证边界）
   ipcMain.handle("kcode:default-model", async () => {
     try {

@@ -124,7 +124,7 @@ export class HostServer {
       }
       case "sessions/list": {
         const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions"));
-        return { sessions: summaries.slice(0, 20).map((s) => ({ sessionId: s.sessionId, preview: s.preview, turns: s.turns })) };
+        return { sessions: summaries.slice(0, 20).map((s) => ({ sessionId: s.sessionId, preview: s.preview, turns: s.turns, modifiedAt: s.modifiedAt })) };
       }
       default:
         throw new Error(`未知方法 ${method}`);

@@ -99,7 +99,19 @@ function DesktopApp() {
         <div className="main-column">
           <WorkspaceHeader title="kcode" model={modelDefault} mode={mode} />
           <Timeline state={timeline} />
-          <Composer busy={timeline.busy} disabled={!ready} queuedCount={0} onSend={onSend} onStop={onStop} />
+          <Composer
+            busy={timeline.busy}
+            disabled={!ready}
+            queuedCount={0}
+            mode={mode}
+            model={modelDefault}
+            onModeChange={(m) => {
+              setMode(m);
+              void conn.send("session/set_mode", { mode: m }).catch(() => undefined);
+            }}
+            onSend={onSend}
+            onStop={onStop}
+          />
         </div>
       }
     />

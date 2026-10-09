@@ -74,17 +74,22 @@ export function useDesktopConnection(): HostConnection {
       }
     };
 
-    bridge.onMessage(handleFrame);
-    // 断连感知统一走宿主退出通道（DOM MessagePort 无远端关闭回调——preload 排障记录）
-    bridge.onHostExit(() => {
+    const unsubscribe = bridge.onMessage(handleFrame);
+    const onHostExit = (code: number): void => {
       setStatus("closed");
-      failAll("宿主进程已退出");
-    });
+      failAll(`宿主进程已退出（code=${code}）`);
+    };
+    bridge.onHostExit(onHostExit);
 
     // 握手由本端发起（host 收到端口即等待 hello）
     bridge.send(
       JSON.stringify({ kind: "hello", hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: [] } }),
     );
+
+    return () => {
+      // StrictMode 双挂载：不退订 = 两个 handler 各处理一遍每条事件（界面全双份，M2a 实测）
+      unsubscribe();
+    };
   }, []);
 
   const send = useCallback(async (method: string, params?: unknown): Promise<unknown> => {
