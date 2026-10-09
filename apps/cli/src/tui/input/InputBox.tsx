@@ -268,7 +268,7 @@ export function InputBox(props: {
           setFileMenu({ ...fileMenu, index: (fileMenu.index + 1) % fileMenu.items.length });
           return;
         }
-        if (key.tab || key.return) {
+        if ((key.tab && !key.shift) || key.return) {
           insertFileCandidate(fileMenu.items[fileMenu.index] ?? fileMenu.items[0]!);
           return;
         }
@@ -287,7 +287,7 @@ export function InputBox(props: {
           setPathMenu({ ...pathMenu, index: (pathMenu.index + 1) % pathMenu.items.length });
           return;
         }
-        if (key.tab || key.return) {
+        if ((key.tab && !key.shift) || key.return) {
           insertPathCandidate(pathMenu.items[pathMenu.index] ?? pathMenu.items[0]!);
           return;
         }
@@ -309,7 +309,7 @@ export function InputBox(props: {
             boundary.current = true; // 提交后外部清空是独立撤销单元
             props.onSubmit(`/${picked.name}`);
           }
-        } else if (key.tab) {
+        } else if (key.tab && !key.shift) {
           const picked = matches[clamped] ?? matches[0];
           if (picked !== undefined) {
             setValue(`/${picked.name} `);
@@ -378,7 +378,7 @@ export function InputBox(props: {
           boundary.current = true; // 提交后外部清空是独立撤销单元（误触回车可 Ctrl+Z 找回草稿）
           props.onSubmit(props.value);
         }
-      } else if (key.tab && !props.value.startsWith("/")) {
+      } else if (key.tab && !key.shift && !props.value.startsWith("/")) {
         // N3G-1 三态判定（此刻无任何菜单）：@ 优先（上方 fileMenu 已处理）；
         // 命令态（/ 开头）走参数提示不插入；路径形态 → 打开路径补全菜单
         const token = tokenBeforeCursor();

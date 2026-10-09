@@ -1,6 +1,8 @@
 import { Text } from "ink";
+import type { PermissionMode } from "@kcode/contracts";
 import type { UsageStats } from "@kcode/ui";
 import { c } from "../theme/theme.js";
+import { MODE_META } from "../theme/modes.js";
 
 /**
  * 运行状态行（N3-3 体验优化：对标 Claude Code 极简风格）：
@@ -26,11 +28,14 @@ export function StatusLine(props: {
   );
 }
 
-/** 底部常驻状态栏（对齐批简化：默认最少——zcode/CC 同哲学，用量细节归 /cost /context）：
- * 模式 · 模型 · ctx 百分比（分母=压缩预算，即"距自动压缩"口径，85%+ 警示色）
- * · 分支 · busy 态场景提示（运行时才出现，非空闲装饰）。无数据的段自动隐藏。 */
+/**
+ * 底部常驻状态栏（CC 样张形态）：`⏵⏵ 自动编辑（shift+tab 切换） · 模型 · 上下文 3% · ⎇ main`
+ * - 模式段：glyph（⏸/⏵/⏵⏵/⏵⏵⏵ 递进速度隐喻）+ 中文标签白显，切换提示 muted（空闲才显示）
+ * - 上下文百分比（分母=压缩预算，"距自动压缩"口径）——ctx 缩写换中文直觉措辞（反馈）
+ * - busy 态场景提示运行时才出现；无数据段自动隐藏；用量绝对值归 /cost /context
+ */
 export function StatusBar(props: {
-  modeLabel: string;
+  mode: PermissionMode;
   modelLabel: string;
   verbose: boolean;
   repaintTick: number;
@@ -45,15 +50,21 @@ export function StatusBar(props: {
   const hot = usage !== null && usage.historyBudget > 0 && usage.historyTokens / usage.historyBudget > 0.85;
   const ctxPercent =
     usage !== null ? Math.round((usage.historyTokens / Math.max(usage.historyBudget, 1)) * 100) : 0;
+  const meta = MODE_META[props.mode];
+  const muted = c("foregroundSubtle");
+  const modelShort = props.modelLabel.includes("/") ? props.modelLabel.split("/").slice(1).join("/") : props.modelLabel;
   return (
-    <Text dimColor wrap="truncate-end">
+    <Text wrap="truncate-end">
       {"  "}
-      <Text color={c("brand")}>{props.modeLabel}</Text>
-      {`  ${props.modelLabel}`}
-      {usage !== null && <Text color={hot ? c("warning") : undefined}>{` — ctx ${ctxPercent}%`}</Text>}
-      {props.branch != null && props.branch !== "" ? ` — ⎇ ${props.branch}` : ""}
+      <Text>
+        {`${meta.glyph} ${meta.label}`}
+        {props.busy ? null : <Text color={muted}>{"（shift+tab 切换）"}</Text>}
+      </Text>
+      <Text color={muted}>{` · ${modelShort}`}</Text>
+      {usage !== null && <Text color={hot ? c("warning") : muted}>{` · 上下文 ${ctxPercent}%`}</Text>}
+      {props.branch != null && props.branch !== "" ? <Text color={muted}>{` · ⎇ ${props.branch}`}</Text> : null}
       {props.busy ? (
-        <Text dimColor> — Ctrl+C cancel · Ctrl+O {props.verbose ? "collapse" : "expand"}</Text>
+        <Text color={muted}>{` · Ctrl+C 取消 · Ctrl+O ${props.verbose ? "收起" : "展开"}`}</Text>
       ) : null}
     </Text>
   );

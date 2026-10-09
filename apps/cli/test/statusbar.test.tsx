@@ -12,10 +12,10 @@ import { readGitBranch } from "../src/tui/state/status-data.js";
  */
 
 describe("StatusBar 常驻信息段", () => {
-  it("有用量与分支时渲染 ctx 百分比与分支段；绝对值与累计用量不再常驻（对齐批简化）", () => {
+  it("CC 样张形态：⏵ 模式段+切换提示+短模型名+上下文措辞+圆点分隔（ctx 缩写已废）", () => {
     const { lastFrame } = render(
       <StatusBar
-        modeLabel="default"
+        mode="default"
         modelLabel="deepseek/chat"
         verbose={false}
         repaintTick={0}
@@ -31,28 +31,36 @@ describe("StatusBar 常驻信息段", () => {
       />,
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("default");
-    expect(frame).toContain("deepseek/chat");
-    expect(frame).toContain("ctx 31%");
+    expect(frame).toContain("⏵ 变更确认");
+    expect(frame).toContain("（shift+tab 切换）");
+    expect(frame).toContain("chat"); // 模型短名（provider 前缀省略）
+    expect(frame).toContain("上下文 31%");
+    expect(frame).not.toContain("ctx"); // 缩写换中文直觉措辞
     expect(frame).not.toContain("24k/77k"); // 绝对值归 /context
     expect(frame).not.toContain("⇅"); // 累计用量归 /cost
     expect(frame).toContain("⎇ main");
   });
 
-  it("无用量/分支时两段整体隐藏（不残留分隔符）", () => {
-    const { lastFrame } = render(
-      <StatusBar modeLabel="plan" modelLabel="m" verbose={false} repaintTick={0} busy={false} />,
+  it("无用量/分支时两段整体隐藏（不残留分隔符）；busy 态不再显示切换提示", () => {
+    const idle = render(
+      <StatusBar mode="plan" modelLabel="m" verbose={false} repaintTick={0} busy={false} />,
     );
-    const frame = lastFrame() ?? "";
-    expect(frame).not.toContain("ctx");
+    const frame = idle.lastFrame() ?? "";
+    expect(frame).toContain("⏸ 只读");
+    expect(frame).not.toContain("上下文");
     expect(frame).not.toContain("⎇");
-    expect(frame).not.toContain("/mode · /help · exit"); // 空闲尾巴已砍（横幅+ghost 覆盖）
+    const busy = render(
+      <StatusBar mode="default" modelLabel="m" verbose={false} repaintTick={0} busy={true} />,
+    );
+    const bframe = busy.lastFrame() ?? "";
+    expect(bframe).not.toContain("shift+tab"); // 忙时提示让位
+    expect(bframe).toContain("Ctrl+C 取消");
   });
 
   it("余量占用超 85% 时正常渲染警示分支（测试环境剥离 ANSI，色码不可断言）", () => {
     const { lastFrame } = render(
       <StatusBar
-        modeLabel="default"
+        mode="default"
         modelLabel="m"
         verbose={false}
         repaintTick={0}
@@ -61,7 +69,7 @@ describe("StatusBar 常驻信息段", () => {
         branch={null}
       />,
     );
-    expect(lastFrame()).toContain("ctx 90%");
+    expect(lastFrame()).toContain("上下文 90%");
   });
 });
 

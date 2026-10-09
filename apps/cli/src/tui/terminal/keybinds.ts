@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { useInput } from "ink";
 import type { PermissionMode } from "@kcode/contracts";
+import { MODE_CYCLE } from "../theme/modes.js";
 import type { Block, UiStore } from "@kcode/ui";
 
 /**
@@ -24,6 +25,18 @@ export function useKeybinds(deps: {
   pushBlock(block: Block): void;
 }): void {
   const lastIdleEscAt = useRef(0);
+  // shift+tab 循环切模式（CC 同款；状态栏提示的诚实前提）。fullAccess 不进循环（显式确认制），
+  // 当前在 fullAccess 时 shift+tab 回 plan（退出快车道）
+  useInput(
+    (_ch, key) => {
+      if (key.tab && key.shift) {
+        const idx = MODE_CYCLE.indexOf(deps.mode);
+        const next = idx === -1 ? MODE_CYCLE[0]! : MODE_CYCLE[(idx + 1) % MODE_CYCLE.length]!;
+        deps.applyMode(next);
+      }
+    },
+    { isActive: deps.interactive && !deps.menuOccupied },
+  );
   const lastCtrlCAt = useRef(0);
   const escHintTimer = useRef<NodeJS.Timeout | undefined>(undefined);
   // 任一覆盖层打开时其余键位让行（同一时刻只有一个键位层生效；两浏览器互斥由 slice 保证）

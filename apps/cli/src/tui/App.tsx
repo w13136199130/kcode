@@ -490,7 +490,7 @@ export function KcodeApp(props: KcodeAppProps) {
           />
         </DialogLayer>
         <StatusBar
-          modeLabel={meta.label}
+          mode={mode}
           modelLabel={modelLabel}
           verbose={verbose}
           repaintTick={repaintTick}
