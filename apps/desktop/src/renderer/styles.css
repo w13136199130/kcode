@@ -1051,3 +1051,26 @@ body,
 .row-assistant {
   margin: 14px 0;
 }
+
+/* ===== 草稿态（新会话居中——zcode ConversationTimeline:1913 同款） ===== */
+.main-column.draft .timeline-stack {
+  justify-content: center;
+  display: flex;
+  flex-direction: column;
+}
+.draft-welcome {
+  text-align: center;
+  padding: 60px 0 80px;
+  user-select: none;
+}
+.draft-welcome-title {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--z-fg);
+}
+.draft-welcome-sub {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--z-fg-subtlest);
+}

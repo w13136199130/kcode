@@ -190,6 +190,12 @@ export class HostSession {
     entry.resolve(params.labels);
   }
 
+  /** 释放当前会话（同窗口切会话用——进程继续活、后续可 create 新会话；与 shutdown 终态区分） */
+  async dispose(): Promise<void> {
+    await this.shutdown();
+    this.#closed = false; // 恢复可创建态
+  }
+
   /** 断连/退出：fail-closed 结算全部未决交互 + 关会话 */
   async shutdown(): Promise<void> {
     if (this.#closed) return;

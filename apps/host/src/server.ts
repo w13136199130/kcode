@@ -75,6 +75,14 @@ export class HostServer {
         this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
         return this.#session.create(p);
       }
+      case "session/dispose": {
+        // 同窗口切会话：释放旧会话（host 进程保持活——新建/续接接续而来）
+        if (this.#session !== null) {
+          await this.#session.dispose();
+          this.#session = null;
+        }
+        return { disposed: true };
+      }
       case "session/replay": {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.replay();

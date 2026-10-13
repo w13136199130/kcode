@@ -81,7 +81,7 @@ function DesktopApp() {
         setPaletteOpen((v) => !v);
       } else if (k === "n") {
         e.preventDefault();
-        window.kcodeHost?.newWindow();
+        onNewSessionRef.current?.();
       } else if (k === "b") {
         e.preventDefault();
         setSidebarCollapsed((v) => !v);
@@ -92,6 +92,7 @@ function DesktopApp() {
   }, []);
   const createdRef = useRef(false);
   const processed = useRef(0);
+  const onNewSessionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     void window.kcodeHost?.getDefaultModel().then(setModelDefault);
@@ -111,6 +112,8 @@ function DesktopApp() {
   // 转写重放（M2b）：会话就绪后拉一次全量事件重建时间线（reload/切换后续接都走这里）
   useEffect(() => {
     if (conn.status !== "ready" || sessionId === null) return;
+    // 切换会话（sessionVersion 变化）时先清时间线——避免旧会话内容闪留
+    setTimeline(initialTimeline());
     let cancelled = false;
     void conn
       .send("session/replay")
@@ -167,22 +170,38 @@ function DesktopApp() {
     void conn.send("session/interrupt").catch(() => undefined);
   };
 
-  /** 会话续接（M2b）：侧栏点击 → resume 重建（宿主单会话语义下重开同会话） */
+  /** 同窗口新建会话（反馈修订：不开新窗——zcode 同款侧栏切换体验） */
+  const onNewSession = useCallback((): void => {
+    if (modelDefault === null || defaultCwd === "") return;
+    void conn
+      .send("session/dispose")
+      .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd }))
+      .then((r) => {
+        setSessionId((r as { sessionId: string }).sessionId);
+        setSessionVersion((v) => v + 1);
+      })
+      .catch(() => undefined);
+  }, [conn, modelDefault, defaultCwd]);
+
+  /** 会话续接：同窗口 dispose→resume 重建 */
   const onResume = useCallback(
     (id: string): void => {
-      if (modelDefault === null || defaultCwd === "") return;
+      if (modelDefault === null || defaultCwd === "" || id === sessionId) return;
       void conn
-        .send("session/create", { model: modelDefault, cwd: defaultCwd, resumeFrom: id })
+        .send("session/dispose")
+        .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd, resumeFrom: id }))
         .then(() => {
           setSessionId(id);
-          setSessionVersion((v) => v + 1); // 触发重放
+          setSessionVersion((v) => v + 1);
         })
         .catch(() => undefined);
     },
-    [conn, modelDefault, defaultCwd],
+    [conn, modelDefault, defaultCwd, sessionId],
   );
 
   const ready = conn.status === "ready" && sessionId !== null;
+  onNewSessionRef.current = onNewSession;
+  const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
 
   if (conn.status === "error") {
     return <div className="center-note">⚠ 宿主连接失败：{conn.error}</div>;
@@ -210,14 +229,21 @@ function DesktopApp() {
           conn={conn}
           currentId={sessionId}
           onOpen={onResume}
+          onNewSession={onNewSession}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       }
       main={
-        <div className="main-column">
+        <div className={`main-column ${isEmpty ? "draft" : ""}`}>
           <WorkspaceHeader title="kcode" model={modelDefault} mode={mode} />
           <div className="timeline-stack">
               <Timeline state={timeline} onOpenDiff={setDiffRow} />
+              {isEmpty ? (
+                <div className="draft-welcome">
+                  <div className="draft-welcome-title">kcode</div>
+                  <div className="draft-welcome-sub">描述任务，Enter 发送</div>
+                </div>
+              ) : null}
             {ask !== null ? (
               <AskPanel
                 tool={ask.tool}

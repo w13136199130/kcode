@@ -33,8 +33,10 @@ function groupOf(ts: number | undefined): string {
 export function SessionSidebar(props: {
   conn: HostConnection;
   currentId: string | null;
-  /** 点击历史会话 → 续接（M2b） */
+  /** 点击历史会话 → 同窗口续接 */
   onOpen?(sessionId: string): void;
+  /** 新建会话 → 同窗口（不开新窗——反馈修订） */
+  onNewSession?(): void;
   /** 打开设置覆盖层（M3b） */
   onOpenSettings?(): void;
 }) {
@@ -83,7 +85,7 @@ export function SessionSidebar(props: {
           type="button"
           className="sidebar-new"
           title="新建会话（Ctrl+N）"
-          onClick={() => window.kcodeHost?.newWindow()}
+          onClick={() => props.onNewSession?.()}
         >
           <Plus size={15} strokeWidth={1.75} />
         </button>
