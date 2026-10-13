@@ -1,4 +1,5 @@
-/* kcode 桌面端样式：M5 设计系统（zcode zai-dark 同源规格）。
+/* kcode 桌面端样式：M5+ 设计系统（zcode zai 同源规格）。
+   默认亮色（反馈修订），暗色走 prefers-color-scheme；显式覆盖见 SettingsOverlay。
    布局宽度走 CSS 变量（窗口 resize 不触发 React 重渲——zcode 经验）。 */
 
 * {
@@ -6,18 +7,38 @@
 }
 :root {
   --workspace-sidebar-width: 264px;
-  --z-bg: #161616;
-  --z-panel: #202020;
-  --z-card: #2b2b2b;
-  --z-border: rgba(255, 255, 255, 0.1);
-  --z-border-hover: rgba(255, 255, 255, 0.15);
-  --z-surface: rgba(255, 255, 255, 0.05);
-  --z-surface-hover: rgba(255, 255, 255, 0.1);
-  --z-selected: rgba(255, 255, 255, 0.1);
-  --z-fg: #d4d4d4;
-  --z-fg-subtle: rgba(212, 212, 212, 0.6);
-  --z-fg-subtlest: rgba(212, 212, 212, 0.3);
-  --z-scroll-thumb: rgba(255, 255, 255, 0.14);
+  /* 亮色默认（zcode zai-light 同源：中性灰亮系） */
+  --z-bg: #fafafa;
+  --z-panel: #ffffff;
+  --z-card: #f3f4f6;
+  --z-border: rgba(0, 0, 0, 0.1);
+  --z-border-hover: rgba(0, 0, 0, 0.15);
+  --z-surface: rgba(0, 0, 0, 0.04);
+  --z-surface-hover: rgba(0, 0, 0, 0.07);
+  --z-selected: rgba(0, 0, 0, 0.08);
+  --z-fg: #1a1a2e;
+  --z-fg-subtle: rgba(26, 26, 46, 0.6);
+  --z-fg-subtlest: rgba(26, 26, 46, 0.35);
+  --z-scroll-thumb: rgba(0, 0, 0, 0.18);
+  --z-code-bg: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 暗色（zcode zai-dark 同源） */
+    --z-bg: #161616;
+    --z-panel: #202020;
+    --z-card: #2b2b2b;
+    --z-border: rgba(255, 255, 255, 0.1);
+    --z-border-hover: rgba(255, 255, 255, 0.15);
+    --z-surface: rgba(255, 255, 255, 0.05);
+    --z-surface-hover: rgba(255, 255, 255, 0.1);
+    --z-selected: rgba(255, 255, 255, 0.1);
+    --z-fg: #d4d4d4;
+    --z-fg-subtle: rgba(212, 212, 212, 0.6);
+    --z-fg-subtlest: rgba(212, 212, 212, 0.3);
+    --z-scroll-thumb: rgba(255, 255, 255, 0.14);
+    --z-code-bg: #161b26;
+  }
 }
 html,
 body,
@@ -915,7 +936,7 @@ body,
   border: 1px solid var(--z-border);
   border-radius: var(--radius-md);
   overflow: hidden;
-  background: #161b26;
+  background: var(--z-code-bg);
 }
 .md-code-head {
   display: flex;
@@ -980,12 +1001,12 @@ body,
   padding: 0;
   border: none;
   border-radius: 8px;
-  background: #ffffff;
-  color: #000000;
+  background: var(--z-fg);
+  color: var(--z-bg);
   cursor: pointer;
 }
 .composer-send:hover {
-  background: rgba(255, 255, 255, 0.8);
+  opacity: 0.8;
 }
 .composer-send:disabled {
   opacity: 0.35;
@@ -999,8 +1020,8 @@ body,
   padding: 0;
   border: none;
   border-radius: 8px;
-  background: #363636;
-  color: #d4d4d4;
+  background: var(--z-surface-hover);
+  color: var(--z-fg);
   cursor: pointer;
 }
 

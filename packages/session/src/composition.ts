@@ -104,6 +104,8 @@ export interface ComposeSessionOptions {
   kcodeHomeDir: string;
   /** 续接种子历史（由调用方从旧会话重建） */
   resumeFrom?: ChatMessage[];
+  /** 会话 ID（resume 续接时传原 ID——新 JSONL 同文件追加，侧栏/重放一致；缺省 newId） */
+  sessionId?: string;
   /** 续接的历史累计用量（旧会话 session_end 求和；/cost 跨续接可见） */
   resumeUsage?: SessionUsage;
   onEvent?: (event: SessionEvent) => void;
@@ -135,7 +137,7 @@ export interface ComposeSessionOptions {
  * MCP、记忆与摘要器在此聚合，外部只传入模型与回调。
  */
 export async function composeSession(opts: ComposeSessionOptions): Promise<ComposedSession> {
-  const sessionId = newId("sess");
+  const sessionId = opts.sessionId ?? newId("sess");
   const jsonlPath = join(opts.kcodeHomeDir, "cli", "sessions", `${sessionId}.jsonl`);
   const disk = await JsonlSessionSink.open(jsonlPath);
   const sink: SessionSink = {

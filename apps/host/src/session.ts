@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { newId } from "@kcode/shared";
 import type {
   HostEvent,
@@ -54,9 +54,12 @@ export class HostSession {
 
     // lease 检查（注 B）：同会话前持有者仍存活 → 拒绝（防双活写回）；已死 → 接管（epoch+1）
     let prevEpoch = 0;
+    let targetSessionId: string | undefined;
     if (params.resumeFrom !== undefined) {
       const target = await this.#findSessionFile(params.resumeFrom);
       if (target !== null) {
+        // 续接继承原会话 ID（侧栏/重放/JSONL 同文件追加一致）
+        targetSessionId = basename(target).replace(/\.jsonl$/, "");
         const events = await loadSessionEvents(target);
         const leases = events.filter((e): e is Extract<SessionEvent, { type: "host_lease" }> => e.type === "host_lease");
         const last = leases.at(-1);
@@ -77,6 +80,7 @@ export class HostSession {
       cwd: params.cwd,
       kcodeHomeDir: this.kcodeHomeDir,
       resumeFrom: resume?.messages,
+      sessionId: targetSessionId,
       resumeUsage: resume?.usage,
       // 事件/增量/通知全走 RPC
       onEvent: (event) => this.#emit({ type: "session/event", event }),
