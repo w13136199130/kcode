@@ -23,12 +23,20 @@ export function useKeybinds(deps: {
   applyMode(next: PermissionMode): void;
   exit(): void;
   pushBlock(block: Block): void;
+  /** 2-05：fatal 驻留时 r 重试 / q 退出 */
+  fatal?: string | null;
+  retryFatal?(): void;
 }): void {
   const lastIdleEscAt = useRef(0);
   // shift+tab 循环切模式（CC 同款；状态栏提示的诚实前提）。fullAccess 不进循环（显式确认制），
   // 当前在 fullAccess 时 shift+tab 回 plan（退出快车道）
   useInput(
-    (_ch, key) => {
+    (ch, key) => {
+      if (deps.fatal !== undefined && deps.fatal !== null) {
+        if (ch === "r") deps.retryFatal?.();
+        else if (ch === "q" || key.escape) deps.exit();
+        return;
+      }
       if (key.tab && key.shift) {
         const idx = MODE_CYCLE.indexOf(deps.mode);
         const next = idx === -1 ? MODE_CYCLE[0]! : MODE_CYCLE[(idx + 1) % MODE_CYCLE.length]!;

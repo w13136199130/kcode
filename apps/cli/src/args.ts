@@ -9,15 +9,25 @@ import type { PermissionMode } from "@kcode/contracts";
  */
 
 /** 子命令种类：首 token 命中即短路，后续 token 原样透传给对应处理函数 */
-type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update" | "mcp";
+type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update" | "mcp" | "init";
 
-const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update", "mcp"];
+const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update", "mcp", "init"];
 
 const MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "fullAccess"];
+
+/** 用法错误：main 出口据此走 exit 2，且不打印 stack（2-04） */
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
 
 /** 解析结果（纯数据）：headless/子命令/TUI 三条路径的所有输入都从这里出 */
 export interface CliArgs {
   command?: { kind: SubcommandKind; args: string[] };
+  /** -h/--help：main 在一切 IO 前打印 usage 并 exit 0 */
+  help: boolean;
   /** -p/--prompt 显式提示词（与位置参数提示词互斥） */
   prompt?: string;
   /** 位置参数拼成的提示词（历史形态：kcode 一次性提问） */
@@ -29,13 +39,18 @@ export interface CliArgs {
   /** --model <provider/model>：单次运行覆盖（N3F-5 第四层，优先级最高；TUI 与 headless 同一生效点） */
   model?: string;
   cwd?: string;
+  /** --settings <path>：用户级配置文件覆盖（CI/多 profile） */
+  settings?: string;
   json: boolean;
+  /** --interactive：即使带 -p 也进 TUI（默认 -p 恒无头） */
+  interactive: boolean;
   disallowedTools?: string[];
 }
 
 export function usageText(): string {
   return [
     "用法：kcode [提示词] [选项]",
+    "  -h, --help                   显示本帮助并退出",
     "  -p, --prompt <text>          单次提问（与位置参数提示词二选一）",
     "  -c, --continue               续接当前工作区最近会话（= --resume latest）",
     "  -r, --resume <会话id|latest>  续接指定会话",
@@ -44,9 +59,11 @@ export function usageText(): string {
     "      --mode <档>               初始权限档：plan | default | acceptEdits | fullAccess",
     "      --model <provider/model>  本次运行覆盖默认模型（最高优先级，如 deepseek/deepseek-chat）",
     "      --json                   无 TUI：NDJSON 输出会话事件流（脚本/CI 消费）",
+    "      --interactive            即使带 -p 也进入 TUI（默认 -p 恒无头）",
     "      --cwd <路径>              以指定目录为工作区启动",
+    "      --settings <路径>         用户级配置文件覆盖（缺省 ~/.kcode/config.json）",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
-    "子命令：kcode key add|list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
+    "子命令：kcode init · kcode key add|list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
   ].join("\n");
 }
 
@@ -54,13 +71,13 @@ export function usageText(): string {
 function valueOf(argv: readonly string[], index: number, flag: string): string {
   const v = argv[index + 1];
   if (v === undefined || v === "") {
-    throw new Error(`参数 ${flag} 需要一个值（${flag} <值>）`);
+    throw new UsageError(`参数 ${flag} 需要一个值（${flag} <值>）`);
   }
   return v;
 }
 
 export function parseCliArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { images: [], json: false };
+  const args: CliArgs = { images: [], json: false, help: false, interactive: false };
   const words: string[] = [];
   let promptFlag: string | undefined;
   let disallowed: string[] | undefined;
@@ -81,6 +98,10 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       case "--":
         onlyPositional = true;
         break;
+      case "-h":
+      case "--help":
+        args.help = true;
+        break;
       case "-p":
       case "--prompt":
         promptFlag = valueOf(argv, i, arg);
@@ -100,7 +121,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       case "--mode": {
         const v = valueOf(argv, i, arg);
         if (!(MODES as readonly string[]).includes(v)) {
-          throw new Error(`--mode 的值只能是：${MODES.join(" | ")}（收到 ${v}）`);
+          throw new UsageError(`--mode 的值只能是：${MODES.join(" | ")}（收到 ${v}）`);
         }
         args.mode = v as PermissionMode;
         i += 1;
@@ -114,8 +135,15 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         args.cwd = valueOf(argv, i, arg);
         i += 1;
         break;
+      case "--settings":
+        args.settings = valueOf(argv, i, arg);
+        i += 1;
+        break;
       case "--json":
         args.json = true;
+        break;
+      case "--interactive":
+        args.interactive = true;
         break;
       case "--disallowed-tools":
       case "--disallowedTools": {
@@ -134,14 +162,14 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         break;
       default:
         if (arg.startsWith("-")) {
-          throw new Error(`未知参数：${arg}\n${usageText()}`);
+          throw new UsageError(`未知参数：${arg}\n${usageText()}`);
         }
         words.push(arg);
     }
   }
 
   if (promptFlag !== undefined && words.length > 0) {
-    throw new Error("-p/--prompt 与位置参数提示词只能提供一处");
+    throw new UsageError("-p/--prompt 与位置参数提示词只能提供一处");
   }
   if (promptFlag !== undefined) {
     args.prompt = promptFlag;

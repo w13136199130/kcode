@@ -15,13 +15,14 @@ import type { IPlatformService } from "@kcode/contracts";
 import { bootstrap, type Runtime } from "./bootstrap.js";
 import {
   createCliPlatformService,
+  initUserConfig,
+  loadProjectConfig,
   loadUserConfig,
   kcodeHome,
-  requireDefaultModelRef,
   resolveModelOverride,
 } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
-import { parseCliArgs, usageText } from "./args.js";
+import { parseCliArgs, UsageError, usageText } from "./args.js";
 import { doctorCommand } from "./doctor.js";
 import { mcpCommand } from "./mcp-cmd.js";
 import { runHeadless } from "./headless.js";
@@ -166,10 +167,27 @@ async function main(): Promise<void> {
     print(`kcode ${process.env["KCODE_VERSION"] ?? "dev"}（${process.platform}-${process.arch}，Node ${process.versions.node}）`);
     return;
   }
-  const platform = createCliPlatformService();
+  // 2-04：解析/帮助先于任何 IO（平台服务、配置、keychain）
   const args = parseCliArgs(rest);
+  if (args.help) {
+    print(usageText());
+    return;
+  }
+  const platform = createCliPlatformService();
   if (args.command !== undefined) {
     const { kind, args: sub } = args.command;
+    if (kind === "init") {
+      const settingsAt = sub.indexOf("--settings");
+      const settingsPath = settingsAt >= 0 ? sub[settingsAt + 1] : undefined;
+      const { created } = await initUserConfig(settingsPath);
+      if (created) {
+        print("✓ 已创建 ~/.kcode/config.json（空 providers）");
+      } else {
+        print("• ~/.kcode/config.json 已存在，未覆盖");
+      }
+      print("下一步：启动 kcode 后输入 /login 配置厂商与 API key。");
+      return;
+    }
     if (kind === "key") {
       await keyCommand(platform, sub);
       return;
@@ -221,9 +239,12 @@ async function main(): Promise<void> {
 
   // 模型引用仅作显示与传递，实际供给由 providers 路由解析（含受众绑定校验）；
   // --model（N3F-5 第四层）覆盖三层配置，TUI 与 headless 同一生效点
-  const models = await loadUserConfig(undefined, { cwd: process.cwd() });
+  // 2-06：--settings 覆盖用户级配置；项目层只提供 default/mode
+  const models = await loadUserConfig(args.settings, { cwd: process.cwd() });
+  const project = await loadProjectConfig(process.cwd());
+  // 2-01：没有 default 也进 TUI（未配置模式）；headless 需要真实模型，下面单独拦
   const modelRef =
-    args.model !== undefined ? resolveModelOverride(models, args.model) : requireDefaultModelRef(models);
+    args.model !== undefined ? resolveModelOverride(models, args.model) : (models.default ?? "");
 
   // 提前预警：配置了需要 key 的 provider 但当前终端没设口令——
   // 单进程直接继承本终端环境，此刻启动必然在会话创建时报 keychain 错
@@ -268,10 +289,16 @@ async function main(): Promise<void> {
   }
 
   // 单进程：引擎内嵌本进程组装（bootstrap → router/keychain），无守护进程
-  const runtime: Runtime = await bootstrap();
+  const runtime: Runtime = await bootstrap(
+    args.settings !== undefined ? { settingsPath: args.settings } : {},
+  );
 
-  // headless（N3C-1）：--json 或"非 TTY 且带提问"——不渲染 Ink，stdout 走 NDJSON/单行摘要
-  if (args.json || (oneShot !== undefined && process.stdin.isTTY !== true)) {
+  // headless（N3C-1 / 2-07）：--json、显式 -p（默认恒无头）、或"非 TTY 且带提问"
+  const promptIsHeadless = args.prompt !== undefined && !args.interactive;
+  if (args.json || promptIsHeadless || (oneShot !== undefined && process.stdin.isTTY !== true)) {
+    if (modelRef === "") {
+      throw new Error("未配置模型：请先运行 kcode init，再在交互界面输入 /login 配置厂商与 key");
+    }
     const code = await runHeadless(
       runtime,
       modelRef,
@@ -292,6 +319,11 @@ async function main(): Promise<void> {
   if (args.mode !== undefined) {
     // --mode 语义依赖 headless 的"ask 即拒"降级；TUI 内档位切换走 /mode（含 fullAccess 确认闸）
     throw new Error("--mode 用于 headless（--json 或非 TTY 提问）；交互界面内请用 /mode 切换档位");
+  }
+  // 2-06：项目配置可给默认档，但 fullAccess 仍需交互确认，不能由仓库静默授予
+  const projectMode = project.mode;
+  if (projectMode === "fullAccess") {
+    printErr("⚠ 项目配置请求 fullAccess 已忽略：交互态请用 /mode fullAccess 显式确认");
   }
 
   if (process.stdout.isTTY !== true) {
@@ -340,6 +372,7 @@ async function main(): Promise<void> {
       oneShot={oneShot}
       images={args.images.length > 0 ? args.images : undefined}
       resumeFrom={args.resume}
+      initialMode={projectMode === "fullAccess" ? undefined : projectMode}
     />,
     { exitOnCtrlC: false },
   );
@@ -373,6 +406,9 @@ process.on("unhandledRejection", (reason) => {
 
 main().catch((err) => {
   printErr(`✗ ${err instanceof Error ? err.message : String(err)}`);
+  if (err instanceof UsageError) {
+    process.exit(2);
+  }
   if (err instanceof Error && err.stack !== undefined) {
     printErr(err.stack);
     try {

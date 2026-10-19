@@ -1,6 +1,6 @@
 import { useServices } from "@kcode/ui";
 import { Box, Text } from "ink";
-import { saveUserModelsConfig } from "../../bootstrap.js";
+import { saveProviderConfig } from "../../bootstrap.js";
 import { c } from "../theme/theme.js";
 import { OptionsMenu } from "./OptionsMenu.js";
 import { HiddenInput } from "./HiddenInput.js";
@@ -47,7 +47,7 @@ function WizardHints(props: { first?: boolean }) {
 
 export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) {
   const { wizard } = props;
-  const { platform, dialogs } = useServices<CliServices>();
+  const { platform, dialogs, configPath } = useServices<CliServices>();
   return (
     <Box flexDirection="column">
       {wizard.stage === "method" ? (
@@ -154,15 +154,11 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
                     model = probed[0] ?? w.model;
                     probeNote = `；预填模型 ${w.model} 不在清单，已改用 ${model}`;
                   }
-                  await saveUserModelsConfig({
-                    default: `${w.providerName}/${model}`,
-                    providers: {
-                      [w.providerName]: {
-                        type: "openai-compatible",
-                        baseURL: w.baseURL,
-                        keyRef,
-                      },
-                    },
+                  await saveProviderConfig({
+                    path: configPath,
+                    providerName: w.providerName,
+                    provider: { type: "openai-compatible", baseURL: w.baseURL, keyRef },
+                    defaultModel: `${w.providerName}/${model}`,
                   });
                   // N3-2 注 E：key 录入走 PlatformClientPort.saveKey（宿主侧选择存储方式，
                   // 前端不感知 openPassphraseKeychain/openSecureKeychain——key 明文不出宿主）
@@ -170,13 +166,19 @@ export function LoginWizardPanel(props: { wizard: Exclude<LoginWizard, null> }) 
                   if (pass !== "") {
                     process.env["KCODE_KEYCHAIN_PASSPHRASE"] = pass;
                   }
+                  const modelRef = `${w.providerName}/${model}`;
+                  // 2-01：热重载 runtime + 当前会话 setModel，不再要求重启
+                  const switchError = await dialogs.reloadRuntime(modelRef);
                   dialogs.pushBlock({
                     kind: "info",
-                    tone: "ok",
+                    tone: switchError === null ? "ok" : "warn",
                     text:
-                      `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${w.providerName}/${model}）` +
+                      `✓ 已保存 ${w.providerName} 配置与 key（默认模型 ${modelRef}）` +
                       (probed !== null && probed.length > 0 ? `——端点连通，检测到 ${probed.length} 个模型` : "") +
-                      `${probeNote}——重启 kcode 后以新配置启动`,
+                      `${probeNote}` +
+                      (switchError === null
+                        ? "——已生效，无需重启"
+                        : `——配置已保存，但切模型失败：${switchError}（可输入 /model 重试）`),
                   });
                 } catch (err) {
                   dialogs.pushBlock({

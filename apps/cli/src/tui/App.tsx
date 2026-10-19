@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput, useStdin } from "ink";
 import type {
   PermissionMode,
 } from "@kcode/contracts";
-import type { Runtime } from "../bootstrap.js";
+import { bootstrap, type Runtime } from "../bootstrap.js";
 import { createSession, type SessionHandle } from "../session.js";
 import { appendHistory, saveInputHistory } from "../history-store.js";
 import { ServicesProvider, createUiStore, type Block } from "@kcode/ui";
@@ -41,6 +41,8 @@ export interface KcodeAppProps {
   resumeFrom?: string;
   /** 独立验收入口可指定输入历史，避免混入日常会话。 */
   historyFile?: string;
+  /** 项目配置的默认权限档（2-06；fullAccess 不会从这里进入） */
+  initialMode?: PermissionMode;
 }
 
 
@@ -54,6 +56,16 @@ type ModelPicker = null | { options: MenuOption[] };
 
 
 
+
+/** 2-05：fatal 驻留屏——错误与修复命令可读，r 重试 / q 退出 */
+function FatalScreen(props: { message: string }) {
+  return (
+    <Box flexDirection="column" padding={1}>
+      <Text color={c("destructive")}>✗ {props.message}</Text>
+      <Text dimColor>按 r 重试 · q 退出</Text>
+    </Box>
+  );
+}
 
 /** kcode 主界面：流式输出、工具状态、菜单式确认（diff 预览）、Todo 面板、结构化提问、四档权限模式 */
 export function KcodeApp(props: KcodeAppProps) {
@@ -72,10 +84,11 @@ export function KcodeApp(props: KcodeAppProps) {
   const cancelling = ui((state) => state.cancelling);
   const [ready, setReady] = useState(false);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
   const [ask, setAsk] = useState<AskState | null>(null);
   const [question, setQuestion] = useState<QuestionState | null>(null);
-  const [mode, setMode] = useState<PermissionMode>("default");
-  const [modelLabel, setModelLabel] = useState(props.model);
+  const [mode, setMode] = useState<PermissionMode>(props.initialMode ?? "default");
+  const [modelLabel, setModelLabel] = useState(props.model === "" ? "未配置" : props.model);
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
   /** /permissions 面板：当前项目持久放行清单与清空确认 */
   const [permissionsPanel, setPermissionsPanel] = useState<string[] | null>(null);
@@ -111,7 +124,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const sessionRef = useRef<Awaited<ReturnType<typeof createSession>> | null>(null);
   const inputHistory = useRef<string[]>([]);
   const { stdin } = useStdin();
-  const interactive = stdin.isTTY === true;
+  // ink-testing-library 的假 stdin 只有 isTTY、没有 ref；真终端两者都有
+  const interactive = stdin.isTTY === true && typeof (stdin as { ref?: unknown }).ref === "function";
   const stream = useRef(createStreamController(ui)).current;
   // 状态栏常驻数据（N3C-4①）：用量订阅 + busy 收尾沿刷新 + git 分支低频采样
   const { usage, branch } = useStatusStats(ui, sessionRef, busy, ready, props.cwd);
@@ -270,6 +284,13 @@ export function KcodeApp(props: KcodeAppProps) {
     void Promise.race([session.close().catch(() => undefined), timeout]).finally(() => exit());
   };
 
+  /** 2-05：fatal 后重试初始会话装配 */
+  const retryFatal = (): void => {
+    setFatal(null);
+    setReady(false);
+    setRetryToken((n) => n + 1);
+  };
+
   // 全局按键绑定（Esc/Shift+Tab/Ctrl+C/Ctrl+B，N2-3 外迁 terminal/keybinds.ts）
   useKeybinds({
     busy,
@@ -284,6 +305,8 @@ export function KcodeApp(props: KcodeAppProps) {
     applyMode,
     exit: shutdown,
     pushBlock: (block) => ui.getState().pushBlock(block),
+    fatal,
+    retryFatal,
   });
 
   // 会话生命周期（初始装配 + /resume 换建，N2-3 外迁 state/lifecycle.ts）
@@ -305,6 +328,7 @@ export function KcodeApp(props: KcodeAppProps) {
     pushBlock: (block) => ui.getState().pushBlock(block),
     modelLabel,
     exit: shutdown,
+    retryToken,
   });
 
   /** N2-2：本轮结束即取下一条排队输入递归执行；队列空则停（中断路径已 clear，取消不续跑） */
@@ -423,10 +447,28 @@ export function KcodeApp(props: KcodeAppProps) {
   useCompletionBell(busy, busySince);
 
   if (fatal !== null) {
-    return (
-      <Text color={c("destructive")}>✗ {fatal}</Text>
-    );
+    return <FatalScreen message={fatal} />;
   }
+
+  /**
+   * 2-01：/login 保存后热生效——重读配置/keychain，原地更新同一个 Runtime 对象，
+   * 再让当前会话 setModel。既有 session 的 llmFactory 每次调用都查 runtime.router，
+   * 因此不需要重启进程或重建会话。
+   */
+  const reloadRuntime = async (model: string): Promise<string | null> => {
+    try {
+      const next = await bootstrap({ settingsPath: props.runtime.configPath });
+      Object.assign(props.runtime, next);
+      const err = (await sessionRef.current?.setModel(model)) ?? null;
+      if (err === null) {
+        setModelLabel(model);
+        pushBlock({ kind: "info", tone: "ok", text: `✓ 配置已生效：${model}（无需重启）` });
+      }
+      return err;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
 
   const meta = MODE_META[mode];
   const busyElapsed =
@@ -438,6 +480,7 @@ export function KcodeApp(props: KcodeAppProps) {
         // N3-2 注 E：前端只拿 PlatformClientPort（probe/saveKey），完整实现留在宿主侧
         platform: platformClientAdapter(props.runtime.platform),
         ui,
+        configPath: props.runtime.configPath,
         getSession: () => sessionRef.current,
         dialogs: {
           setMode,
@@ -454,6 +497,7 @@ export function KcodeApp(props: KcodeAppProps) {
             }
           },
           setModelLabel,
+          reloadRuntime,
           clearPersistentGrants: async () => {
             await sessionRef.current?.clearPersistentGrants();
             return true;

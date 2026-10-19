@@ -19,6 +19,7 @@ export interface LifecycleDeps {
     oneShot?: string;
     images?: string[];
     model: string;
+    initialMode?: import("@kcode/contracts").PermissionMode;
   };
   ui: UiStore;
   stream: StreamController;
@@ -36,6 +37,8 @@ export interface LifecycleDeps {
   pushBlock(block: Block): void;
   modelLabel: string;
   exit(): void;
+  /** 重试令牌：+1 触发初始会话重新装配（fatal 后按 r） */
+  retryToken?: number;
 }
 
 /**
@@ -56,6 +59,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           runtime: props.runtime,
           model: props.model,
           cwd: props.cwd,
+          initialMode: props.initialMode,
           resumeFrom: props.resumeFrom,
           onEvent: (e) => {
             if (!cancelled) handleEvent(e);
@@ -89,7 +93,14 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
         sessionRef.current = handle;
         deps.setReady(true);
         deps.inputHistory.current = (await loadInputHistory(props.historyFile)).slice(-50);
-        pushBlock({ kind: "banner", model: props.model, cwd: props.cwd });
+        pushBlock({ kind: "banner", model: props.model === "" ? "未配置模型" : props.model, cwd: props.cwd });
+        if (props.model === "") {
+          pushBlock({
+            kind: "info",
+            tone: "warn",
+            text: "未配置模型：输入 /login 配置厂商与 API key（保存后重启 kcode 生效）",
+          });
+        }
         // 自定义命令并入补全菜单（预取异步完成晚于就绪时，600ms 后补读一次）；
         // N3I-4：已信任项目过滤 /trust（无意义入口隐藏——输入完整命令仍可执行）
         const mergeCommands = (): void => {
@@ -132,7 +143,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
               "  2) 重新运行 npx tsx src/main.tsx（或 kcode key add 重新录入）"
             : "";
           deps.setFatal(raw + hint);
-          setTimeout(() => deps.exit(), 80);
+          // 2-05：不自动退出——保留错误现场，用户按 r 重试 / q 退出
         }
       }
     })();
@@ -140,7 +151,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [deps.retryToken]);
 
   /** /resume：换建一个续接旧会话历史的新会话并切换为当前会话（旧转写保留在上方作上下文） */
   const switchSession = (resumeFrom: string): void => {

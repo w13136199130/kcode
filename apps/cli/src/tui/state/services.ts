@@ -20,6 +20,8 @@ interface DialogActions {
   /** 运行期换模型（/model） */
   setModel(ref: string): Promise<string | null>;
   setModelLabel(label: string): void;
+  /** /login 保存后重读配置并让当前会话切到新模型（2-01，无需重启） */
+  reloadRuntime(model: string): Promise<string | null>;
   /** /permissions 清空本项目持久放行 */
   clearPersistentGrants(): Promise<boolean>;
   pushBlock(block: Block): void;
@@ -41,6 +43,8 @@ export type CliServices = ServiceSet & {
   platform: import("@kcode/contracts").PlatformClientPort;
   /** UI 语义 store（转写/运行状态） */
   ui: UiStore;
+  /** 当前用户级配置文件（--settings 覆盖；/login 写回这里） */
+  configPath: string;
   /** 当前会话句柄（换建后指向新会话） */
   getSession(): SessionHandle | null;
   dialogs: DialogActions;

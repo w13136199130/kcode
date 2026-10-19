@@ -1,8 +1,16 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadUserConfig, resolveModelOverride, loadSessionBudgetTokens } from "../src/bootstrap.js";
+import {
+  initUserConfig,
+  kcodeHome,
+  loadProjectConfig,
+  loadUserConfig,
+  resolveModelOverride,
+  loadSessionBudgetTokens,
+  saveProviderConfig,
+} from "../src/bootstrap.js";
 
 /** N3E-3：配置三层覆盖（用户级 providers 唯一 → Project 仅 default → Env 白名单）。 */
 let home: string;
@@ -64,6 +72,84 @@ describe("N3E-3 配置覆盖层", () => {
       env: { KCODE_DEFAULT_MODEL: "" },
     });
     expect(models2.default).toBe("user/default-model");
+  });
+});
+
+describe("2-01 无配置启动", () => {
+  it("用户级配置缺失返回空 providers；损坏仍 fail-fast", async () => {
+    const missing = await loadUserConfig(join(home, "missing-config.json"));
+    expect(missing.providers).toEqual({});
+    expect(missing.default).toBeUndefined();
+
+    const broken = join(home, "broken-config.json");
+    await writeFile(broken, "{broken", "utf8");
+    await expect(loadUserConfig(broken)).rejects.toThrow(/不是合法 JSON/);
+  });
+
+  it("kcode init 创建空骨架且不覆盖已有配置", async () => {
+    const path = join(home, "init-config.json");
+    expect(await initUserConfig(path)).toEqual({ created: true });
+    expect(await loadUserConfig(path)).toEqual({ providers: {} });
+    expect(await initUserConfig(path)).toEqual({ created: false });
+  });
+
+  it("2-06 KCODE_HOME 覆盖；项目 mode 生效；未知用户键只告警", async () => {
+    const oldHome = process.env["KCODE_HOME"];
+    process.env["KCODE_HOME"] = join(home, "isolated-home");
+    try {
+      expect(kcodeHome()).toBe(join(home, "isolated-home"));
+    } finally {
+      if (oldHome === undefined) delete process.env["KCODE_HOME"];
+      else process.env["KCODE_HOME"] = oldHome;
+    }
+
+    const project = join(home, "project");
+    await mkdir(join(project, ".kcode"), { recursive: true });
+    await writeFile(
+      join(project, ".kcode", "config.json"),
+      JSON.stringify({ models: { default: "proj/model" }, mode: "plan" }),
+      "utf8",
+    );
+    expect(await loadProjectConfig(project)).toEqual({ default: "proj/model", mode: "plan" });
+
+    const loose = join(home, "loose.json");
+    await writeFile(
+      loose,
+      JSON.stringify({ models: { providers: {} }, futureField: 1 }),
+      "utf8",
+    );
+    // 未知键不再让启动失败；有效字段仍被读取
+    await expect(loadUserConfig(loose)).resolves.toEqual({ providers: {} });
+  });
+
+  it("2-03 /login provider 级合并：保留已有厂商与 budget，并留 .bak", async () => {
+    const path = join(home, "merge-config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        models: {
+          default: "glm/glm-4",
+          providers: {
+            glm: { type: "gateway" },
+            deepseek: { type: "gateway" },
+          },
+        },
+        budget: { maxSessionTokens: 1234 },
+      }),
+      "utf8",
+    );
+    await saveProviderConfig({
+      path,
+      providerName: "kimi",
+      provider: { type: "openai-compatible", baseURL: "https://kimi.test/v1", keyRef: "keychain://kimi" },
+      defaultModel: "kimi/kimi-k2",
+    });
+    const models = await loadUserConfig(path);
+    expect(Object.keys(models.providers).sort()).toEqual(["deepseek", "glm", "kimi"]);
+    expect(models.default).toBe("kimi/kimi-k2");
+    expect(await loadSessionBudgetTokens(path, {})).toBe(1234);
+    const bak = JSON.parse(await readFile(`${path}.bak`, "utf8")) as { models: { default: string } };
+    expect(bak.models.default).toBe("glm/glm-4");
   });
 });
 

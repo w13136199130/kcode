@@ -82,6 +82,7 @@ const runtime: Runtime = {
     verifyEnvPassphrase: async () => false,
   },
   kcodeHomeDir: home,
+  configPath: join(home, "config.json"),
 };
 try {
   if (smoke) {

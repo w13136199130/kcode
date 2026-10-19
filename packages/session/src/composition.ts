@@ -28,6 +28,7 @@ import {
 } from "@kcode/extensions";
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
+import { LazyLlmProvider } from "./lazy-llm.js";
 import { newId, workspaceKey } from "@kcode/shared";
 import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx, BackgroundTaskRegistry } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
@@ -246,7 +247,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   if (plugins.length > 0) {
     opts.onNotice?.(`已装载 ${plugins.length} 个插件：${plugins.map((p) => `${p.manifest.name}@${p.manifest.version}`).join("、")}`);
   }
-  const initialLlm = await opts.llmFactory(opts.model);
+  // 2-02：compose 阶段不解析模型——没有 key/配置也能先把会话装起来进 TUI
+  const initialLlm = new LazyLlmProvider(() => opts.llmFactory(opts.model));
   // 父会话当前模型（setModel 后更新；task 子代理默认沿用）
   let currentModel = opts.model;
   // 权限模式与切换（plan_submit 批准后也要切回 default——先用占位，loop 创建后赋真身）
@@ -428,7 +430,8 @@ ${plan}`);
     },
     setMode: applyMode,
     setModel: async (model) => {
-      const llm = await opts.llmFactory(model);
+      // 同样延迟解析：/model 切换后第一次请求才校验 key/端点，允许先切模型再登录
+      const llm = new LazyLlmProvider(() => opts.llmFactory(model));
       currentModel = model;
       loop.updateModel(model, llm, new LlmSummarizer(llm, model));
     },

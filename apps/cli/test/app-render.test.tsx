@@ -16,11 +16,14 @@ vi.mock("../src/session.js", () => ({
     listCommands: () => [],
     expandCommand: async () => null,
     trustProject: async () => {},
-      isProjectTrusted: async () => false,
+    isProjectTrusted: async () => false,
+    usage: async () => null,
+    context: async () => null,
   })),
 }));
 
 import { KcodeApp } from "../src/tui/App.js";
+import { createSession } from "../src/session.js";
 
 const fakeRuntime = {
   models: { default: "mock/1", providers: {} },
@@ -44,6 +47,20 @@ describe("KcodeApp 渲染（空闲不重绘）", () => {
     await sleep(800);
     expect(instance.frames.length).toBe(settled);
     expect(instance.lastFrame()).toContain("kcode");
+    instance.unmount();
+  }, 10_000);
+
+  it("2-05 fatal 驻留：显示错误与修复提示，不自动退出", async () => {
+    vi.mocked(createSession).mockRejectedValueOnce(new Error("缺少 KCODE_KEYCHAIN_PASSPHRASE"));
+    const instance = render(
+      <KcodeApp runtime={fakeRuntime} model="mock/1" cwd="E:/tmp" />,
+    );
+    await sleep(150);
+    expect(instance.lastFrame()).toContain("✗");
+    expect(instance.lastFrame()).toContain("按 r 重试");
+    // 80ms 后原来会自动退出；现在必须在屏上等用户
+    await sleep(300);
+    expect(instance.lastFrame()).toContain("按 r 重试");
     instance.unmount();
   }, 10_000);
 });

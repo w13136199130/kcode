@@ -14,6 +14,12 @@
 | 1-10 | 预算计入 toolCalls.args/图片 | `packages/core/src/context/budget.ts` | `historyTokens` 增加 assistant `toolCalls.args`（JSON）与每图 1k token 估算；大 write 参数/附图不再对压缩不可见。 |
 | 1-07 | 工具内部 cap 口径统一 | `packages/tools/src/tools/output-collector.ts`、`read.ts`、`grep.ts`、`extract.ts`、`web.ts` | bash 的 artifact 注记移到**最前**（core 按 resultBudget 截断后仍能看到完整日志路径）；read 尾部补 `offset=继续读取`；明确"内部 cap = 内存护栏，模型 token 预算由 loop 层 resultBudget 统一裁"，不强制两者数值相等（否则 JSONL 也会丢全文）。 |
 | 1-08 | CRLF edit 精确匹配 | `packages/tools/src/tools/edit.ts` | 精确匹配前生成 CRLF/LF 变体；原样出现多次仍判歧义，不"挑一个"；保留文件原 EOL。 |
+| 2-02 | LLM 延迟解析 | `packages/session/src/lazy-llm.ts`、`composition.ts` | compose 阶段只拿工厂，不碰 keychain/路由；首次 `stream`/`listModels` 才 resolve，失败不缓存（/login 后同会话可重试）；`setModel` 同样延迟。`!命令` 直执行不再创建父 LLM（测试从 1 改 0）。 |
+| 2-01 | unconfigured TUI + init + /login 热生效 | `apps/cli/src/{bootstrap,main,args}.ts`、`tui/{App.tsx,state/lifecycle.ts,state/services.ts,dialogs/LoginWizardPanel.tsx}` | 缺 `config.json` 返回空 providers（损坏仍 fail-fast）；无 default 也进 TUI，banner 提示 `/login`；新增 `kcode init` 空骨架；登录保存后 `reloadRuntime` 重读配置并 `Object.assign` 同一 Runtime，再 `session.setModel`，无需重启。 |
+| 2-06 | 配置层级最小化 | `apps/cli/src/{bootstrap,args,main}.ts`、`packages/contracts/src/provider.ts`、`tui/state/{services,lifecycle}.ts` | `KCODE_HOME` 覆盖主目录；`--settings` 覆盖用户配置并贯穿 `/login` 写回；项目 `.kcode/config.json` 的 `default`/`mode` 生效（providers 仍不可表达）；用户配置未知键改为 stderr 告警不阻断，保存时保留未知根键。 |
+| 2-03 | /login provider 级合并 | `apps/cli/src/bootstrap.ts`、`tui/dialogs/LoginWizardPanel.tsx` | 读旧配置 → 只合并当前 provider → 保留其他 provider/budget → 临时文件 + `.bak` + rename；损坏配置拒绝覆盖。 |
+| 2-04 | `--help` / 用法错误出口 | `apps/cli/src/{args,main}.ts` | `-h/--help` 在任何 IO 前打印 usage 并 exit 0；未知参数/非法 mode/缺值抛 `UsageError`，exit 2 且不打 stack。 |
+| 2-05 | fatal 驻留 | `apps/cli/src/tui/state/lifecycle.ts`、`tui/App.tsx`、`terminal/keybinds.ts` | 去掉 80ms 自动退出；错误与修复命令留在屏上，`r` 重试（retryToken 重新装配）/ `q` 退出。 |
 | 1-11 | Windows CI 最小回归 | `.github/workflows/ci.yml` | 新增 `windows-smoke`：typecheck + bash/bash-output/CRLF edit/跨盘边界/workspace resume/host lease 接管；未在本机跑过 GitHub Actions，首次 push 后看结果。 |
 | 1-09 | 跨盘工作区边界 | `packages/tools/src/tools/paths.ts`、`write.ts`、`edit.ts` | 新增 `isWithinWorkspace`（`relative` + `isAbsolute` + `..` 前缀 + Windows 小写）；修复 `E:\ws` 写 `D:\x` 被误判为工作区内。 |
 | 1-01 | resume 续写同一会话 | `packages/session/src/resume.ts`、`apps/cli/src/session.ts`、`apps/host/src/session.ts` | `resolveResumeHistory` 返回源 `sessionId`，CLI/host 透传；host 的 `latest` 不再反查文件失败；`session/replay` 改用 `composed.jsonlPath` + `effectiveEvents`。 |
@@ -46,7 +52,7 @@
 
 ```text
 pnpm typecheck   → 16/16 packages 通过
-pnpm test        → 111 files / 564 passed / 1 skipped
+pnpm test        → 112 files / 573 passed / 1 skipped
 pnpm lint        → 0 errors（40 warnings）
 pnpm gates:check → 11 条例外，无过期/无漂移
 pnpm build       → 8/8 tasks 通过
@@ -77,12 +83,10 @@ desktop E2E      → 1 passed（首启/replay/preload/CSP/关闭）
 
 ## 下一批（建议顺序）
 
-1. **桌面 D0-06**：planAsker + `plan/request` + ask preview + 超时放宽。
-2. **桌面 D0-08**：`sandbox:true` + CSP + 外链白名单 + IPC 发送方校验。
-3. **CLI 1-11**：Windows CI 加最小回归。
+1. **CLI 2-07~2-12**：`-p` 恒无头、stdin 管道、`--mode` TUI 生效、退出码契约、输出格式。
+3. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
 
 ## 备注
 
 - `packages/tools/src/tools/write.ts` 的越界行为仍是"工具内拒绝"，注释已标为已知取舍；后续按计划把边界上移到权限引擎（越界 → ask），而不是在用户批准后再拒一次。
-- `apps/host/src/session.ts` 的 ask 超时仍是 10s（D0-06 处理）；桌面审批在 10s 以上会被自动拒绝，暂未改。
-- 桌面 `sandbox:false` / 无 CSP 仍在（D0-08），设置页"渲染层 sandbox 无文件访问"的文案暂时与实现不符，D0-08 一并修正。
+- 审批/计划超时已放宽到 5min；`sandbox:true` 与 CSP 已生效（D0-06/D0-08），preload/CSP 由无头 Electron E2E 覆盖。

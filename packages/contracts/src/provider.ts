@@ -50,17 +50,17 @@ export const ProjectModelsConfig = z
   .strict();
 export type ProjectModelsConfig = z.infer<typeof ProjectModelsConfig>;
 
-export const UserConfigFile = z
-  .object({
-    models: UserModelsConfig.optional(),
-    /** 会话 token 预算（N3I-8）：input+output 累计到顶经问询继续/停止；仅用户级（项目层防投毒不开放） */
-    budget: z.object({ maxSessionTokens: z.number().int().positive() }).optional(),
-  })
-  .strict();
+export const UserConfigFile = z.object({
+  models: UserModelsConfig.optional(),
+  /** 会话 token 预算（N3I-8）：input+output 累计到顶经问询继续/停止；仅用户级（项目层防投毒不开放） */
+  budget: z.object({ maxSessionTokens: z.number().int().positive() }).optional(),
+});
 
 export const ProjectConfigFile = z
   .object({
     models: ProjectModelsConfig.optional(),
+    /** 项目默认权限档（非 provider 字段；fullAccess 仍需交互确认） */
+    mode: z.enum(["plan", "default", "acceptEdits", "fullAccess"]).optional(),
   })
   .strict();
 

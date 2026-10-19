@@ -168,7 +168,8 @@ describe("runBash（!命令 直执行，B4）", () => {
     const result = await h.session.runBash("echo b4-direct-ok");
     expect(result.ok).toBe(true);
     expect(result.output).toContain("b4-direct-ok");
-    expect(h.llms.length).toBe(1); // LLM 实例只创建了父会话一个，未因 bash 调用新增
+    // 2-02：LLM 延迟解析——!命令 不经模型，连父 LLM 都不应创建
+    expect(h.llms.length).toBe(0);
     await h.session.close();
   });
 });

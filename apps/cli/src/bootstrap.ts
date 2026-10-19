@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { UserConfigFile, isModelRef, type IPlatformService, type UserModelsConfig } from "@kcode/contracts";
+import {
+  ProjectConfigFile,
+  UserConfigFile,
+  isModelRef,
+  type IPlatformService,
+  type PermissionMode,
+  type ProviderConfig,
+  type UserModelsConfig,
+} from "@kcode/contracts";
 import {
   createPlatformService,
   createProviderRouter,
@@ -10,7 +18,9 @@ import {
 } from "@kcode/platform";
 
 export function kcodeHome(): string {
-  return join(homedir(), ".kcode");
+  // 2-06：CI/多 profile 隔离；空值按默认 ~/.kcode
+  const override = process.env["KCODE_HOME"];
+  return override !== undefined && override !== "" ? override : join(homedir(), ".kcode");
 }
 
 export interface Runtime {
@@ -21,6 +31,8 @@ export interface Runtime {
   platform: IPlatformService;
   /** kcode 主目录（~/.kcode；本地会话组装与 JSONL 落盘的基准） */
   kcodeHomeDir: string;
+  /** 当前用户级配置文件（--settings 可覆盖；/login 写回同一路径） */
+  configPath: string;
   /** 会话 token 预算（N3I-8）：用户级 config.json budget.maxSessionTokens，env KCODE_BUDGET_TOKENS 覆盖 */
   sessionBudgetTokens?: number;
 }
@@ -47,9 +59,13 @@ export async function loadUserConfig(
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
+  } catch (err) {
+    // 2-01：首次启动/删配置后仍要能进 TUI，用空 providers 起步；格式损坏仍要 fail-fast
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { providers: {} };
+    }
     throw new Error(
-      `未找到用户级配置 ${path}——请按 README「试用」一节创建（providers 只存在于用户级）`,
+      `读取用户级配置失败 ${path}：${err instanceof Error ? err.message : String(err)}`,
     );
   }
   let json: unknown;
@@ -58,23 +74,17 @@ export async function loadUserConfig(
   } catch (err) {
     throw new Error(`配置不是合法 JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
+  warnUnknownConfigKeys(json);
   const parsed = UserConfigFile.safeParse(json);
   if (!parsed.success) {
     throw new Error(`配置不合法: ${parsed.error.message}`);
   }
   const models = parsed.data.models ?? { providers: {} };
-  // Project 层：仅接受 default 覆盖；providers/密钥字段一律忽略（防项目投毒端点）
+  // Project 层：只接受 default（providers 在 schema 层不可表达）；mode 由 loadProjectConfig 单独消费
   if (opts.cwd !== undefined) {
-    try {
-      const projectRaw = JSON.parse(await readFile(join(opts.cwd, ".kcode", "config.json"), "utf8")) as {
-        models?: { default?: unknown };
-      };
-      const projectDefault = projectRaw.models?.default;
-      if (typeof projectDefault === "string" && projectDefault !== "") {
-        models.default = projectDefault;
-      }
-    } catch {
-      // 项目级配置缺失/损坏按无覆盖处理
+    const project = await loadProjectConfig(opts.cwd);
+    if (project.default !== undefined && project.default !== "") {
+      models.default = project.default;
     }
   }
   // Env 白名单（逐项硬编码，不开放通用语法——对标 zcode env-config.adapter 的收窄原则）
@@ -85,12 +95,59 @@ export async function loadUserConfig(
   return models;
 }
 
+/** 2-06：未知键告警但不阻断（strict 会因手写注释/未来字段直接锁死启动） */
+function warnUnknownConfigKeys(raw: unknown): void {
+  if (typeof raw !== "object" || raw === null) return;
+  const root = raw as Record<string, unknown>;
+  const unknownRoot = Object.keys(root).filter((k) => k !== "models" && k !== "budget");
+  const modelObj = typeof root.models === "object" && root.models !== null ? (root.models as Record<string, unknown>) : null;
+  const unknownModel = modelObj === null ? [] : Object.keys(modelObj).filter((k) => k !== "default" && k !== "providers");
+  const all = [...unknownRoot, ...unknownModel.map((k) => `models.${k}`)];
+  if (all.length > 0) {
+    process.stderr.write(`⚠ 忽略未知配置键：${all.join("、")}（配置仍会加载）\n`);
+  }
+}
+
+/** 项目级配置（N3E-3 + 2-06）：只允许 default 与 mode；缺失/损坏按无覆盖并告警 */
+export async function loadProjectConfig(cwd = process.cwd()): Promise<{
+  default?: string;
+  mode?: PermissionMode;
+}> {
+  try {
+    const raw = JSON.parse(await readFile(join(cwd, ".kcode", "config.json"), "utf8"));
+    const parsed = ProjectConfigFile.safeParse(raw);
+    if (parsed.success) {
+      return {
+        ...(parsed.data.models?.default !== undefined ? { default: parsed.data.models.default } : {}),
+        ...(parsed.data.mode !== undefined ? { mode: parsed.data.mode } : {}),
+      };
+    }
+    // 旧行为兼容/防投毒：项目里混入 providers 时整份 strict 会失败，
+    // 但仍应让合法的 default 生效；providers 一律无视。
+    const obj = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+    const models = typeof obj.models === "object" && obj.models !== null ? (obj.models as Record<string, unknown>) : {};
+    const fallbackDefault = typeof models.default === "string" && isModelRef(models.default) ? models.default : undefined;
+    const modes = ["plan", "default", "acceptEdits", "fullAccess"] as const;
+    const fallbackMode = modes.find((m) => m === obj.mode);
+    process.stderr.write(`⚠ 项目配置含未知键，已忽略：${parsed.error.message}\n`);
+    return {
+      ...(fallbackDefault !== undefined ? { default: fallbackDefault } : {}),
+      ...(fallbackMode !== undefined ? { mode: fallbackMode } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * 组装运行时：配置 → keychain → providers 路由。
  * 口令缺失时给"惰性"keychain——只有真正用到 key 的 provider 才会报错（本地 Ollama 无 key 可用）。
  */
-export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise<Runtime> {
-  const models = await loadUserConfig();
+export async function bootstrap(
+  options: { fetch?: typeof fetch; settingsPath?: string } = {},
+): Promise<Runtime> {
+  const configPath = options.settingsPath ?? join(kcodeHome(), "config.json");
+  const models = await loadUserConfig(configPath);
   const platform = createCliPlatformService();
   let keychain: KeychainStore;
   try {
@@ -115,7 +172,15 @@ export async function bootstrap(options: { fetch?: typeof fetch } = {}): Promise
         };
   }
   const router = createProviderRouter(models, keychain, options);
-  return { models, keychain, router, platform, kcodeHomeDir: kcodeHome(), sessionBudgetTokens: await loadSessionBudgetTokens() };
+  return {
+    models,
+    keychain,
+    router,
+    platform,
+    kcodeHomeDir: kcodeHome(),
+    configPath,
+    sessionBudgetTokens: await loadSessionBudgetTokens(configPath),
+  };
 }
 
 /**
@@ -178,13 +243,82 @@ export function resolveModelOverride(models: UserModelsConfig, value: string): s
   return value;
 }
 
-/** 写用户级配置（/login 向导用；providers 只存在于这一层，§5.7） */
-export async function saveUserModelsConfig(
-  models: UserModelsConfig,
+/** kcode init：只创建最小骨架，不猜 provider/model；下一步交给 /login */
+export async function initUserConfig(
   path = join(kcodeHome(), "config.json"),
-): Promise<void> {
+): Promise<{ created: boolean }> {
   const { mkdir, writeFile } = await import("node:fs/promises");
   const { dirname } = await import("node:path");
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ models }, null, 2)}\n`, "utf8");
+  try {
+    await writeFile(path, `${JSON.stringify({ models: { providers: {} } }, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    return { created: true };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return { created: false };
+    throw err;
+  }
 }
+
+/**
+ * 2-03：/login 只合并当前 provider，保留其他 provider 与 budget 等根字段。
+ * 写入顺序：临时文件 → 备份旧文件 → rename 覆盖；崩溃时旧配置仍在。
+ */
+export async function saveProviderConfig(input: {
+  providerName: string;
+  provider: ProviderConfig;
+  defaultModel: string;
+  path?: string;
+}): Promise<void> {
+  const { copyFile, mkdir, rename, rm, writeFile } = await import("node:fs/promises");
+  const { dirname, join } = await import("node:path");
+  const path = input.path ?? join(kcodeHome(), "config.json");
+
+  let root: unknown = {};
+  try {
+    root = JSON.parse(await readFile(path, "utf8"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`读取现有配置失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  const parsed = UserConfigFile.safeParse(root);
+  if (!parsed.success) {
+    // 不静默覆盖损坏配置——里面可能有用户手写的 provider/budget
+    throw new Error(`现有配置不合法，拒绝覆盖：${parsed.error.message}`);
+  }
+  const models = parsed.data.models ?? { providers: {} };
+  const rawRoot = typeof root === "object" && root !== null ? (root as Record<string, unknown>) : {};
+  const next = {
+    // 保留未知根键（2-06 只告警不阻断；保存时不能悄悄删掉用户字段）
+    ...rawRoot,
+    ...parsed.data,
+    models: {
+      ...models,
+      default: input.defaultModel,
+      providers: { ...models.providers, [input.providerName]: input.provider },
+    },
+  };
+
+  await mkdir(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  try {
+    await copyFile(path, `${path}.bak`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  try {
+    await rename(tmp, path);
+  } catch (err) {
+    // Windows 某些文件系统不覆盖目标：退化为删旧再 rename（备份已存在）
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "EEXIST" && code !== "EPERM") throw err;
+    await rm(path, { force: true });
+    await rename(tmp, path);
+  }
+}
+
+

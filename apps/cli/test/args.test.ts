@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { parseCliArgs } from "../src/args.js";
+import { parseCliArgs, UsageError } from "../src/args.js";
 
 describe("parseCliArgs（N3C-1 参数解析）", () => {
   it("子命令首 token 命中即短路，后续 token 原样透传", () => {
     const r = parseCliArgs(["key", "add", "ref", "--force"]);
     expect(r.command).toEqual({ kind: "key", args: ["add", "ref", "--force"] });
     expect(parseCliArgs(["doctor"]).command).toEqual({ kind: "doctor", args: [] });
+    expect(parseCliArgs(["init"]).command).toEqual({ kind: "init", args: [] });
+  });
+
+  it("2-04 帮助与用法错误：-h/--help；未知 flag 抛 UsageError", () => {
+    expect(parseCliArgs(["-h"]).help).toBe(true);
+    expect(parseCliArgs(["--help"]).help).toBe(true);
+    expect(parseCliArgs(["--settings", "E:/tmp/kcode.json"]).settings).toBe("E:/tmp/kcode.json");
+    expect(parseCliArgs(["--interactive"]).interactive).toBe(true);
+    expect(() => parseCliArgs(["--bad"])).toThrow(UsageError);
+    expect(() => parseCliArgs(["--mode", "yolo"])).toThrow(UsageError);
   });
 
   it("位置参数拼为提示词；-p 显式提示词等价", () => {
