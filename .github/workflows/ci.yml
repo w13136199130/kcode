@@ -44,3 +44,5 @@ jobs:
           packages/tools/test/boundary.test.ts
           packages/session/test/workspace-resume.test.ts
           apps/host/test/host.test.ts
+      - name: Desktop E2E (headless Electron)
+        run: pnpm --filter @kcode/desktop test:e2e

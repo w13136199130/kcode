@@ -9,7 +9,7 @@ let highlighterPromise: Promise<Highlighter> | null = null;
 const LANGS = ["typescript", "javascript", "json", "bash", "markdown", "css", "html", "python", "diff"] as const;
 const THEME = "one-dark-pro" as const;
 
-export function getHighlighter(): Promise<Highlighter> {
+function getHighlighter(): Promise<Highlighter> {
   if (highlighterPromise === null) {
     highlighterPromise = (async () => {
       const shiki = await import("shiki");

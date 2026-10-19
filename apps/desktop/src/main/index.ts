@@ -229,6 +229,14 @@ app.whenReady().then(() => {
   });
 });
 
+app.on("before-quit", () => {
+  // utilityProcess 不会随窗口自动退出；quit 前必须显式 kill，否则 main 进程悬挂
+  for (const host of hostsByWindow.values()) {
+    host.child.kill();
+  }
+  hostsByWindow.clear();
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });

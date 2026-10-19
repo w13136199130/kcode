@@ -6,7 +6,7 @@ import type { PermissionMode } from "@kcode/contracts";
  * 命令即当前 renderer 可达动作（窗口/视图/模式）；快捷键单一事实源随 M3 后续
  * 抽成注册表（先静态清单）。
  */
-export interface Command {
+interface Command {
   id: string;
   label: string;
   hint?: string;

@@ -8,13 +8,13 @@
     "build": "pnpm --filter @kcode/host build && tsup && vite build",
     "dev": "node scripts/dev.mjs",
     "smoke": "pnpm run build && electron dist/main.cjs --kcode-smoke",
+    "test:e2e": "pnpm run build && playwright test",
     "dist": "pnpm run build && node scripts/stage-rg.mjs && electron-builder --win",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@kcode/contracts": "workspace:*",
     "@kcode/design": "workspace:*",
-    "@kcode/extensions": "workspace:*",
     "@tanstack/react-virtual": "^3.14.13",
     "@vscode/ripgrep": "^1.18.0",
     "lucide-react": "^1.53.0",
@@ -23,6 +23,7 @@
     "shiki": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",

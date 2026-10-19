@@ -5,8 +5,6 @@
  * 「建议规则生成 + 展示格式化」（ask 面板按钮文案），宿主落盘时用真引擎再算一遍，
  * 两边不一致的窗口期最多一条规则的展示差异，无安全面。
  */
-const CONTROL_OPERATORS = /&&|\|\||;|\||>|>>|<|`|\$\(/;
-
 /**
  * 持久放行参数级粒度（N3I-5，v2）：模式从工具名整只放行细化到参数级。
  * - 存储形态：`{ tool, content? }` 对象（v1 纯工具名字符串兼容读取——语义=整工具）
@@ -39,31 +37,8 @@ const DANGEROUS_ROOTS = new Set([
 /** 解析可疑：变量/命令替换/续行/重定向——语义不可静态判定，只给整串精确 */
 const SUSPECT_SYNTAX = /`|\$[A-Za-z_{(]|\\\s*$|[<>]/;
 
-/** content 匹配三档：`前缀:*` 词边界 / 通配全锚定 / 精确 */
-export function matchGrantContent(pattern: string, subject: string): boolean {
-  if (pattern.endsWith(":*")) {
-    const prefix = pattern.slice(0, -2);
-    return subject === prefix || subject.startsWith(`${prefix} `) || subject.startsWith(`${prefix}\t`);
-  }
-  if (pattern.includes("*")) {
-    return new RegExp(`^${pattern.split("*").map(escapeRegExp).join(".*")}$`).test(subject);
-  }
-  return subject === pattern;
-}
-
-/** 模式匹配一次调用：工具名（复用通配语义）+ content（有则按主体匹配） */
-export function matchGrantPattern(pattern: GrantPattern, toolName: string, subject?: string): boolean {
-  if (!new RegExp(`^${pattern.tool.split("*").map(escapeRegExp).join(".*")}$`).test(toolName)) {
-    return false;
-  }
-  if (pattern.content === undefined) {
-    return true;
-  }
-  return subject !== undefined && matchGrantContent(pattern.content, subject);
-}
-
 /** 调用的匹配主体（与建议规则同源归一）：bash=命令串，edit/write=路径（反斜杠归一/剥 ./） */
-export function grantSubject(args: unknown): string | undefined {
+function grantSubject(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null) {
     return undefined;
   }
@@ -103,15 +78,6 @@ export function formatGrantPattern(pattern: GrantPattern): string {
   return pattern.content === undefined ? pattern.tool : `${pattern.tool}:${pattern.content}`;
 }
 
-/** 解析展示/存储形态（formatGrantPattern 的逆；首冒号切分——工具名模式（mcp__*）不含冒号） */
-export function parseGrantPattern(text: string): GrantPattern {
-  const idx = text.indexOf(":");
-  if (idx === -1) {
-    return { tool: text };
-  }
-  return { tool: text.slice(0, idx), content: text.slice(idx + 1) };
-}
-
 /** bash 建议规则：统一前缀 `前缀:*`；危险/可疑/前缀不统一 → 整串精确 */
 function suggestBashContent(command: string): string {
   if (SUSPECT_SYNTAX.test(command)) {
@@ -136,8 +102,4 @@ function stablePrefix(segment: string): string | null {
   }
   const second = tokens[1];
   return second !== undefined && !second.startsWith("-") ? `${first} ${second}` : first;
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

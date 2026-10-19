@@ -20,6 +20,7 @@
 | D0-02 | 桌面 replay 修复 + 接管宽限 | `apps/host/src/session.ts`、`apps/desktop/src/renderer/components/projection.ts`、`Timeline.tsx`、`main.tsx` | replay 不再把 sessionId 当路径；rewind 不复活；`session_start` 不再清空续接历史；工具行用 callId 做 key；replay 失败显示可见错误。另给 lease 接管加 1s 宽限，修 kill -9 后 PID 回收窗口导致的偶发双活误判。 |
 | D0-05 | 退出/关窗生命周期 | `packages/runtime/src/session/runner.ts`、`packages/session/src/composition.ts`、`packages/tools/src/tools/bash.ts`、`apps/cli/src/tui/App.tsx` | `SessionRunner.drain(2s)` 等当前 run 结算；`composition.close` 依次 abort→杀后台子代理→`bashTasks.stopAll()`→drain→关 MCP；`BackgroundTaskRegistry.stop` 在 Windows 复用 `killTree`（/T）；TUI 的 exit/`/exit`/双击 Ctrl+C 先 `session.close()`（3.5s 上限）再卸载 Ink。 |
 | D0-06 | 计划批准 + 审批预览 + 超时 | `packages/contracts/src/host-protocol.ts`、`apps/host/src/{session,server,port}.ts`、`packages/runtime/src/host/client.ts`、`apps/desktop/src/renderer/{main.tsx,components/AskPanel.tsx,PlanPanel.tsx}` | host 接 `planAsker` → `plan/request` → `plan/respond`（approved/revise/abandon）；ask 由 host 生成 `buildAskPreview`（write 对比磁盘）；审批/计划超时 10s→5min，超时发 `ask/cancelled`/`plan/cancelled` 让 UI 关闭；AskPanel 显示完整 bash 命令/参数与 diff，默认焦点"拒绝"；capabilities 增加 plan。 |
+| D0-09 | 桌面 Playwright E2E | `apps/desktop/playwright.config.ts`、`apps/desktop/test/e2e/desktop.spec.ts`、`apps/desktop/vite.config.ts` | 首启 → host ready → reload replay → preload/CSP 校验 → 关窗；同时修掉打包态 `index.html` 用绝对 `/assets` 导致**整页空白**的问题（`base:"./"`）。E2E 在本机无头 Electron 下通过（8.4s）。headless 下 Playwright `app.close()` 会等进程树回收而挂起，测试改用关窗 + `taskkill /T` 收口；真实桌面的优雅关闭仍由 D0-05 的 `session.close` 负责。 |
 | D0-08 | Electron 边界加固 | `apps/desktop/src/main/index.ts`、`apps/desktop/src/renderer/index.html` | `sandbox:true`；CSP meta（默认 self，仅 dev 放行 inline/ws）；`setWindowOpenHandler` 拒绝新窗口、仅 https 交系统浏览器；`will-navigate` 只放行 file/dev origin；所有 IPC handle/on 校验 senderFrame 顶层 + origin；`will-attach-webview` 直接拒绝。 |
 | D0-07 | 工作区选择 | `apps/desktop/src/main/index.ts`、`preload/index.ts`、`renderer/main.tsx`、`WorkspaceHeader.tsx`、`styles.css` | 原生文件夹选择；最近工作区（localStorage）；切换工作区走 dispose→create；顶栏显示项目名与「打开文件夹」。 |
 
@@ -49,6 +50,7 @@ pnpm test        → 111 files / 564 passed / 1 skipped
 pnpm lint        → 0 errors（40 warnings）
 pnpm gates:check → 11 条例外，无过期/无漂移
 pnpm build       → 8/8 tasks 通过
+desktop E2E      → 1 passed（首启/replay/preload/CSP/关闭）
 ```
 
 修复过程中 typecheck 暴露并修掉的 desktop 既有问题：
@@ -69,7 +71,7 @@ pnpm build       → 8/8 tasks 通过
 
 **lint 的 5 个 max-lines error**：`composition.ts` 516、`loop.ts` 576、`App.tsx` 505、`InputBox.tsx` 512、`commands.ts` 547——均为存量超长文件（DESIGN 声称已拆到 500 以下，实际没有）。本批不做高风险拆文件，按项目例外登记制登记为限时债务（`gates-exceptions.json`，2026-12-31 到期），并让 `gates-check` 从"只校验 no-console"改为校验所有 `rule: off` 的 overrides。拆分任务归入阶段三 3-31 文档/治理批。
 
-**尚未跑**：桌面 Playwright E2E（随 D0-09）。`pnpm --filter @kcode/desktop smoke` 在当前 headless 环境尝试过：构建成功，Electron 启动后以 2147483651 退出且无 stdout——与代码无关（本机 `ELECTRON_RUN_AS_NODE=1`，清掉后仍无 GUI），需在有桌面会话的 Windows 上复验 sandbox/preload/CSP。
+**桌面 E2E**：`pnpm --filter @kcode/desktop test:e2e` 在本机无头 Electron（`--headless --no-sandbox --disable-gpu`）下通过：首启、host 握手、reload 后 replay、preload/CSP 校验、关闭。它顺带抓到并修掉了打包态整页空白（Vite `base` 绝对路径）。审批/plan 的“真实点击”尚未覆盖——无 key 时无法稳定触发；后续用本地 fake LLM 补。
 
 > 注意：`app-render.test.tsx` 输出了一段 React error boundary 日志，但用例通过；这是测试环境下的既有噪声，暂未追。
 

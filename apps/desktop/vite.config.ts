@@ -8,6 +8,8 @@ import { resolve } from "node:path";
  */
 export default defineConfig({
   root: "src/renderer",
+  // 打包态 main 用 loadFile 加载：绝对 /assets 会解析到 file:///E:/assets 全部 404
+  base: "./",
   plugins: [react()],
   resolve: {
     alias: {
