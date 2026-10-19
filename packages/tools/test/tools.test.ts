@@ -31,6 +31,8 @@ describe("read 工具", () => {
     );
     expect(slice.output).toContain("2→beta");
     expect(slice.output).not.toContain("alpha");
+    // 续读入口在尾部，core 截断保留尾部时仍可见
+    expect(slice.output).toContain("offset=3");
   });
 
   it("文件不存在返回错误", async () => {

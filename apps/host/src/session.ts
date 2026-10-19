@@ -24,6 +24,8 @@ import { loadUserModelsConfig, createHostLlmFactory } from "./boot.js";
  */
 const ASK_TIMEOUT_MS = 10_000;
 const REASONING_FLUSH_MS = 250;
+/** kill -9 后 PID 可能短暂仍可被 signal 0 探测到；接管前给 OS 回收一个宽限窗口 */
+const LEASE_TAKEOVER_GRACE_MS = 1_000;
 
 export class HostSession {
   #composed: ComposedSession | null = null;
@@ -65,9 +67,14 @@ export class HostSession {
       if (last !== undefined) {
         prevEpoch = last.epoch;
         if (last.pid !== process.pid && this.#pidAlive(last.pid)) {
-          throw new Error(
-            `会话正被另一宿主持有（pid ${last.pid} 存活）——拒绝接管，防双活写回（注 B）`,
-          );
+          // kill -9 / 断电恢复：进程退出与 PID 回收不是同一瞬间。给一个短宽限，
+          // 避免把"刚被杀的旧宿主"误判为双活；宽限后仍存活才拒绝。
+          await new Promise((resolve) => setTimeout(resolve, LEASE_TAKEOVER_GRACE_MS));
+          if (this.#pidAlive(last.pid)) {
+            throw new Error(
+              `会话正被另一宿主持有（pid ${last.pid} 存活）——拒绝接管，防双活写回（注 B）`,
+            );
+          }
         }
       }
     }

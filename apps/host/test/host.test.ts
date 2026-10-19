@@ -68,6 +68,15 @@ describe("宿主进程 N3-1（真实子进程）", () => {
     expect(events.some((e) => e.type === "session_end")).toBe(true);
     // lease 事件存在
     expect(events.some((e) => e.type === "host_lease")).toBe(true);
+
+    // 转写重放：session/replay 必须按文件路径读、返回同一会话的事件（M2b 回归）
+    const replayed = await host.replay();
+    expect(replayed.sessionId).toBe(created.sessionId);
+    expect(
+      replayed.events.some((e) => e.type === "user_message" && e.content === "echo hello world"),
+    ).toBe(true);
+    expect(replayed.events.some((e) => e.type === "session_end")).toBe(true);
+
     host.close();
   }, 30_000);
 

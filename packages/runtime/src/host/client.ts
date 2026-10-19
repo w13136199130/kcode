@@ -8,6 +8,7 @@ import {
   HostFrame,
   type HostEvent,
   type SessionCreateResult,
+  type SessionEvent,
   type SessionSubmitResult,
   type SessionsListResult,
 } from "@kcode/contracts";
@@ -121,6 +122,11 @@ export class HostClient {
 
   async createSession(params: { model: string; cwd: string; resumeFrom?: string }): Promise<SessionCreateResult> {
     return (await this.request("session/create", params)) as SessionCreateResult;
+  }
+
+  /** 转写重放（reload/切会话）：宿主返回 effectiveEvents 后的事件流 */
+  async replay(): Promise<{ sessionId: string; events: SessionEvent[] }> {
+    return (await this.request("session/replay")) as { sessionId: string; events: SessionEvent[] };
   }
 
   async submit(text: string, priority?: "now" | "next" | "later"): Promise<SessionSubmitResult> {

@@ -15,7 +15,12 @@ import {
 import { estimateTokens, newId } from "@kcode/shared";
 import { assembleMessages } from "../context/assemble.js";
 import { contextWindowFor, deriveBudget, historyTokens, modelWindowKnown, type Budget } from "../context/budget.js";
-import { runCompaction, type CompactionResult } from "../context/compact.js";
+import {
+  applyCompaction,
+  planCompaction,
+  runCompaction,
+  type CompactionResult,
+} from "../context/compact.js";
 
 /** 自动压缩熔断阈值：连续失败这么多轮后停手（zcode circuit_breaker 同款防风暴） */
 const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
@@ -242,7 +247,8 @@ export class AgentLoop {
    */
   private async maybeCompact(force = false): Promise<CompactionResult | null> {
     if (!force && this.compactFailures >= MAX_CONSECUTIVE_COMPACT_FAILURES) {
-      return null;
+      // 摘要端点连续失败：不再打 LLM，改为机械裁剪，保证长会话能继续而不是撞上下文上限。
+      return this.mechanicalTrim();
     }
     let result: { summary: string; dropped: number; covered: number; history: ChatMessage[] } | null;
     try {
@@ -258,7 +264,8 @@ export class AgentLoop {
         throw err;
       }
       this.compactFailures += 1;
-      return null;
+      // 到达熔断阈值当轮就机械裁剪，不让"下一次请求"先去撞上下文上限
+      return this.compactFailures >= MAX_CONSECUTIVE_COMPACT_FAILURES ? this.mechanicalTrim() : null;
     }
     if (result !== null) {
       this.history = result.history;
@@ -268,6 +275,35 @@ export class AgentLoop {
       this.providerInputLen = null;
     }
     return result;
+  }
+
+  /**
+   * 机械裁剪（1-04）：摘要不可用时的无 LLM 兜底。
+   * 复用 planCompaction/applyCompaction：保留首问锚点、已批准计划锚点与最近 K 条，
+   * 中间以"机械裁剪"摘要替代；不调摘要器、不改 tool 配对。仍超预算时不保证一次到位，
+   * 但能阻止历史无限增长，并把"为什么被裁剪"如实落成 compaction_summary 事件。
+   */
+  private mechanicalTrim(): CompactionResult | null {
+    const used = this.contextUsed();
+    if (used <= this.budget.history) {
+      return null;
+    }
+    const plan = planCompaction(this.history, this.budget, true, used);
+    if (plan === null) {
+      return null;
+    }
+    const summary = `【机械裁剪】摘要生成连续失败，已折叠 ${plan.toSummarize.length} 条较早消息（保留任务锚点与最近上下文）`;
+    const applied = applyCompaction(
+      plan,
+      summary,
+      this.pinnedAnchor !== undefined ? [this.pinnedAnchor] : [],
+    );
+    this.history = applied.history;
+    // 旧校准失效，退回估算直到下一次请求重新校准
+    this.providerInput = null;
+    this.providerInputLen = null;
+    // 保持熔断状态：后续超预算继续机械裁剪，避免每 3 轮重复打失败的摘要端点。
+    return { summary, dropped: applied.dropped, covered: plan.toSummarize.length };
   }
 
   private async emit(event: SessionEvent): Promise<void> {

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { estimateTokens } from "@kcode/shared";
 import type { ChatMessage, Tool } from "@kcode/contracts";
-import { DEFAULT_BUDGET, capToolResult, contextWindowFor, deriveBudget } from "../src/context/budget.js";
+import {
+  DEFAULT_BUDGET,
+  IMAGE_TOKEN_ESTIMATE,
+  capToolResult,
+  contextWindowFor,
+  deriveBudget,
+  historyTokens,
+} from "../src/context/budget.js";
 import { COMPACTION_KEEP_TAIL, planCompaction } from "../src/context/compact.js";
 import { AgentLoop } from "../src/core/loop.js";
 import {
@@ -44,6 +51,29 @@ describe("B3：token 估算与预算派生", () => {
     expect(capped.endsWith("xxxx")).toBe(true);
     const small = "short";
     expect(capToolResult(small, DEFAULT_BUDGET.toolResult)).toBe(small);
+  });
+
+  it("capToolResult 按 token 预算二分：ASCII/CJK 都不超预算且不过度截断", () => {
+    for (const text of ["x".repeat(100_000), "中".repeat(30_000)]) {
+      const capped = capToolResult(text, 8_192);
+      const used = estimateTokens(capped);
+      expect(used).toBeLessThanOrEqual(8_192);
+      expect(used).toBeGreaterThan(8_192 * 0.6);
+      expect(capped).toContain("已截断");
+    }
+  });
+
+  it("historyTokens 计入 toolCalls.args 与图片（否则大 write/附图对压缩不可见）", () => {
+    const withCalls: ChatMessage = {
+      role: "assistant",
+      content: "",
+      toolCalls: [{ callId: "c1", tool: "write", args: { content: "x".repeat(4_000) } }],
+    };
+    const plain: ChatMessage = { role: "assistant", content: "" };
+    expect(historyTokens([withCalls])).toBeGreaterThan(historyTokens([plain]));
+
+    const withImages: ChatMessage = { role: "user", content: "hi", images: ["a.png", "b.png"] };
+    expect(historyTokens([withImages]) - estimateTokens("hi")).toBe(2 * IMAGE_TOKEN_ESTIMATE);
   });
 });
 
@@ -192,6 +222,46 @@ describe("对齐批：provider usage 校准 / 实测触发 / 熔断", () => {
     const tiny = { ...DEFAULT_BUDGET, history: 1 };
     expect(planCompaction(history, tiny, false)).not.toBeNull(); // 估算路径：必超
     expect(planCompaction(history, tiny, false, 0)).toBeNull(); // 实测未超：估算再大也不压
+  });
+
+  it("熔断后机械裁剪：摘要端点持续失败仍能继续长会话（不撞上下文上限）", async () => {
+    const sink = new MemorySink();
+    let calls = 0;
+    const boom = {
+      summarize: async (): Promise<string> => {
+        calls += 1;
+        throw new Error("boom");
+      },
+    };
+    const script = Array.from({ length: 12 }, (_, i) => ({ text: `回复${i}` }));
+    const loop = new AgentLoop(
+      {
+        llm: new ScriptedLLM(script),
+        tools: new InMemoryToolRegistry([]),
+        permissions: allowAll,
+        hooks: noHooks,
+        sink,
+        audit: new MemoryAudit().sink,
+        summarizer: boom,
+      },
+      {
+        sessionId: "s_mech",
+        model: "m",
+        systemPrompt: "t",
+        budget: { system: 4096, history: 1, toolResult: 8192 }, // 必触发
+        now: () => 0,
+      },
+    );
+    for (let i = 0; i < 12; i++) {
+      await loop.run(`q${i}`);
+    }
+    // 失败 3 次后熔断，后续不再打摘要端点
+    expect(calls).toBe(3);
+    expect(
+      sink.events.some((e) => e.type === "compaction_summary" && e.summary.includes("机械裁剪")),
+    ).toBe(true);
+    // 历史有界：锚点 + 摘要 + 最近 10 条，不随 12 轮线性增长
+    expect(loop.contextStats().historyTokens).toBeLessThan(2_000);
   });
 
   it("压缩失败隔离与熔断：抛错不打断整轮，连续 3 次失败停手，force 不受熔断且上抛", async () => {

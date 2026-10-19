@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
 
-/** 请求超时与体积护栏 */
+/** 请求超时与体积护栏；模型 token 预算由 loop 层 capToolResult 负责 */
 const FETCH_TIMEOUT_MS = 20_000;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 40_000;

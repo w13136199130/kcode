@@ -94,8 +94,10 @@ export class OutputCollector {
     const head = full.slice(0, headBudget);
     const tail = full.slice(-this.#limits.tailChars);
     const note = artifactPath !== undefined
-      ? `…（输出共 ${this.#total} 字符，中间省略；完整日志已保存：${artifactPath}；以下为末尾）`
+      ? `…（输出共 ${this.#total} 字符，中间省略；完整日志已保存：${artifactPath}；以下保留头部与末尾）`
       : `…（输出共 ${this.#total} 字符，中间省略；日志目录不可写未落盘——大输出建议用 "> 文件" 重定向后按需读取）`;
-    return { text: `${head}\n${note}\n${tail}`, totalChars: this.#total, artifactPath };
+    // 注记必须在最前：loop 层的 capToolResult 会按 resultBudget 再截一次，
+    // 若路径留在 28k 处会被截掉，模型既拿不到全文路径也拿不到中段（P1-1）。
+    return { text: `${note}\n${head}\n${tail}`, totalChars: this.#total, artifactPath };
   }
 }

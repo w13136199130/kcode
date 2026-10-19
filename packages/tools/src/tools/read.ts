@@ -68,9 +68,12 @@ export const readTool: Tool = {
       return { ok: true, output: `（空范围：文件共 ${lines.length} 行，请求从第 ${start} 行开始）` };
     }
     const body = slice.map((line, i) => `${String(start + i).padStart(6)}→${line}`).join("\n");
+    const end = start + slice.length - 1;
+    // 续读提示放尾部：capToolResult 截断时保留尾部，模型仍能拿到下一页的入口。
+    const more = end < lines.length ? `\n（还有 ${lines.length - end} 行；用 offset=${end + 1} 继续读取）` : "";
     return {
       ok: true,
-      output: `${abs}（共 ${lines.length} 行，显示 ${start}-${start + slice.length - 1}）\n${body}`,
+      output: `${abs}（共 ${lines.length} 行，显示 ${start}-${end}）\n${body}${more}`,
     };
   },
 };

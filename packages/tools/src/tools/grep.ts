@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 
 const DEFAULT_MAX_RESULTS = 200;
+/** 工具侧内存/回显护栏；发给模型的 token 预算由 definition.resultBudget 在 loop 层裁 */
 const MAX_OUTPUT_CHARS = 64_000;
 const RG_TIMEOUT_MS = 10_000;
 

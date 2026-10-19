@@ -15,7 +15,7 @@ const ExtractArgs = z.object({
   maxRows: z.number().int().positive().optional(),
 });
 
-/** 输出字符上限（与 bash 工具一致量级，防超大文档撑爆上下文） */
+/** 工具侧字符护栏（防超大文档撑爆内存）；模型 token 预算由 loop 层 capToolResult 负责 */
 const MAX_OUTPUT_CHARS = 60_000;
 const MAX_IMAGES = 3;
 

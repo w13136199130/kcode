@@ -44,6 +44,8 @@ describe("N3E-1 前台输出三段预算", () => {
     // 注记与尾部：构建类输出"结尾才是结论"——末行内容必须在
     expect(r.output).toContain("完整日志已保存");
     expect(r.output).toContain("kcode-long-line-0000;");
+    // 注记在头部：loop 层按 resultBudget 再截时仍能看到 artifact 路径
+    expect(r.output.indexOf("完整日志已保存")).toBeLessThan(100);
     expect(r.output.length).toBeLessThan(35_000); // 头 30k 内（28k+2k+注）
     // artifact 是完整 40k 输出（不是只有溢出段——对标 zcode 回放写入语义）
     const artifact = join(artifacts, "call_long.log");
