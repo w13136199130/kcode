@@ -9,7 +9,11 @@
     "noEmit": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@web/*": ["../web/src/*"]
+    }
   },
   "include": ["src", "vite.config.ts", "tsup.config.ts"]
 }

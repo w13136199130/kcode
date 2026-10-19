@@ -22,6 +22,18 @@
       "rules": {
         "no-console": "off"
       }
+    },
+    {
+      "files": [
+        "packages/session/src/composition.ts",
+        "packages/core/src/core/loop.ts",
+        "apps/cli/src/tui/App.tsx",
+        "apps/cli/src/tui/input/InputBox.tsx",
+        "apps/cli/src/tui/input/commands.ts"
+      ],
+      "rules": {
+        "max-lines": "off"
+      }
     }
   ]
 }

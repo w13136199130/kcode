@@ -23,7 +23,7 @@ if (hostBuild.status !== 0) process.exit(1);
 const mainBuild = spawnSync("npx", ["tsup"], { stdio: "inherit", shell: true, cwd: root });
 if (mainBuild.status !== 0) process.exit(1);
 if (!existsSync(join(root, "dist/main.cjs")) || !existsSync(join(root, "../host/dist/port.cjs"))) {
-  console.error("✗ 构建产物缺失（dist/main.cjs / host/dist/port.cjs）");
+  process.stderr.write("✗ 构建产物缺失（dist/main.cjs / host/dist/port.cjs）\n");
   process.exit(1);
 }
 
@@ -47,7 +47,7 @@ const waitReady = async () => {
 
 void waitReady().then((ok) => {
   if (!ok) {
-    console.error(`✗ vite dev server 90s 未就绪（${devUrl}）`);
+    process.stderr.write(`✗ vite dev server 90s 未就绪（${devUrl}）\n`);
     vite.kill();
     process.exit(1);
   }

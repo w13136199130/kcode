@@ -1,7 +1,6 @@
-import { relative, sep } from "node:path";
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
-import { displayPath, resolveInCtx } from "./paths.js";
+import { displayPath, isWithinWorkspace, resolveInCtx } from "./paths.js";
 import { atomicWriteText } from "./atomic-write.js";
 
 const WriteArgs = z.object({
@@ -10,15 +9,17 @@ const WriteArgs = z.object({
 });
 
 /**
- * 工作区边界检查：解析后的绝对路径在会话工作目录之外时返回告警提示，
- * 由权限引擎的 ask 确认兜底——工作区外写入必须用户显式同意。
+ * 工作区边界检查：工作区外返回错误（工具层硬边界）。
+ *
+ * 已知取舍：权限 ask 发生在工具执行之前，用户批准越界路径后仍会被这里拒绝。
+ * 后续把边界判定上移到权限引擎（越界 → ask），而不是工具内直接 deny；
+ * 当前先保证跨盘/UNC 不再被误判为"工作区内"。
  */
 function workspaceBoundaryWarning(abs: string, ctx: ToolContext): string | undefined {
   if (ctx.cwd === undefined) {
     return undefined;
   }
-  const rel = relative(ctx.cwd, abs);
-  if (rel === "" || rel.split(sep)[0] === "..") {
+  if (!isWithinWorkspace(ctx.cwd, abs)) {
     return `路径 ${abs} 在工作区 ${ctx.cwd} 之外，请确认是否允许`;
   }
   return undefined;

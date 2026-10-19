@@ -2,8 +2,9 @@
 /**
  * 例外登记校验（N2-5，对标 ZCode expired-exception）：
  * 1) gates-exceptions.json 每条例外带理由与到期日，过期即 fail（续期须显式改期留痕）；
- * 2) 漂移检测：.oxlintrc.json 的 no-console 白名单与登记集合必须一致——
+ * 2) 漂移检测：.oxlintrc.json 所有 `rule: off` 的 overrides 与登记集合必须一致——
  *    配置里多出的例外（未登记）或登记里多余的条目（已失效）都算漂移；
+ *    不再只校验 no-console（max-lines 等同类例外同样纳入）。
  * 3) 登记文件自身的 schema 校验（字段齐全、日期合法、期限 ≤ 一季度）。
  */
 import { readFileSync } from "node:fs";
@@ -37,25 +38,22 @@ for (const entry of registry.entries ?? []) {
   }
 }
 
-// ---- 2) oxlint overrides 漂移检测（no-console 白名单 = 登记集合）----
+// ---- 2) oxlint overrides 漂移检测（所有 rule: off 的例外 = 登记集合）----
 const oxlint = JSON.parse(readFileSync(resolve(root, ".oxlintrc.json"), "utf8"));
-const overrideFiles = new Set();
+const overrideKeys = new Set();
 for (const ov of oxlint.overrides ?? []) {
-  if (Object.keys(ov.rules ?? {}).includes("no-console") && ov.rules["no-console"] === "off") {
-    for (const f of ov.files ?? []) overrideFiles.add(f);
+  for (const [rule, value] of Object.entries(ov.rules ?? {})) {
+    if (value !== "off") continue;
+    for (const f of ov.files ?? []) overrideKeys.add(`${rule}|${f}`);
   }
 }
-const registeredFiles = new Set();
-for (const [key] of registered) {
-  if (key.startsWith("no-console|")) registeredFiles.add(key.slice("no-console|".length));
-}
-const unregistered = [...overrideFiles].filter((f) => !registeredFiles.has(f));
-const stale = [...registeredFiles].filter((f) => !overrideFiles.has(f));
+const unregistered = [...overrideKeys].filter((key) => !registered.has(key));
+const stale = [...registered.keys()].filter((key) => !overrideKeys.has(key));
 if (unregistered.length > 0) {
-  fail(`no-console 白名单存在未登记条目（先入 gates-exceptions.json）：${unregistered.join(", ")}`);
+  fail(`lint 例外存在未登记条目（先入 gates-exceptions.json）：${unregistered.join(", ")}`);
 }
 if (stale.length > 0) {
-  fail(`登记中有已失效的 no-console 例外（配置已移除，请清理登记）：${stale.join(", ")}`);
+  fail(`登记中有已失效的 lint 例外（配置已移除，请清理登记）：${stale.join(", ")}`);
 }
 
 console.log(`✓ 例外登记校验通过：${registered.size} 条生效例外（含理由与到期日），无过期、无漂移。`);

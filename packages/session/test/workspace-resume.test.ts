@@ -33,12 +33,14 @@ describe("resolveResumeHistory 的工作区作用域", () => {
     // 指定工作区 proj/b：取 proj/b 内最近 = b_new，不跨区取 a_old
     const scoped = await resolveResumeHistory(root, "latest", "proj/b");
     expect(scoped).not.toBeNull();
+    expect(scoped!.sessionId).toBe("sess_b_new");
     expect(JSON.stringify(scoped!.messages)).toContain("B 新");
     expect(JSON.stringify(scoped!.messages)).not.toContain("A 旧");
 
     // 指定工作区 proj/a：取 proj/a 内最近 = a_old
     const scopedA = await resolveResumeHistory(root, "latest", "proj/a");
     expect(scopedA).not.toBeNull();
+    expect(scopedA!.sessionId).toBe("sess_a_old");
     expect(JSON.stringify(scopedA!.messages)).toContain("A 旧");
   });
 });

@@ -26,7 +26,7 @@ export function WorkspaceLayout(props: {
     const current = Number(
       document.documentElement.style.getPropertyValue("--workspace-sidebar-width").replace("px", "") || "264",
     );
-    dragState.current = { startX: e.clientX, startWidth: collapsed ? 264 : current };
+    dragState.current = { startX: e.clientX, startWidth: effectiveCollapsed ? 264 : current };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 

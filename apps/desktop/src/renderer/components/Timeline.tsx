@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { TimelineState } from "./projection.js";
+import type { Row, TimelineState } from "./projection.js";
 import { RowView } from "./rows.js";
 import { RichMarkdown } from "./RichMarkdown.js";
 
@@ -20,12 +20,16 @@ export function Timeline({
   const stickToBottomRef = useRef(true);
 
   const rows = state.rows;
+  // 工具行用 callId 做 key：replay/续接后按 index 复用会把上一会话的展开态/状态
+  // 带到新行上（React 复用同一位置的组件）。非工具行没有稳定 id，用类型+下标。
+  const rowKey = (row: TimelineState["rows"][number], index: number): string =>
+    row.kind === "tool" ? `tool:${row.callId}` : `${row.kind}:${index}`;
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 48,
     overscan: 8,
-    getItemKey: (i) => i,
+    getItemKey: (i) => rowKey(rows[i]!, i),
   });
 
   // 用户上滚即脱离吸底；回到底部恢复

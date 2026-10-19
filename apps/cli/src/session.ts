@@ -112,6 +112,8 @@ export interface LocalSessionOptions {
   askUser?: { ask: (question: StructuredQuestion) => Promise<string[]> };
   /** N3I-8 预算到顶问询（TUI 注入；headless 缺省按停止 fail-closed） */
   onBudgetLimit?: (used: { inputTokens: number; outputTokens: number; calls: number }, max: number) => Promise<boolean>;
+  /** 会话 token 预算覆盖（缺省用 runtime.sessionBudgetTokens，来自用户级 config） */
+  sessionBudgetTokens?: number;
   /** 计划批准交互（plan_submit 工具）：渲染计划全文 + 批准菜单 */
   onPlanApproval?: (payload: {
     plan: string;
@@ -156,6 +158,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     model: opts.model,
     cwd: opts.cwd,
     kcodeHomeDir,
+    // 续写源会话：不透传 sessionId 会新建 JSONL，二次 `-c` 只剩本次新事件（丢历史）
+    sessionId: resume?.sessionId,
     resumeFrom: resume?.messages,
     resumeUsage: resume?.usage,
     onEvent: opts.onEvent,

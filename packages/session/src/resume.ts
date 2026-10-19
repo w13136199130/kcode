@@ -15,12 +15,18 @@ import { workspaceKey } from "@kcode/shared";
  * 留在 composition 里只会把该文件推向 max-lines 红线。
  */
 
-/** 解析续接来源（latest / id 前缀 / 精确 id），返回种子历史与历史累计用量；找不到返回 null */
+/**
+ * 解析续接来源（latest / id 前缀 / 精确 id），返回源会话 id、种子历史与历史累计用量；
+ * 找不到返回 null。
+ *
+ * `sessionId` 必须透传给 composeSession：续接要**续写同一 JSONL**，否则新会话文件
+ * 只有本次新事件，二次 `-c` 会静默丢掉之前全部历史（CLI 侧曾漏传，host 侧一直有传）。
+ */
 export async function resolveResumeHistory(
   kcodeHomeDir: string,
   resumeFrom: string,
   workspacePath?: string,
-): Promise<{ messages: ChatMessage[]; usage: SessionUsage } | null> {
+): Promise<{ sessionId: string; messages: ChatMessage[]; usage: SessionUsage } | null> {
   const sessionsDir = join(kcodeHomeDir, "cli", "sessions");
   const summaries = await listSessions(sessionsDir);
   if (summaries.length === 0) {
@@ -49,7 +55,7 @@ export async function resolveResumeHistory(
       usage.calls += event.usage.calls;
     }
   }
-  return { messages: rebuildHistory(events), usage };
+  return { sessionId: target.sessionId, messages: rebuildHistory(events), usage };
 }
 
 /** 把项目写入受信任清单（幂等） */

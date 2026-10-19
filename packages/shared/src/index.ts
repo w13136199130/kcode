@@ -38,3 +38,25 @@ export function estimateTokens(text: string): number {
   }
   return Math.ceil(cjk * 0.75 + other / 3.8);
 }
+
+/**
+ * 工具结果回灌模型的文本（在线与 resume 回放共用同一口径）。
+ *
+ * 失败工具的 output 往往非空（构建日志、stdout），旧的 `output || error` 取法会把
+ * `exit code 1` / `permission denied` 丢掉，模型据此把失败当成功。这里把失败原因
+ * 无条件前置到结果头部；output 为空时 error 本身就是正文，不重复拼接。
+ */
+export function formatToolResultForModel(result: {
+  ok: boolean;
+  output: string;
+  error?: string;
+}): string {
+  if (result.ok) {
+    return result.output;
+  }
+  const error = result.error ?? "";
+  if (result.output === "") {
+    return error !== "" ? `[失败] ${error}` : "[失败]";
+  }
+  return error !== "" ? `[失败] ${error}\n${result.output}` : `[失败]\n${result.output}`;
+}

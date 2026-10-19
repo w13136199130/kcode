@@ -29,16 +29,28 @@ export class LlmSummarizer implements SummarizerPort {
       transcript = `${transcript.slice(0, TRANSCRIPT_CHAR_CAP)}\n（中略：转写超长已截断）`;
     }
     let summary = "";
-    for await (const chunk of this.llm.stream({
-      model: this.model,
-      messages: [
-        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
-        { role: "user", content: transcript },
-      ],
-    })) {
-      if (chunk.type === "text") {
-        summary += chunk.text;
+    let failure: string | undefined;
+    try {
+      for await (const chunk of this.llm.stream({
+        model: this.model,
+        messages: [
+          { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+          { role: "user", content: transcript },
+        ],
+      })) {
+        if (chunk.type === "text") {
+          summary += chunk.text;
+        } else if (chunk.type === "end" && chunk.reason === "error") {
+          // 关键：鉴权/限流/模型不存在时 provider 可能以 end/error 收尾而不抛异常。
+          // 若这里当成"空摘要"返回，runCompaction 会把整段历史替换成一行占位（不可逆）。
+          failure = chunk.error ?? "未知错误";
+        }
       }
+    } catch (err) {
+      throw new Error(`摘要生成失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (failure !== undefined) {
+      throw new Error(`摘要生成失败：${failure}`);
     }
     const trimmed = summary.trim();
     return trimmed !== "" ? trimmed : "【历史压缩】摘要生成为空，已折叠早期消息。";

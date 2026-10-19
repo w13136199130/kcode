@@ -1,8 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { relative, sep } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
-import { displayPath, resolveInCtx } from "./paths.js";
+import { displayPath, isWithinWorkspace, resolveInCtx } from "./paths.js";
 import { atomicWriteText } from "./atomic-write.js";
 
 const EditArgs = z.object({
@@ -45,12 +44,9 @@ export const editTool: Tool = {
     const { path, oldString, newString, fuzzy } = parsed.data;
     const abs = resolveInCtx(path, ctx);
 
-    // 工作区边界检查：工作区外的编辑返回告警，由权限确认兜底
-    if (ctx.cwd !== undefined) {
-      const rel = relative(ctx.cwd, abs);
-      if (rel === "" || rel.split(sep)[0] === "..") {
-        return { ok: false, output: "", error: `路径 ${abs} 在工作区 ${ctx.cwd} 之外，请确认是否允许` };
-      }
+    // 工作区边界检查：工作区外返回错误（工具层硬边界；后续上移到权限引擎改为 ask）
+    if (ctx.cwd !== undefined && !isWithinWorkspace(ctx.cwd, abs)) {
+      return { ok: false, output: "", error: `路径 ${abs} 在工作区 ${ctx.cwd} 之外，请确认是否允许` };
     }
 
     let content: string;
@@ -60,18 +56,18 @@ export const editTool: Tool = {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }
 
-    const exact = countOccurrences(content, oldString);
-    if (exact === 1) {
-      // replacer 用函数形式，避免 newString 中的 $& 等被当作替换元字符
-      const updated = content.replace(oldString, () => newString);
-      await atomicWriteText(abs, updated);
+    // 精确匹配前先对齐 EOL：read 工具返回的文本按 \n 拼接，模型拿到的 oldString
+    // 永远不含 \r；CRLF 文件直接对拍原始 content 会恒为 0，全部落到同步模糊匹配。
+    const exact = replaceExact(content, oldString, newString);
+    if (exact.updated !== undefined) {
+      await atomicWriteText(abs, exact.updated);
       return { ok: true, output: `已替换 ${displayPath(abs, ctx)}（精确匹配，1 处）` };
     }
-    if (exact > 1) {
+    if (exact.count > 1) {
       return {
         ok: false,
         output: "",
-        error: `oldString 出现 ${exact} 次，不唯一——请在 oldString 中附带更多上下文`,
+        error: `oldString 出现 ${exact.count} 次，不唯一——请在 oldString 中附带更多上下文`,
       };
     }
     if (fuzzy === false) {
@@ -106,6 +102,55 @@ function countOccurrences(haystack: string, needle: string): number {
     index = haystack.indexOf(needle, index + needle.length);
   }
   return count;
+}
+
+interface ExactOutcome {
+  /** 命中唯一匹配时的替换结果；未命中/歧义时 undefined */
+  updated?: string;
+  /** 各 EOL 变体中出现的最大次数（用于「不唯一」提示） */
+  count: number;
+}
+
+/**
+ * 精确替换（EOL 感知）：先按原样匹配，再试 CRLF/LF 变体。
+ *
+ * 模型从 read 看到的文本恒为 \n；在 CRLF 仓库里 oldString 不会与磁盘原文相等。
+ * 这里只对 oldString/newString 做 EOL 变体，不重写整份文件——避免把混合 EOL
+ * 统一成单一 EOL 的无谓 diff。
+ */
+function replaceExact(content: string, oldString: string, newString: string): ExactOutcome {
+  const variants: Array<[string, string]> = [[oldString, newString]];
+  const add = (oldText: string, newText: string): void => {
+    if (!variants.some(([o, n]) => o === oldText && n === newText)) {
+      variants.push([oldText, newText]);
+    }
+  };
+  if (content.includes("\r\n")) {
+    add(oldString.replace(/\r?\n/g, "\r\n"), newString.replace(/\r?\n/g, "\r\n"));
+    add(oldString.replace(/\r\n/g, "\n"), newString.replace(/\r\n/g, "\n"));
+  } else {
+    add(oldString.replace(/\r\n/g, "\n"), newString.replace(/\r\n/g, "\n"));
+  }
+
+  // 原样匹配优先：原样出现多次就是真的歧义，不能靠 EOL 变体"挑一个"。
+  const originalCount = countOccurrences(content, oldString);
+  if (originalCount === 1) {
+    // replacer 用函数形式，避免 newString 中的 $& 等被当作替换元字符
+    return { updated: content.replace(oldString, () => newString), count: 1 };
+  }
+  if (originalCount > 1) {
+    return { count: originalCount };
+  }
+
+  let maxCount = 0;
+  for (const [oldText, newText] of variants.slice(1)) {
+    const count = countOccurrences(content, oldText);
+    maxCount = Math.max(maxCount, count);
+    if (count === 1) {
+      return { updated: content.replace(oldText, () => newText), count };
+    }
+  }
+  return { count: maxCount };
 }
 
 /** 行窗口模糊替换：平均行相似度最高的窗口，阈值 0.8，且与次优差距足够大 */

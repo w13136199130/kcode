@@ -41,4 +41,20 @@ describe("LlmSummarizer（历史摘要器）", () => {
     const summary = await summarizer.summarize({ messages: [{ role: "user", content: "q" }] });
     expect(summary).toContain("摘要生成为空");
   });
+
+  it("模型调用失败时抛错——不能把失败当空摘要（否则历史被占位替换）", async () => {
+    const failing = new OpenAICompatibleProvider("test:summary-fail", {
+      baseURL: "https://mock.example/v1",
+      model: "chat",
+      fetch: (async () =>
+        new Response(JSON.stringify({ error: { message: "invalid api key" } }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch,
+    });
+    const summarizer = new LlmSummarizer(failing, "chat");
+    await expect(summarizer.summarize({ messages: [{ role: "user", content: "q" }] })).rejects.toThrow(
+      /摘要生成失败/,
+    );
+  });
 });

@@ -1,5 +1,6 @@
 import { SessionEvent } from "@kcode/contracts";
 import type { ChatMessage, ToolCallPart } from "@kcode/contracts";
+import { formatToolResultForModel } from "@kcode/shared";
 
 /**
  * 回放（§8.2，replay 安全）：回放 harness 全局 replay 模式——hooks 不执行、
@@ -138,7 +139,12 @@ export function rebuildHistory(allEvents: SessionEvent[]): ChatMessage[] {
         flushAssistantTurn();
         history.push({
           role: "tool",
-          content: event.output !== "" ? event.output : (event.error ?? ""),
+          // 与在线回灌同口径：失败原因前置，避免 resume 后模型把失败当成功
+          content: formatToolResultForModel({
+            ok: event.ok,
+            output: event.output,
+            ...(event.error !== undefined ? { error: event.error } : {}),
+          }),
           toolCallId: event.callId,
           name: callTools.get(event.callId) ?? "",
         });

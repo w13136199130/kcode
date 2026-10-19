@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { newId } from "@kcode/shared";
 import type {
   HostEvent,
@@ -12,7 +12,7 @@ import type {
   UserPromptPort,
 } from "@kcode/contracts";
 import { composeSession, resolveResumeHistory, type ComposedSession } from "@kcode/session";
-import { RuntimeCommandQueue, loadSessionEvents, JsonlSessionSink } from "@kcode/runtime";
+import { RuntimeCommandQueue, effectiveEvents, loadSessionEvents, JsonlSessionSink } from "@kcode/runtime";
 import { loadUserModelsConfig, createHostLlmFactory } from "./boot.js";
 
 /**
@@ -52,24 +52,22 @@ export class HostSession {
       throw new Error(`未找到会话「${params.resumeFrom}」`);
     }
 
-    // lease 检查（注 B）：同会话前持有者仍存活 → 拒绝（防双活写回）；已死 → 接管（epoch+1）
+    // lease 检查（注 B）：同会话前持有者仍存活 → 拒绝（防双活写回）；已死 → 接管（epoch+1）。
+    // 续接源 id 直接来自 resolveResumeHistory——不再用 resumeFrom 反查文件；
+    // 否则 "latest"/前缀查不到文件，latest 会被当成新会话（丢连续性）。
     let prevEpoch = 0;
-    let targetSessionId: string | undefined;
-    if (params.resumeFrom !== undefined) {
-      const target = await this.#findSessionFile(params.resumeFrom);
-      if (target !== null) {
-        // 续接继承原会话 ID（侧栏/重放/JSONL 同文件追加一致）
-        targetSessionId = basename(target).replace(/\.jsonl$/, "");
-        const events = await loadSessionEvents(target);
-        const leases = events.filter((e): e is Extract<SessionEvent, { type: "host_lease" }> => e.type === "host_lease");
-        const last = leases.at(-1);
-        if (last !== undefined) {
-          prevEpoch = last.epoch;
-          if (last.pid !== process.pid && this.#pidAlive(last.pid)) {
-            throw new Error(
-              `会话正被另一宿主持有（pid ${last.pid} 存活）——拒绝接管，防双活写回（注 B）`,
-            );
-          }
+    const targetSessionId = resume?.sessionId;
+    if (targetSessionId !== undefined) {
+      const target = join(this.kcodeHomeDir, "cli", "sessions", `${targetSessionId}.jsonl`);
+      const events = await loadSessionEvents(target);
+      const leases = events.filter((e): e is Extract<SessionEvent, { type: "host_lease" }> => e.type === "host_lease");
+      const last = leases.at(-1);
+      if (last !== undefined) {
+        prevEpoch = last.epoch;
+        if (last.pid !== process.pid && this.#pidAlive(last.pid)) {
+          throw new Error(
+            `会话正被另一宿主持有（pid ${last.pid} 存活）——拒绝接管，防双活写回（注 B）`,
+          );
         }
       }
     }
@@ -128,7 +126,9 @@ export class HostSession {
    */
   async replay(): Promise<{ sessionId: string; events: SessionEvent[] }> {
     if (this.#composed === null) throw new Error("会话未创建");
-    const events = await loadSessionEvents(this.#composed.sessionId);
+    // loadSessionEvents 收的是文件路径，不是会话 id；且必须过 effectiveEvents，
+    // 否则 /rewind 掉的内容会在 reload 后复活。
+    const events = effectiveEvents(await loadSessionEvents(this.#composed.jsonlPath));
     return { sessionId: this.#composed.sessionId, events };
   }
 
@@ -307,11 +307,4 @@ export class HostSession {
     }
   }
 
-  async #findSessionFile(resumeFrom: string): Promise<string | null> {
-    const sessionsDir = join(this.kcodeHomeDir, "cli", "sessions");
-    const { readdir } = await import("node:fs/promises");
-    const names = await readdir(sessionsDir).catch(() => [] as string[]);
-    const match = names.find((n) => n === `${resumeFrom}.jsonl` || n.replace(/\.jsonl$/, "").startsWith(resumeFrom));
-    return match !== undefined ? join(sessionsDir, match) : null;
-  }
 }

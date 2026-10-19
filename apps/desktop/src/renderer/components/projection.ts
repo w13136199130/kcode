@@ -45,7 +45,9 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
   const type = se["type"] as string;
   switch (type) {
     case "session_start":
-      return { rows: [], streamText: "", streamThinking: "", busy: state.busy };
+      // 续接会在同一 JSONL 追加新的 session_start；replay 时若清空 rows，
+      // 续接前的全部历史都会消失。新会话的清空由 main.tsx 的 switch/replay 负责。
+      return { ...state, streamText: "", streamThinking: "" };
     case "user_message":
       return { ...state, rows: [...state.rows, { kind: "user", text: String(se["content"] ?? "") }] };
     case "assistant_message": {

@@ -174,6 +174,15 @@ body,
   color: var(--z-fg-subtle);
   border: 1px solid var(--z-border);
 }
+.workspace-pick {
+  cursor: pointer;
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+.workspace-pick:hover {
+  background: var(--z-surface-hover);
+  color: var(--z-fg);
+}
 
 /* ===== 时间线 ===== */
 .main-column {

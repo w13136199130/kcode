@@ -36,6 +36,18 @@
       ],
       "reason": "开发实验脚本与启动器的界面出口（stdout 即界面）",
       "expires": "2026-12-27"
+    },
+    {
+      "rule": "max-lines",
+      "files": [
+        "packages/session/src/composition.ts",
+        "packages/core/src/core/loop.ts",
+        "apps/cli/src/tui/App.tsx",
+        "apps/cli/src/tui/input/InputBox.tsx",
+        "apps/cli/src/tui/input/commands.ts"
+      ],
+      "reason": "存量超长文件：N2-5 声称已拆分到 500 以下，复核实际为 505–576 行。先登记避免阻塞 P0 修复，排期按职责拆分（阶段三 3-31 文档/治理批）后移除。",
+      "expires": "2026-12-31"
     }
   ]
 }

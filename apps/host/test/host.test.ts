@@ -87,10 +87,12 @@ describe("宿主进程 N3-1（真实子进程）", () => {
     const eventsAfterKill = await loadSessionEvents(file);
     expect(eventsAfterKill.some((e) => e.type === "user_message" && e.content === "first message")).toBe(true);
 
-    // kill -9 后无幽灵 run 写回：新宿主接管，lease epoch+1
-    // 注意：resume 会开新会话文件（composeSession 语义——旧文件保留、新文件续写历史）
+    // kill -9 后无幽灵 run 写回：新宿主接管，lease epoch+1。
+    // resume 续写同一 JSONL（不再匿名 fork）：旧历史与新事件在同一文件，
+    // 否则二次 `-c` 只会看到新文件里的新事件，历史静默丢失。
     const host2 = await spawnHost();
     const resumed = await host2.createSession({ model: MODEL, cwd: workDir, resumeFrom: created.sessionId });
+    expect(resumed.sessionId).toBe(created.sessionId);
     expect(resumed.epoch).toBe(created.epoch + 1);
 
     const s2Promise = host2.waitFor((e) => e.type === "session/summary", 60_000);
@@ -98,26 +100,17 @@ describe("宿主进程 N3-1（真实子进程）", () => {
     await s2Promise;
     host2.close();
 
-    // 旧文件：first message 恰好一次（kill -9 后无人再写——无幽灵写回）
-    const oldEvents = await loadSessionEvents(file);
-    const firstCount = oldEvents.filter((e) => e.type === "user_message" && (e as { content: string }).content === "first message").length;
+    // 同一文件：first message 恰好一次（kill -9 后无人再写——无幽灵写回），second 恰好一次
+    const events = await loadSessionEvents(file);
+    const firstCount = events.filter((e) => e.type === "user_message" && (e as { content: string }).content === "first message").length;
     expect(firstCount).toBe(1);
-    // 旧文件 lease：第一条 epoch = created.epoch
-    const oldLeases = oldEvents.filter((e): e is Extract<(typeof oldEvents)[number], { type: "host_lease" }> => e.type === "host_lease");
-    expect(oldLeases.length).toBeGreaterThanOrEqual(1);
-    expect(oldLeases[0]!.epoch).toBe(created.epoch);
-
-    // 新文件：second message 恰好一次、first message 零次（种子是历史不是事件重放）
-    const newFile = join(homeDir, "cli", "sessions", `${resumed.sessionId}.jsonl`);
-    const newEvents = await loadSessionEvents(newFile);
-    const secondCount = newEvents.filter((e) => e.type === "user_message" && (e as { content: string }).content === "second message").length;
+    const secondCount = events.filter((e) => e.type === "user_message" && (e as { content: string }).content === "second message").length;
     expect(secondCount).toBe(1);
-    const newFirstCount = newEvents.filter((e) => e.type === "user_message" && (e as { content: string }).content === "first message").length;
-    expect(newFirstCount).toBe(0);
-    // 新文件 lease：epoch = 前+1
-    const newLeases = newEvents.filter((e): e is Extract<(typeof newEvents)[number], { type: "host_lease" }> => e.type === "host_lease");
-    expect(newLeases.length).toBeGreaterThanOrEqual(1);
-    expect(newLeases[0]!.epoch).toBe(created.epoch + 1);
+    // lease：created.epoch 之后由新宿主 +1
+    const leases = events.filter((e): e is Extract<(typeof events)[number], { type: "host_lease" }> => e.type === "host_lease");
+    expect(leases.length).toBeGreaterThanOrEqual(2);
+    expect(leases[0]!.epoch).toBe(created.epoch);
+    expect(leases.at(-1)!.epoch).toBe(created.epoch + 1);
   }, 40_000);
 
   it("双活拒绝：前持有者存活 → 新宿主 session/create 报错", async () => {

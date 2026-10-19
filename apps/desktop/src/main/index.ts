@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Notification, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain } from "electron";
 import { spawnHost, type HostHandle } from "./host.js";
 import { runSmoke } from "./smoke.js";
 import { readFile } from "node:fs/promises";
@@ -100,6 +100,14 @@ app.whenReady().then(() => {
   });
   // 默认工作目录（M2a 先 homedir；工作区选择器随 M2b）
   ipcMain.handle("kcode:default-cwd", () => homedir());
+  // 工作区选择（D0-07）：只返回用户选中的目录；cwd 仍由 renderer 传给 host
+  ipcMain.handle("kcode:pick-directory", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "选择项目文件夹",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   // 应用版本（tsup define 注入）
   ipcMain.handle("kcode:app-version", () => process.env["KCODE_VERSION"] ?? "dev");
 

@@ -11,12 +11,18 @@ import type { HostConnection } from "@web/hooks/useHostConnection.js";
 declare global {
   interface Window {
     kcodeHost?: {
-      onMessage(callback: (data: string) => void): void;
+      onMessage(callback: (data: string) => void): () => void;
       send(data: string): void;
       onHostExit(callback: (code: number) => void): void;
       getDefaultModel(): Promise<string | null>;
       newWindow(): void;
       getDefaultCwd(): Promise<string>;
+      /** 工作区选择（D0-07）；取消返回 null */
+      pickDirectory(): Promise<string | null>;
+      /** 系统通知（窗口失焦时由 renderer 调用） */
+      notify(title: string, body: string): void;
+      /** 应用版本（构建注入） */
+      getAppVersion(): Promise<string>;
     };
   }
 }
@@ -53,7 +59,6 @@ export function useDesktopConnection(): HostConnection {
         return;
       }
       if (frame.kind === "hello") {
-        console.log("[desktop-conn] 握手完成 → ready");
         setStatus("ready");
         return;
       }

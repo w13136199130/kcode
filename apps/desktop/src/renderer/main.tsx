@@ -66,7 +66,7 @@ function DesktopApp() {
     prevBusyRef.current = timeline.busy;
     const askId = ask?.requestId ?? null;
     if (askId !== null && prevAskRef.current !== askId && !focused) {
-      window.kcodeHost?.notify("kcode", `等待审批：${ask.tool}`);
+      window.kcodeHost?.notify("kcode", `等待审批：${ask?.tool ?? "工具"}`);
     }
     prevAskRef.current = askId;
   }, [timeline.busy, ask]);
@@ -96,7 +96,11 @@ function DesktopApp() {
 
   useEffect(() => {
     void window.kcodeHost?.getDefaultModel().then(setModelDefault);
-    void window.kcodeHost?.getDefaultCwd().then(setDefaultCwd);
+    void window.kcodeHost?.getDefaultCwd().then((fallback) => {
+      // 上次选过的项目优先；目录被删除时 host 会报错，用户可用「打开文件夹」重选
+      const last = localStorage.getItem("kcode-last-cwd");
+      setDefaultCwd(last !== null && last !== "" ? last : fallback);
+    });
   }, []);
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）
@@ -121,11 +125,26 @@ function DesktopApp() {
         if (cancelled) return;
         const { events } = r as { sessionId: string; events: SessionEvent[] };
         let state = initialTimeline();
-        for (const ev of events) state = applyEvent(state, ev);
+        // replay 返回的是 SessionEvent[]；applyEvent 消费 HostEvent，需包一层信封
+        for (const ev of events) state = applyEvent(state, { type: "session/event", event: ev });
         setTimeline(state);
         processed.current = conn.events.length; // 重放已含直播期事件——跳过存量
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        if (cancelled) return;
+        // 不要把恢复失败吞成空白：至少告诉用户时间线为什么没回来
+        setTimeline((prev) => ({
+          ...prev,
+          rows: [
+            ...prev.rows,
+            {
+              kind: "info" as const,
+              text: `转写恢复失败：${err instanceof Error ? err.message : String(err)}`,
+              tone: "warn" as const,
+            },
+          ],
+        }));
+      });
     return () => {
       cancelled = true;
     };
@@ -199,6 +218,49 @@ function DesktopApp() {
     [conn, modelDefault, defaultCwd, sessionId],
   );
 
+  /** 切换工作区（D0-07）：同窗口 dispose→create，cwd 改变后旧会话不带走 */
+  const onPickWorkspace = useCallback((): void => {
+    if (timeline.busy) {
+      setTimeline((prev) => ({
+        ...prev,
+        rows: [
+          ...prev.rows,
+          { kind: "info" as const, text: "运行中不能切换工作区（先停止或等待本轮完成）", tone: "warn" as const },
+        ],
+      }));
+      return;
+    }
+    void window.kcodeHost?.pickDirectory().then((dir) => {
+      if (dir === null || dir === "" || dir === defaultCwd) return;
+      localStorage.setItem("kcode-last-cwd", dir);
+      if (sessionId === null || modelDefault === null) {
+        setDefaultCwd(dir);
+        return;
+      }
+      void conn
+        .send("session/dispose")
+        .then(() => conn.send("session/create", { model: modelDefault, cwd: dir }))
+        .then((r) => {
+          setDefaultCwd(dir);
+          setSessionId((r as { sessionId: string }).sessionId);
+          setSessionVersion((v) => v + 1);
+        })
+        .catch((err) => {
+          setTimeline((prev) => ({
+            ...prev,
+            rows: [
+              ...prev.rows,
+              {
+                kind: "info" as const,
+                text: `打开工作区失败：${err instanceof Error ? err.message : String(err)}`,
+                tone: "warn" as const,
+              },
+            ],
+          }));
+        });
+    });
+  }, [conn, defaultCwd, modelDefault, sessionId, timeline.busy]);
+
   const ready = conn.status === "ready" && sessionId !== null;
   onNewSessionRef.current = onNewSession;
   const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
@@ -235,7 +297,13 @@ function DesktopApp() {
       }
       main={
         <div className={`main-column ${isEmpty ? "draft" : ""}`}>
-          <WorkspaceHeader title="kcode" model={modelDefault} mode={mode} />
+          <WorkspaceHeader
+            title="kcode"
+            cwd={defaultCwd}
+            model={modelDefault}
+            mode={mode}
+            onPickWorkspace={onPickWorkspace}
+          />
           <div className="timeline-stack">
               <Timeline state={timeline} onOpenDiff={setDiffRow} />
               {isEmpty ? (

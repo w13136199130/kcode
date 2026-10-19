@@ -26,6 +26,6 @@ cpSync(pkgDir, join(stageRoot, "ripgrep"), { recursive: true });
 const siblings = readdirSync(dirname(pkgDir)).filter((n) => n.startsWith("ripgrep-"));
 for (const name of siblings) {
   cpSync(realpathSync(join(dirname(pkgDir), name)), join(stageRoot, name), { recursive: true });
-  console.log(`✓ @vscode/${name} staged`);
+  process.stdout.write(`✓ @vscode/${name} staged\n`);
 }
-console.log(`✓ @vscode/ripgrep staged → ${stageRoot}`);
+process.stdout.write(`✓ @vscode/ripgrep staged → ${stageRoot}\n`);

@@ -14,7 +14,7 @@ export function getHighlighter(): Promise<Highlighter> {
     highlighterPromise = (async () => {
       const shiki = await import("shiki");
       return shiki.createHighlighter({
-        theme: THEME,
+        themes: [THEME],
         langs: [...LANGS],
       });
     })();

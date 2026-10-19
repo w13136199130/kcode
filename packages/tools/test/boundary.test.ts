@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { editTool, writeTool } from "../src/index.js";
+import { isWithinWorkspace } from "../src/tools/paths.js";
 
 let root: string;
 let ws: string;
@@ -50,6 +51,16 @@ describe("工作区边界检查", () => {
     );
     expect(outside.ok).toBe(false);
     expect(outside.error).toContain("之外");
+  });
+
+  it("同盘父目录前缀不被误判为工作区内", () => {
+    expect(isWithinWorkspace("/ws", "/ws2/x")).toBe(false);
+    expect(isWithinWorkspace("/ws", "/ws/x")).toBe(true);
+    expect(isWithinWorkspace("/ws", "/ws")).toBe(true);
+  });
+
+  it.skipIf(process.platform !== "win32")("Windows 跨盘不属于工作区", () => {
+    expect(isWithinWorkspace("E:\\ws", "D:\\outside\\x")).toBe(false);
   });
 
   it("无 cwd 时不做边界检查（兼容无工作区场景）", async () => {

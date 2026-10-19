@@ -1,4 +1,5 @@
-import { useState, type ComponentType } from "react";
+import { useState } from "react";
+import type { LucideIcon } from "lucide-react";
 import {
   CircleHelp,
   FileSpreadsheet,
@@ -24,7 +25,7 @@ import { toolArgsPreview } from "./projection.js";
  */
 
 interface ToolRenderer {
-  icon: ComponentType<{ size?: number | string; strokeWidth?: number }>;
+  icon: LucideIcon;
   /** 展开态详情（输出折叠 + 工具专属区） */
   detail?: (args: unknown) => React.ReactNode;
 }

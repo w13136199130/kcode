@@ -1,4 +1,5 @@
 import type { ChatMessage, SessionEvent, Tool, ToolOutput } from "@kcode/contracts";
+import { formatToolResultForModel } from "@kcode/shared";
 import { capToolResult } from "../context/budget.js";
 import type { PendingCall } from "./executor.js";
 
@@ -34,9 +35,10 @@ export async function settleToolResults(dep: {
     });
     dep.pushHistory({
       role: "tool",
-      // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文
+      // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文。
+      // 失败原因前置：output 非空时也不能丢 exit code/权限拒绝（P0-3）。
       content: capToolResult(
-        result.output !== "" ? result.output : (result.error ?? ""),
+        formatToolResultForModel(result),
         defByName.get(call.tool)?.resultBudget ?? dep.toolResultBudget,
       ),
       toolCallId: call.callId,

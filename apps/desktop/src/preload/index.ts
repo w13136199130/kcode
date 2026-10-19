@@ -55,6 +55,10 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   getDefaultCwd(): Promise<string> {
     return ipcRenderer.invoke("kcode:default-cwd");
   },
+  /** 打开系统文件夹选择器；取消返回 null（D0-07） */
+  pickDirectory(): Promise<string | null> {
+    return ipcRenderer.invoke("kcode:pick-directory");
+  },
   /** 系统通知（renderer 仅在窗口失焦时发送——去重纪律在调用侧） */
   notify(title: string, body: string): void {
     ipcRenderer.send("kcode:notify", { title, body });
@@ -68,5 +72,5 @@ contextBridge.exposeInMainWorld("kcodeHost", {
 /** preload 内部端口对象的类型（DOM MessagePort 的最小用面） */
 type MessagePort = {
   postMessage(data: string): void;
-  onmessage: ((ev: { data: unknown }) => void) | null;
+  onmessage: ((ev: MessageEvent) => void) | null;
 };

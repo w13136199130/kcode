@@ -52,6 +52,18 @@ describe("edit 工具", () => {
     expect(await readFile(file, "utf8")).toBe("alpha\nB$&E\ngamma\n");
   });
 
+  it("CRLF 文件用 LF oldString 仍走精确匹配（不落到模糊）", async () => {
+    const file = join(root, "crlf-exact.txt");
+    await writeFile(file, "alpha\r\nbeta\r\ngamma\r\n", "utf8");
+    const r = await editTool.execute(
+      { path: "crlf-exact.txt", oldString: "alpha\nbeta", newString: "ALPHA\nBETA" },
+      ctx(),
+    );
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain("精确匹配");
+    expect(await readFile(file, "utf8")).toBe("ALPHA\r\nBETA\r\ngamma\r\n");
+  });
+
   it("多处出现报不唯一", async () => {
     const file = join(root, "dup.txt");
     await writeFile(file, "x\nx\n", "utf8");
