@@ -3,7 +3,7 @@
 > 范围：`apps/desktop`（Electron 主进程/preload/renderer）+ `apps/host`（utilityProcess 宿主），复用 `packages/*` 的同一套会话/权限/工具。
 > 关系：这是 [CLI 优化方案](./cli-optimization-plan-2026-10.md) 的并行/后续轨道；**桌面不是第二套 agent**，只是 `composeSession` 的第二个前端。
 > 结论先行：现有 desktop 是"可运行的骨架"（M1–M4 已有三栏、虚拟时间线、审批、设置、打包），但 **工作区选择、首次登录、转写重放、计划批准、队列、真实 diff、沙箱/CSP、签名更新** 八处关键能力缺失或失效。补完约 70 人日，2 人 8–10 周可到 V1。
-> 实施状态：D0-02（replay）/ D0-03（resume latest）/ D0-07（工作区选择）已开始落地（2026-10-19）；D0 其余待做。记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
+> 实施状态：D0-02（replay）/ D0-03（resume latest）/ D0-05（退出生命周期）/ D0-06（计划批准 + 审批预览）/ D0-07（工作区选择）/ D0-08（Electron 边界加固）已落地（2026-10-19）；D0-09（E2E）待做。记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
 
 ---
 

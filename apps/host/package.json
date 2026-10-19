@@ -20,6 +20,7 @@
     "@kcode/runtime": "workspace:*",
     "@kcode/session": "workspace:*",
     "@kcode/shared": "workspace:*",
+    "@kcode/tools": "workspace:*",
     "@vscode/ripgrep": "^1.18.0"
   },
   "devDependencies": {

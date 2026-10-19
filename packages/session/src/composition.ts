@@ -506,8 +506,16 @@ ${plan}`);
     backgroundTasks: () => bashTasks.list().map((t) => ({ ...t })),
     contextStats: () => loop.contextStats(),
     close: async () => {
+      // 退出顺序：先 abort/杀后台，再等当前 run 结算，最后关 MCP。
+      // 反序会让进行中的工具在 MCP 关闭后报错，且后台 bash/子代理会变孤儿。
       runner.abort();
-      await Promise.all([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
+      for (const kill of [...backgroundKills]) {
+        kill();
+      }
+      backgroundKills.clear();
+      bashTasks.stopAll();
+      await runner.drain(2_000);
+      await Promise.allSettled([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
       // 检查点目录不再随关闭清理：保留清单与前像，重启后可继续列出/回退
     },
   };

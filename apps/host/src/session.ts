@@ -6,6 +6,7 @@ import type {
   PermissionAnswer,
   PermissionAsker,
   PermissionMode,
+  PlanRespondParams,
   SessionCreateParams,
   SessionSubmitParams,
   SessionEvent,
@@ -13,6 +14,7 @@ import type {
 } from "@kcode/contracts";
 import { composeSession, resolveResumeHistory, type ComposedSession } from "@kcode/session";
 import { RuntimeCommandQueue, effectiveEvents, loadSessionEvents, JsonlSessionSink } from "@kcode/runtime";
+import { buildAskPreview } from "@kcode/tools";
 import { loadUserModelsConfig, createHostLlmFactory } from "./boot.js";
 
 /**
@@ -22,7 +24,9 @@ import { loadUserModelsConfig, createHostLlmFactory } from "./boot.js";
  * - ask 往返：宿主发 ask/request → 等客户端应答或超时（10s）/断连 → 未决一律 deny（fail-closed，注 C）；
  * - 思考增量 250ms 合帧后下发（注 C：避免逐 delta 过线）。
  */
-const ASK_TIMEOUT_MS = 10_000;
+/** 桌面审批/计划面板要留给用户阅读完整命令/diff 的时间；断连仍立即 fail-closed */
+const ASK_TIMEOUT_MS = 5 * 60_000;
+const PLAN_TIMEOUT_MS = 5 * 60_000;
 const REASONING_FLUSH_MS = 250;
 /** kill -9 后 PID 可能短暂仍可被 signal 0 探测到；接管前给 OS 回收一个宽限窗口 */
 const LEASE_TAKEOVER_GRACE_MS = 1_000;
@@ -33,6 +37,11 @@ export class HostSession {
   #reservation = false;
   #pendingAsks = new Map<string, { resolve: (answer: PermissionAnswer) => void; timer: NodeJS.Timeout }>();
   #pendingQuestions = new Map<string, { resolve: (labels: string[]) => void; timer: NodeJS.Timeout }>();
+  #pendingPlans = new Map<string, { resolve: (verdict: "approved" | "revise" | "abandon") => void; timer: NodeJS.Timeout }>();
+  /** 当前会话 cwd：ask 预览（write 对比磁盘旧内容）需要 */
+  #cwd = "";
+  /** 中断代际：预览是异步的，预览期间被中断则不得再弹出过期审批 */
+  #askEpoch = 0;
   #reasoningBuffer = "";
   #reasoningTimer: NodeJS.Timeout | null = null;
   #epoch = 0;
@@ -45,6 +54,7 @@ export class HostSession {
   ) {}
 
   async create(params: SessionCreateParams): Promise<{ sessionId: string; epoch: number }> {
+    this.#cwd = params.cwd;
     const models = await loadUserModelsConfig(this.kcodeHomeDir);
     const resume =
       params.resumeFrom !== undefined
@@ -100,6 +110,8 @@ export class HostSession {
       // ask 往返（fail-closed：断连/超时 deny）
       asker: this.#asker(),
       askUser: this.#askUser(),
+      // 计划批准：桌面端 plan_submit 必须有交互通道，否则计划模式不可用
+      planAsker: this.#planAsker(),
     });
     this.#composed = composed;
     this.#queue = composed.commandQueue;
@@ -151,17 +163,25 @@ export class HostSession {
 
   interrupt(): { cleared: number } {
     const cleared = this.#queue?.clear() ?? 0;
+    this.#askEpoch += 1;
     this.#composed?.abort();
     // 中断即结算未决交互为 deny（不等待客户端）
     for (const [id, entry] of this.#pendingAsks) {
       clearTimeout(entry.timer);
       this.#pendingAsks.delete(id);
+      this.#emit({ type: "ask/cancelled", requestId: id });
       entry.resolve({ allowed: false });
     }
     for (const [id, entry] of this.#pendingQuestions) {
       clearTimeout(entry.timer);
       this.#pendingQuestions.delete(id);
       entry.resolve([]);
+    }
+    for (const [id, entry] of this.#pendingPlans) {
+      clearTimeout(entry.timer);
+      this.#pendingPlans.delete(id);
+      this.#emit({ type: "plan/cancelled", requestId: id });
+      entry.resolve("abandon");
     }
     return { cleared };
   }
@@ -199,6 +219,14 @@ export class HostSession {
     clearTimeout(entry.timer);
     this.#pendingQuestions.delete(params.requestId);
     entry.resolve(params.labels);
+  }
+
+  planRespond(params: PlanRespondParams): void {
+    const entry = this.#pendingPlans.get(params.requestId);
+    if (entry === undefined) return;
+    clearTimeout(entry.timer);
+    this.#pendingPlans.delete(params.requestId);
+    entry.resolve(params.verdict);
   }
 
   /** 释放当前会话（同窗口切会话用——进程继续活、后续可 create 新会话；与 shutdown 终态区分） */
@@ -244,11 +272,20 @@ export class HostSession {
 
   #asker(): PermissionAsker {
     return {
-      confirm: (call) =>
-        new Promise<boolean | PermissionAnswer>((resolve) => {
+      confirm: async (call) => {
+        // 预览在宿主侧生成：renderer 无文件访问；write 需要对比磁盘旧内容
+        const epoch = this.#askEpoch;
+        const preview = await buildAskPreview(call.tool, call.args, {
+          sessionId: call.callId,
+          cwd: this.#cwd,
+        }).catch(() => undefined);
+        // 预览期间被中断/关会话：不再弹一个已经过期的审批
+        if (epoch !== this.#askEpoch) return { allowed: false };
+        return new Promise<boolean | PermissionAnswer>((resolve) => {
           const requestId = newId("ask");
           const timer = setTimeout(() => {
             this.#pendingAsks.delete(requestId);
+            this.#emit({ type: "ask/cancelled", requestId });
             resolve({ allowed: false }); // 超时 fail-closed
           }, ASK_TIMEOUT_MS);
           this.#pendingAsks.set(requestId, {
@@ -260,7 +297,26 @@ export class HostSession {
             requestId,
             tool: call.tool,
             args: call.args,
+            ...(preview !== undefined ? { preview } : {}),
           });
+        });
+      },
+    };
+  }
+
+  /** 计划批准端口：plan_submit → plan/request → 客户端 plan/respond */
+  #planAsker(): { ask(plan: string): Promise<"approved" | "revise" | "abandon"> } {
+    return {
+      ask: (plan) =>
+        new Promise((resolve) => {
+          const requestId = newId("plan");
+          const timer = setTimeout(() => {
+            this.#pendingPlans.delete(requestId);
+            this.#emit({ type: "plan/cancelled", requestId });
+            resolve("abandon");
+          }, PLAN_TIMEOUT_MS);
+          this.#pendingPlans.set(requestId, { resolve, timer });
+          this.#emit({ type: "plan/request", requestId, plan });
         }),
     };
   }

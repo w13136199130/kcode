@@ -5,6 +5,7 @@ import {
   PROTOCOL_MAJOR,
   PROTOCOL_MINOR,
   type HostFrame,
+  type PlanRespondParams,
   type SessionCreateParams,
   type SessionSubmitParams,
 } from "@kcode/contracts";
@@ -43,7 +44,7 @@ export class HostServer {
       }
       this.send({
         kind: "hello",
-        hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask"] },
+        hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan"] },
       });
       this.send({ kind: "ev", event: { type: "ready", hostId: this.hostId, pid: process.pid } });
       return;
@@ -111,6 +112,11 @@ export class HostServer {
       case "question/respond": {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.questionRespond(params as { requestId: string; labels: string[] });
+      }
+      case "plan/respond": {
+        if (this.#session === null) throw new Error("会话未创建");
+        this.#session.planRespond(params as PlanRespondParams);
+        return;
       }
       case "platform/probe": {
         // N3-2 注 E：key 是否已录入——在宿主侧查（key 明文不出宿主）

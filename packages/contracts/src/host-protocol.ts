@@ -40,6 +40,13 @@ export const QuestionRespondParams = z.object({
 });
 export type QuestionRespondParams = z.infer<typeof QuestionRespondParams>;
 
+/** 计划批准应答：approved 切执行 / revise 继续研究 / abandon 放弃 */
+export const PlanRespondParams = z.object({
+  requestId: z.string().min(1),
+  verdict: z.enum(["approved", "revise", "abandon"]),
+});
+export type PlanRespondParams = z.infer<typeof PlanRespondParams>;
+
 export const HostMethod =
   z.string().regex(/^[a-z/][a-z0-9/_-]*$/);
 export type HostMethod = z.infer<typeof HostMethod>;
@@ -105,6 +112,9 @@ export const HostEvent = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     plan: z.string(),
   }),
+  /** 超时/中断：客户端据此关闭已过期的审批/计划面板 */
+  z.object({ type: z.literal("ask/cancelled"), requestId: z.string().min(1) }),
+  z.object({ type: z.literal("plan/cancelled"), requestId: z.string().min(1) }),
   z.object({ type: z.literal("notice"), message: z.string() }),
   z.object({ type: z.literal("host/closing"), reason: z.string() }),
 ]);

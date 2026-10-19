@@ -65,7 +65,7 @@ function pump(port: PortLike): void {
   // 每个新挂载的端口都要走一遍握手（host 回 hello + ready）
   void server.handleFrame({
     kind: "hello",
-    hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask"] },
+    hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan"] },
   });
 }
 

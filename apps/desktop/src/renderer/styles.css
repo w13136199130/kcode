@@ -244,6 +244,36 @@ body,
   margin: 0 0 10px;
   color: var(--z-fg-subtle);
 }
+.ask-command,
+.ask-diff {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  background: var(--z-surface);
+  border: 1px solid var(--z-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 10px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ask-command {
+  color: var(--z-fg);
+}
+.ask-diff-path {
+  color: var(--z-fg-subtle);
+  margin-bottom: 6px;
+}
+.plan-body {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--z-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--z-surface);
+}
 .ask-actions {
   display: flex;
   gap: 8px;

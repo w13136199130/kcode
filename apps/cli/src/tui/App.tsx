@@ -147,6 +147,8 @@ export function KcodeApp(props: KcodeAppProps) {
 
   /** 本轮已发送过中断（重复按 Esc/Ctrl+C 不再刷提示，等当前命令退出） */
   const abortSent = useRef(false);
+  /** 退出幂等：Ctrl+C 双击/exit/exit 排队可能并发触发 */
+  const shuttingDown = useRef(false);
   const interactions = useRef(
     makeInteractions({ ui, interactive, abortSent, setAsk, setQuestion, setPlanApproval }),
   ).current;
@@ -248,6 +250,26 @@ export function KcodeApp(props: KcodeAppProps) {
     pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
+  /**
+   * 退出：先关会话（停后台 bash/子代理、等当前 run 结算、关 MCP），再卸载 Ink。
+   * close 内部有 2s 上限；不能让 exit() 先发生，否则子进程/会话文件尾部会丢。
+   */
+  const shutdown = (): void => {
+    if (shuttingDown.current) return;
+    shuttingDown.current = true;
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    if (session === null) {
+      exit();
+      return;
+    }
+    const timeout = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 3_500);
+      timer.unref?.();
+    });
+    void Promise.race([session.close().catch(() => undefined), timeout]).finally(() => exit());
+  };
+
   // 全局按键绑定（Esc/Shift+Tab/Ctrl+C/Ctrl+B，N2-3 外迁 terminal/keybinds.ts）
   useKeybinds({
     busy,
@@ -260,7 +282,7 @@ export function KcodeApp(props: KcodeAppProps) {
     interruptRun,
     openRewindPicker,
     applyMode,
-    exit,
+    exit: shutdown,
     pushBlock: (block) => ui.getState().pushBlock(block),
   });
 
@@ -282,7 +304,7 @@ export function KcodeApp(props: KcodeAppProps) {
     setCommands,
     pushBlock: (block) => ui.getState().pushBlock(block),
     modelLabel,
-    exit,
+    exit: shutdown,
   });
 
   /** N2-2：本轮结束即取下一条排队输入递归执行；队列空则停（中断路径已 clear，取消不续跑） */
@@ -320,7 +342,7 @@ export function KcodeApp(props: KcodeAppProps) {
     const text = value.trim();
     if (text === "" || sessionRef.current === null) return;
     if (text === "exit" || text === "quit") {
-      exit();
+      shutdown();
       return;
     }
     if (ui.getState().busy) {
@@ -372,7 +394,7 @@ export function KcodeApp(props: KcodeAppProps) {
         saveHistory,
         beginWork,
         resetAbortSent: () => { abortSent.current = false; },
-        exitApp: () => exit(),
+        exitApp: shutdown,
         createSession,
         handleEvent,
         appendDelta: stream.appendDelta,

@@ -9,6 +9,7 @@ import { WorkspaceHeader } from "./components/WorkspaceHeader.js";
 import { Timeline } from "./components/Timeline.js";
 import { Composer } from "./components/Composer.js";
 import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
+import { PlanPanel } from "./components/PlanPanel.js";
 import { applyEvent, initialTimeline, type TimelineState } from "./components/projection.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { DiffViewer } from "./components/DiffViewer.js";
@@ -29,10 +30,15 @@ interface AskState {
   requestId: string;
   tool: string;
   args: unknown;
+  preview?: { path?: string; diff: string };
 }
 interface QuestionState {
   requestId: string;
   question: { question: string; options: Array<{ label: string; description?: string }>; multiSelect?: boolean };
+}
+interface PlanState {
+  requestId: string;
+  plan: string;
 }
 
 function DesktopApp() {
@@ -43,6 +49,7 @@ function DesktopApp() {
   const [mode, setMode] = useState<PermissionMode>("default");
   const [ask, setAsk] = useState<AskState | null>(null);
   const [question, setQuestion] = useState<QuestionState | null>(null);
+  const [plan, setPlan] = useState<PlanState | null>(null);
   const [defaultCwd, setDefaultCwd] = useState("");
   /** 会话版本号：切换/续接时 +1——触发投影重置与重放 */
   const [sessionVersion, setSessionVersion] = useState(0);
@@ -58,6 +65,7 @@ function DesktopApp() {
   // 系统通知（M3a）：仅在窗口失焦时发——任务完成 / 待审批（沿检测去重）
   const prevBusyRef = useRef(timeline.busy);
   const prevAskRef = useRef<string | null>(null);
+  const prevPlanRef = useRef<string | null>(null);
   useEffect(() => {
     const focused = document.hasFocus();
     if (prevBusyRef.current === true && timeline.busy === false && !focused) {
@@ -69,7 +77,12 @@ function DesktopApp() {
       window.kcodeHost?.notify("kcode", `等待审批：${ask?.tool ?? "工具"}`);
     }
     prevAskRef.current = askId;
-  }, [timeline.busy, ask]);
+    const planId = plan?.requestId ?? null;
+    if (planId !== null && prevPlanRef.current !== planId && !focused) {
+      window.kcodeHost?.notify("kcode", "等待批准执行计划");
+    }
+    prevPlanRef.current = planId;
+  }, [timeline.busy, ask, plan]);
 
   // 全局快捷键（capture；命令面板 / 新窗口 / 侧栏）
   useEffect(() => {
@@ -163,8 +176,25 @@ function DesktopApp() {
         continue;
       }
       if (ev.type === "ask/request") {
-        const a = ev as unknown as { requestId: string; tool: string; args: unknown };
-        setAsk({ requestId: a.requestId, tool: a.tool, args: a.args });
+        const a = ev as unknown as {
+          requestId: string;
+          tool: string;
+          args: unknown;
+          preview?: { path?: string; diff: string };
+        };
+        setAsk({ requestId: a.requestId, tool: a.tool, args: a.args, ...(a.preview !== undefined ? { preview: a.preview } : {}) });
+        continue;
+      }
+      if (ev.type === "ask/cancelled") {
+        setAsk((prev) => (prev?.requestId === ev.requestId ? null : prev));
+        continue;
+      }
+      if (ev.type === "plan/request") {
+        setPlan({ requestId: ev.requestId, plan: ev.plan });
+        continue;
+      }
+      if (ev.type === "plan/cancelled") {
+        setPlan((prev) => (prev?.requestId === ev.requestId ? null : prev));
         continue;
       }
       if (ev.type === "question/request") {
@@ -316,9 +346,19 @@ function DesktopApp() {
               <AskPanel
                 tool={ask.tool}
                 args={ask.args}
+                {...(ask.preview !== undefined ? { preview: ask.preview } : {})}
                 onRespond={(allowed, scope) => {
                   setAsk(null);
                   void conn.send("ask/respond", { requestId: ask.requestId, allowed, scope }).catch(() => undefined);
+                }}
+              />
+            ) : null}
+            {plan !== null ? (
+              <PlanPanel
+                plan={plan.plan}
+                onRespond={(verdict) => {
+                  setPlan(null);
+                  void conn.send("plan/respond", { requestId: plan.requestId, verdict }).catch(() => undefined);
                 }}
               />
             ) : null}

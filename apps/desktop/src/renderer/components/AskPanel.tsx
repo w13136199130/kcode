@@ -9,6 +9,8 @@ import { formatGrantPattern, suggestGrant } from "../lib/grant-patterns.js";
 export function AskPanel(props: {
   tool: string;
   args: unknown;
+  /** 宿主侧生成的变更预览（write/edit）：完整 diff，renderer 无文件访问 */
+  preview?: { path?: string; diff: string };
   onRespond(allowed: boolean, scope?: "once" | "session" | "project"): void;
 }) {
   const [picked, setPicked] = useState(false);
@@ -18,10 +20,17 @@ export function AskPanel(props: {
     suggestion !== null
       ? `本项目不再询问 · ${formatGrantPattern(suggestion)}`
       : "本项目不再询问";
-  const argsPreview = (() => {
-    const json = JSON.stringify(props.args) ?? "";
-    return json.length > 300 ? `${json.slice(0, 300)}…` : json;
-  })();
+  const command =
+    typeof (props.args as { command?: unknown } | null)?.command === "string"
+      ? (props.args as { command: string }).command
+      : null;
+  const argsText = JSON.stringify(props.args, null, 2) ?? "";
+  const argsPreview =
+    command !== null
+      ? command
+      : argsText.length > 8_000
+        ? `${argsText.slice(0, 8_000)}\n…（参数过长已截断显示；完整内容见会话事件）`
+        : argsText;
 
   const respond = (allowed: boolean, scope?: "once" | "session" | "project"): void => {
     setPicked(true);
@@ -33,7 +42,26 @@ export function AskPanel(props: {
       <div className="ask-title">
         ⚠ 允许 <code>{props.tool}</code> ？
       </div>
-      <pre className="ask-args">{argsPreview}</pre>
+      {command !== null ? (
+        <pre className="ask-command">{command}</pre>
+      ) : (
+        <pre className="ask-args">{argsPreview}</pre>
+      )}
+      {props.preview !== undefined ? (
+        <div className="ask-diff" aria-label="变更预览">
+          {props.preview.path !== undefined ? <div className="ask-diff-path">{props.preview.path}</div> : null}
+          {props.preview.diff.split("\n").map((line, i) => (
+            <div
+              key={i}
+              className={
+                line.startsWith("+") ? "diff-line diff-added" : line.startsWith("-") ? "diff-line diff-removed" : "diff-line"
+              }
+            >
+              {line}
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="ask-actions">
         <button type="button" className="ask-btn allow" onClick={() => respond(true)}>
           允许
@@ -44,7 +72,7 @@ export function AskPanel(props: {
         <button type="button" className="ask-btn" onClick={() => respond(true, "project")} title={suggestion !== null ? "保存参数级放行规则" : "保存工具级放行"}>
           {projectLabel}
         </button>
-        <button type="button" className="ask-btn deny" onClick={() => respond(false)}>
+        <button type="button" className="ask-btn deny" onClick={() => respond(false)} autoFocus>
           拒绝
         </button>
       </div>

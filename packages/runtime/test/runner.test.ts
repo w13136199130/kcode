@@ -24,6 +24,28 @@ describe("SessionRunner", () => {
     expect(runner.busy).toBe(false);
   });
 
+  it("drain 等待当前 run 真正退出；不因异常悬挂", async () => {
+    const runner = new SessionRunner();
+    let finish!: () => void;
+    const run = runner.start(async () => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+    });
+    const drained = runner.drain(1_000);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(runner.busy).toBe(true);
+    finish();
+    await run.result;
+    await drained;
+    expect(runner.busy).toBe(false);
+
+    // 已空闲时立即返回
+    await runner.drain(1_000);
+    const failed = runner.start(async () => { throw new Error("boom"); });
+    await expect(failed.result).rejects.toThrow("boom");
+    await runner.drain(1_000);
+    expect(runner.busy).toBe(false);
+  });
+
   it("异常释放锁，两个会话互不影响", async () => {
     const a = new SessionRunner(); const b = new SessionRunner();
     const failed = a.start(async () => { throw new Error("failed"); });

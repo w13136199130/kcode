@@ -85,8 +85,18 @@ export class BackgroundTaskRegistry {
     if (child === undefined || child.killed || child.exitCode !== null) {
       return false;
     }
-    child.kill();
+    // 与前台超时同口径：Windows 必须 /T 杀孙进程，否则 npm run dev 之类会留下孤儿
+    killTree(child);
     return true;
+  }
+
+  /** 关会话/关窗：终止所有仍在运行的后台任务，返回实际发出终止信号的个数 */
+  stopAll(): number {
+    let stopped = 0;
+    for (const id of [...this.#children.keys()]) {
+      if (this.stop(id)) stopped += 1;
+    }
+    return stopped;
   }
 }
 

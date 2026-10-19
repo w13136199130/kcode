@@ -3,7 +3,7 @@
 > 配套文档：[现状诊断](./cli-gap-analysis-2026-10.md) · [竞品基线](./cli-agent-benchmark-2026.md) · [桌面端方案](./desktop-plan-2026-10.md)
 > 范围：本文是 **CLI 主线**（`apps/cli` + `packages/*`）。桌面端已纳入，见 [desktop-plan-2026-10.md](./desktop-plan-2026-10.md)；两者共享 `packages/*` 与同一会话语义，**CLI 阶段一（共享内核止血）仍是桌面的前置**。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 实施状态：1-01 / 1-03 / 1-04 / 1-05（错误前置部分）/ 1-06 / 1-07 / 1-08 / 1-09 / 1-10 已落地（2026-10-19）；1-11 待做。记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
+> 实施状态：1-01 / 1-03 / 1-04 / 1-05（错误前置部分）/ 1-06 / 1-07 / 1-08 / 1-09 / 1-10 已落地；1-11 已补 Windows CI job（待首次 Actions 运行验证）。2026-10-19，记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
 
 ---
 

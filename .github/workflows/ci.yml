@@ -21,3 +21,26 @@ jobs:
       - run: pnpm lint:deps
       - run: pnpm knip
       - run: pnpm gates:check
+
+  # 1-11 Windows 最小回归：路径边界、CRLF edit、bash 进程树、host lease/接管
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Windows path / CRLF / bash / host regressions
+        run: >
+          pnpm exec vitest run
+          packages/tools/test/bash.test.ts
+          packages/tools/test/bash-output.test.ts
+          packages/tools/test/write-edit.test.ts
+          packages/tools/test/boundary.test.ts
+          packages/session/test/workspace-resume.test.ts
+          apps/host/test/host.test.ts

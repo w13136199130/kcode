@@ -145,6 +145,13 @@ export class HostClient {
     await this.request("question/respond", { requestId, labels });
   }
 
+  async planRespond(
+    requestId: string,
+    verdict: "approved" | "revise" | "abandon",
+  ): Promise<void> {
+    await this.request("plan/respond", { requestId, verdict });
+  }
+
   async setMode(mode: string): Promise<void> {
     await this.request("session/set_mode", { mode });
   }
