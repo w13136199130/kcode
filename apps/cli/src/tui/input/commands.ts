@@ -15,6 +15,7 @@ import { contextWindowFor, modelWindowKnown } from "@kcode/core";
 import { join, resolve } from "node:path";
 import { atomicWriteText } from "@kcode/tools";
 import { blocksToMarkdown } from "../export.js";
+import { formatHelp } from "./help.js";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
 /**
@@ -301,6 +302,7 @@ ${body}
             runtime: ctx.props.runtime,
             model: ctx.modelLabel,
             cwd: ctx.props.cwd,
+            initialMode: ctx.mode,
             onEvent: ctx.handleEvent,
             onDelta: ctx.appendDelta,
             onReasoning: ctx.appendReasoning,
@@ -498,32 +500,12 @@ ${hooks
         return;
       }
       if (name === "help") {
-        const customs = ctx.session
-          .listCommands()
-          .map((c) => `/${c.name}${c.source === "project" ? "（项目）" : "（用户）"}`);
-        const builtins = [
-          "/ctx.mode [名称] 切换权限模式（plan/default/acceptEdits/fullAccess）",
-          "/model [引用] 查看/切换模型（无参出选择菜单）",
-          "/login 配置模型厂商与 API key（向导，自动写配置）",
-          "/skills · /skill <名称> 查看/手动注入技能",
-          "/sessions 最近会话列表",
-          "/resume [latest|id 前缀] 不重启续接历史会话",
-          "/rewind 回退到之前某轮提问（文件快照+对话一起回滚；空闲双击 Esc 直达）",
-          "/compact 手动压缩历史 · /context 查看 token 占用（超预算 60% 自动压缩）",
-          "/clear 清屏开新会话 · /status 会话状态一览 · /mcp MCP 接入状态",
-          "!命令 直接执行 shell（结果仅显示） · Shift+Tab 循环权限模式 · @ 补全文件路径",
-          "运行中提交的输入自动排队，本轮完成后按序执行（Esc/Ctrl+C 中断将清空排队）",
-          "/permissions 查看本项目持久放行（权限确认选「本项目不再询问」产生）",
-          "/cost 查看本会话 token 用量（含 --resume 续接的历史用量）",
-          "/plan 计划模式快捷切换",
-          "/trust 信任当前项目",
-          "/help 显示本帮助",
-          "exit 退出",
-        ];
-        ctx.pushBlock({
-          kind: "info",
-          text: `内置命令：\n${builtins.join("\n")}${customs.length > 0 ? `\n自定义命令：\n${customs.join("\n")}` : "\n（暂无自定义命令，可在 .kcode/commands/*.md 添加）"}`,
-        });
+        // 2-24：内置命令来自 BUILTIN_COMMANDS（与补全同源），不再手写清单
+        const customs = ctx.session.listCommands().map((c) => ({
+          name: c.name,
+          desc: c.source === "project" ? "项目自定义命令" : "用户自定义命令",
+        }));
+        ctx.pushBlock({ kind: "info", text: formatHelp(customs) });
         return;
       }
       const expanded = await ctx.session.expandCommand(name, args);

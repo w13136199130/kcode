@@ -27,10 +27,15 @@ export function writeTerminalTitle(
   sink.write(`\x1b]0;${text}\x07`);
 }
 
-/** TUI 挂载点：busy 或活动标签变化即写；空闲复位 kcode；卸载复位 kcode */
-export function useTerminalTitle(busy: boolean, activity: string): void {
+/** 标题文本（纯函数便于单测）：确认等待优先 ❗，其次 busy ⏳，空闲复位 */
+export function terminalTitle(busy: boolean, activity: string, attention = false): string {
+  return attention ? `kcode ❗ ${activity}` : busy ? `kcode ⏳ ${activity}` : "kcode";
+}
+
+/** TUI 挂载点：确认等待优先显示 ❗；busy/活动变化即写；空闲复位 kcode；卸载复位 kcode */
+export function useTerminalTitle(busy: boolean, activity: string, attention = false): void {
   useEffect(() => {
-    writeTerminalTitle(busy ? `kcode ⏳ ${activity}` : "kcode");
-  }, [busy, activity]);
+    writeTerminalTitle(terminalTitle(busy, activity, attention));
+  }, [busy, activity, attention]);
   useEffect(() => () => writeTerminalTitle("kcode"), []);
 }

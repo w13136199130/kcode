@@ -17,6 +17,11 @@
 | 2-02 | LLM 延迟解析 | `packages/session/src/lazy-llm.ts`、`composition.ts` | compose 阶段只拿工厂，不碰 keychain/路由；首次 `stream`/`listModels` 才 resolve，失败不缓存（/login 后同会话可重试）；`setModel` 同样延迟。`!命令` 直执行不再创建父 LLM（测试从 1 改 0）。 |
 | 2-01 | unconfigured TUI + init + /login 热生效 | `apps/cli/src/{bootstrap,main,args}.ts`、`tui/{App.tsx,state/lifecycle.ts,state/services.ts,dialogs/LoginWizardPanel.tsx}` | 缺 `config.json` 返回空 providers（损坏仍 fail-fast）；无 default 也进 TUI，banner 提示 `/login`；新增 `kcode init` 空骨架；登录保存后 `reloadRuntime` 重读配置并 `Object.assign` 同一 Runtime，再 `session.setModel`，无需重启。 |
 | 2-15 | web_fetch 逐跳 SSRF | `packages/tools/src/tools/web.ts` | `redirect:"manual"` 最多 5 跳、每跳复检协议/主机/DNS；DNS 全部 A/AAAA 任一私网即拒绝；IPv4 覆盖回环/RFC1918/CGNAT/链路本地/保留/组播，IPv6 覆盖 `::1`/ULA/link-local；302 → 127.0.0.1、整数 IPv4、`[::1]` 均拒绝。 |
+| 2-24 | /help 生成化 | `apps/cli/src/tui/input/help.ts`、`commands.ts` | `/help` 由 `BUILTIN_COMMANDS`（与补全同表）生成，隐藏别名标注；自定义命令来自会话；按键/输入说明单表维护；修正旧手写清单里的 `/ctx.mode` 漂移。 |
+| 2-23 | 模式同步 | `apps/cli/src/tui/state/lifecycle.ts`、`apps/cli/src/tui/App.tsx`、`apps/cli/src/tui/input/commands.ts` | 新建会话（`/clear`、`/resume`、fatal 重试）统一传 `initialMode: 当前 UI 档位`；引擎与状态栏不再分叉（plan 下 clear 仍是 plan）。 |
+| 2-22 | 确认面板响铃 + 标题 | `apps/cli/src/tui/terminal/{notify,title}.ts`、`apps/cli/src/tui/App.tsx` | ask/plan/question 打开的上升沿写一次 BEL（不随重渲染重复）；标题优先 `kcode ❗ 等待…`；沿用 `KCODE_BELL=0`/`KCODE_TITLE=0` 与 TTY 门。 |
+| 2-21 | 会话级放行参数级化 | `packages/extensions/src/permissions/engine.ts`、`packages/session/src/composition.ts`、`apps/cli/src/tui/dialogs/panels.tsx` | `MutablePermissionEngine` 存 `GrantPattern[]`，匹配 `grantSubject`（bash 命令 / write·edit 路径）；session scope 用 `suggestGrant` 而非工具名；AskPanel「本会话」文案同项目档展示具体规则；`grant("bash")` 仍兼容整工具。 |
+| 2-20 | 审批完整信息 + 默认拒绝 | `apps/cli/src/tui/dialogs/{panels,DiffPreview}.tsx` | AskPanel 默认停在「拒绝（默认）」，Enter 不再误放行；bash 展示完整 command（去掉 80 字符截断）；write/edit 展示路径 + 完整 diff（25 行/页，PgUp/PgDn 翻页，不再 20 行/120 字符截断）；拒绝留痕不变。 |
 | 2-19 | update 链收紧 | `apps/cli/src/update.ts` | 远程源强制 https；本地源必须 `--local`；tarball 仅 basename；`tar -tvzf` 逐条拒绝绝对路径/盘符/`..`/符号链接；可选 `--pubkey`/`KCODE_UPDATE_PUBKEY` 强制 Ed25519 签名；保留上一版 `previous.json` + `--rollback`。 |
 | 2-18 | key 不走 argv + keychain 原子写 | `apps/cli/src/main.tsx`、`packages/platform/src/auth/{keychain,dpapi-keychain,atomic-write}.ts` | `key add <ref> <audience...> [--key-file <path>]`：只接受隐藏输入或文件，位置参数检测到疑似 key 直接拒绝；`atomic-write` 统一 tmp→`.bak`→rename，两条 keychain 均改用。 |
 | 2-17 | 项目扩展 trust 门控 | `packages/extensions/src/roots.ts`、`packages/session/src/composition.ts`、`apps/cli/src/inspect.ts` | 未 `/trust` 时 `.kcode/skills|agents|commands` 不参与会话装载；CLI `skills/commands list` 仍展示并标注“项目，未信任：/trust 后装载”；trusted:false 的根进入 `untrustedSkillRoots/untrustedCommandRoots`。 |
@@ -65,7 +70,7 @@
 
 ```text
 pnpm typecheck   → 16/16 packages 通过
-pnpm test        → 115 files / 591 passed / 1 skipped
+pnpm test        → 116 files / 599 passed / 1 skipped
 pnpm lint        → 0 errors（40 warnings）
 pnpm gates:check → 11 条例外，无过期/无漂移
 pnpm build       → 8/8 tasks 通过
@@ -96,8 +101,8 @@ desktop E2E      → 1 passed（首启/replay/preload/CSP/关闭）
 
 ## 下一批（建议顺序）
 
-1. **CLI 2-20~2-24 审批/交互一致性**：完整 diff、参数级放行、通知、模式同步、/help 生成化。
-2. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
+1. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
+2. **收尾遗留**：项目 `AGENTS.md` 纳入 trust；`-v` 详尽输出；顶层 `kcode login` 子命令；1-11 Windows CI 首次 Actions 验证。
 
 ## 备注
 

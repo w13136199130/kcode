@@ -24,7 +24,7 @@ type RunResult = Awaited<ReturnType<SessionHandle["loop"]["run"]>>;
  * N2-2 验收测试床：真实 KcodeApp + 忠实 TTY stdin + 可控 run promise。
  * run 每次调用挂起（不 resolve），由用例逐个放行——模拟多轮顺序执行。
  */
-async function setup() {
+async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"] } = {}) {
   let options!: LocalSessionOptions;
   const finishers: ((r: RunResult) => void)[] = [];
   const run = vi.fn((content: string) => {
@@ -71,7 +71,9 @@ async function setup() {
     platform: { secureStorageAvailable: false, async probe() { return false; }, async saveKey() {} },
     kcodeHomeDir: "E:/tmp/.kcode-test",
   } as unknown as Runtime;
-  const ui = render(<KcodeApp runtime={fakeRuntime} model="test" cwd="." />, {
+  const ui = render(
+    <KcodeApp runtime={fakeRuntime} model="test" cwd="." initialMode={initial.initialMode} />,
+    {
     stdin: stdin as unknown as typeof process.stdin,
     stdout: stdout as unknown as typeof process.stdout,
     exitOnCtrlC: false, patchConsole: false,
@@ -107,7 +109,7 @@ async function setup() {
     finishers[n]!({ sessionId: "s1", turns: 1, toolCalls: 0, status });
   };
   await eventually("> █");
-  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin };
+  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin, getOptions: () => options };
 }
 
 describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、中断清空）", () => {
@@ -165,6 +167,19 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     await t.settle(300);
     expect(t.run).toHaveBeenCalledTimes(1); // "after" 未被续跑（旧队列无人排空会悬挂）
     expect(t.frame()).not.toContain("queued 1"); // 计数经旧队列 onChange 归零
+  }, T);
+
+  it("2-23 /clear 新会话沿用当前档位，UI 与引擎一致", async () => {
+    const t = await setup({ initialMode: "plan" });
+    await t.eventually("只读");
+    t.stdin.write("/clear");
+    await t.eventually("/clear█");
+    t.stdin.write("\r");
+    await t.settle(120);
+    t.stdin.write("\r");
+    await t.eventuallySaw("已开启全新会话");
+    expect(t.getOptions().initialMode).toBe("plan");
+    expect(t.frame()).toContain("只读");
   }, T);
 
   it("中断（Esc）清空排队输入：取消当前轮后不自动续跑", async () => {

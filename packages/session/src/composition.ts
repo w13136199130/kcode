@@ -188,7 +188,8 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
             }
             const answer = normalizePermissionAnswer(await baseAsker.confirm(call));
             if (answer.allowed && answer.scope === "session") {
-              mutablePermissions.grant(call.tool);
+              // 2-21：会话级也参数级化（bash 子命令前缀 / edit·write 目录前缀）
+              mutablePermissions.grant(suggestGrant(call) ?? call.tool);
             }
             if (answer.allowed && answer.scope === "project") {
               // 参数级建议规则（bash 子命令前缀 / edit·write 目录前缀）；无建议回落整工具名

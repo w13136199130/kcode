@@ -13,7 +13,7 @@ import { MODE_META } from "./theme/modes.js";
 import { appendInputLog } from "./terminal/input-log.js";
 import { useKeybinds } from "./terminal/keybinds.js";
 import { useTerminalTitle } from "./terminal/title.js";
-import { useCompletionBell } from "./terminal/notify.js";
+import { useAttentionBell, useCompletionBell } from "./terminal/notify.js";
 import { useSessionLifecycle } from "./state/lifecycle.js";
 import { InputArea } from "./input/InputArea.js";
 import { runDispatch } from "./input/commands.js";
@@ -329,6 +329,7 @@ export function KcodeApp(props: KcodeAppProps) {
     setCommands,
     pushBlock: (block) => ui.getState().pushBlock(block),
     modelLabel,
+    mode,
     exit: shutdown,
     retryToken,
   });
@@ -445,7 +446,9 @@ export function KcodeApp(props: KcodeAppProps) {
     : question !== null ? "等待你的回答"
     : toolNames.length > 0 ? `处理工具：${[...new Set(toolNames)].join("、")}`
     : runPhase;
-  useTerminalTitle(busy, activityLabel);
+  const attention = ask !== null || planApproval !== null || question !== null;
+  useTerminalTitle(busy, activityLabel, attention);
+  useAttentionBell(attention);
   useCompletionBell(busy, busySince);
 
   if (fatal !== null) {

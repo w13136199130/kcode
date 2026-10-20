@@ -158,6 +158,21 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
     t.end("aborted");
   }, T);
 
+  it("2-20 审批默认停在拒绝：直接 Enter 不放行，且展示完整命令", async () => {
+    const t = await setup();
+    const command = `echo ${"x".repeat(120)}`;
+    const answer = t.options.asker!.confirm({ callId: "ask1", tool: "bash", args: { command } });
+    await t.eventually("等待工具确认");
+    await t.settle(200);
+    expect(t.frame().replace(/\s+/g, "")).toContain(command.replace(/\s+/g, ""));
+
+    t.stdin.write("\r");
+    await expect(answer).resolves.toEqual({ allowed: false });
+    await t.eventually("等待模型响应");
+    expect(t.abort).not.toHaveBeenCalled();
+    t.end("completed");
+  }, T);
+
   it("审批 Esc 仅拒绝动作，不取消整轮", async () => {
     const t = await setup();
     const answer = t.options.asker!.confirm({ callId: "ask1", tool: "write", args: {} });

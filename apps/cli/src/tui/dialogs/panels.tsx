@@ -28,19 +28,36 @@ export function AskPanel(props: { ask: AskState }) {
     suggestion !== null
       ? `允许此类，本项目不再询问 · ${formatGrantPattern(suggestion)}`
       : "允许，本项目不再询问（持久）";
+  const sessionLabel =
+    suggestion !== null
+      ? `允许此类，本会话不再询问 · ${formatGrantPattern(suggestion)}`
+      : "允许，本会话不再询问";
+  const args = ask.call.args as { command?: unknown; path?: unknown } | null;
+  const command = typeof args?.command === "string" ? args.command : null;
+  const previewPath =
+    ask.call.preview?.path ??
+    (ask.call.preview !== undefined && typeof args?.path === "string" ? args.path : null);
   return (
     <Box flexDirection="column">
-      <Text color={c("accent")}>
-        ⚠ 允许 {ask.call.tool} {JSON.stringify(ask.call.args).slice(0, 80)} ？
-      </Text>
+      <Text color={c("accent")}>⚠ 允许 {ask.call.tool}？</Text>
+      {command !== null ? (
+        <Text wrap="wrap">{`  ${command}`}</Text>
+      ) : previewPath !== null ? (
+        // write/edit 的正文由下方完整 diff 展示，避免参数区再重复一遍
+        <Text color={c("brand")}>{`  ${previewPath}`}</Text>
+      ) : (
+        <Text wrap="wrap">{`  ${JSON.stringify(ask.call.args, null, 2)}`}</Text>
+      )}
       {ask.call.preview !== undefined && <DiffPreview preview={ask.call.preview} />}
       <OptionsMenu
         cancelLabel="Esc = 拒绝"
+        // 2-20：危险操作默认停在「拒绝」，直接 Enter 不会误放行
+        initialIndex={3}
         options={[
           { key: "y", label: "允许" },
-          { key: "s", label: "允许，本会话不再询问" },
+          { key: "s", label: sessionLabel },
           { key: "p", label: projectLabel },
-          { key: "n", label: "拒绝" },
+          { key: "n", label: "拒绝（默认）" },
         ]}
         onPick={(indices) => {
           const picked = indices[0] ?? 3;

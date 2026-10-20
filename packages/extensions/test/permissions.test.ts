@@ -13,6 +13,7 @@ import {
   RuleBasedPermissionEngine,
   SensitivePathPermissionEngine,
   matchTool,
+  suggestGrant,
 } from "../src/index.js";
 
 const def = (name: string, permission?: ToolPermission, readOnly = false): ToolDefinition => ({
@@ -120,6 +121,21 @@ describe("MutablePermissionEngine（计划模式切换，§1.1 A 域）", () => 
     engine.set(new ModePermissionEngine("plan"));
     engine.clearGrants();
     expect(await engine.decide(BASH, {})).toBe("deny");
+  });
+});
+
+describe("2-21 会话级放行参数级化", () => {
+  it("bash 只放行同前缀，write 只放行同目录", async () => {
+    const engine = new MutablePermissionEngine(new ModePermissionEngine("default"));
+    const bashGrant = suggestGrant({ tool: "bash", args: { command: "npm install foo" } });
+    expect(bashGrant).toEqual({ tool: "bash", content: "npm install:*" });
+    engine.grant(bashGrant!);
+    expect(await engine.decide(BASH, { command: "npm install bar" })).toBe("allow");
+    expect(await engine.decide(BASH, { command: "rm -rf /" })).toBe("ask");
+
+    engine.grant({ tool: "write", content: "src/*" });
+    expect(await engine.decide(WRITE, { path: "src/a.ts" })).toBe("allow");
+    expect(await engine.decide(WRITE, { path: "secret.txt" })).toBe("ask");
   });
 });
 

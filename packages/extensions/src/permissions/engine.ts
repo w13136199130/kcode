@@ -4,6 +4,11 @@ import type {
   PermissionRule,
   ToolDefinition,
 } from "@kcode/contracts";
+import {
+  grantSubject,
+  matchGrantPattern,
+  type GrantPattern,
+} from "./grant-patterns.js";
 
 export interface RuleEngineOptions {
   /** 规则按序匹配，首条命中生效 */
@@ -47,7 +52,7 @@ function escapeRegExp(text: string): string {
  */
 export class MutablePermissionEngine implements PermissionEngine {
   #inner: PermissionEngine;
-  #grants: string[] = [];
+  #grants: GrantPattern[] = [];
 
   constructor(inner: PermissionEngine) {
     this.#inner = inner;
@@ -57,9 +62,12 @@ export class MutablePermissionEngine implements PermissionEngine {
     this.#inner = inner;
   }
 
-  /** 记一条会话级放行（按工具名模式；插在队首，后授予的先命中） */
-  grant(pattern: string): void {
-    this.#grants.unshift(pattern);
+  /**
+   * 记一条会话级放行（插在队首，后授予的先命中）。
+   * 2-21：支持参数级 `{tool, content}`；纯字符串保持既有“整工具”语义。
+   */
+  grant(pattern: string | GrantPattern): void {
+    this.#grants.unshift(typeof pattern === "string" ? { tool: pattern } : pattern);
   }
 
   clearGrants(): void {
@@ -67,8 +75,9 @@ export class MutablePermissionEngine implements PermissionEngine {
   }
 
   async decide(tool: ToolDefinition, args: unknown): Promise<PermissionDecision> {
+    const subject = grantSubject(args);
     for (const pattern of this.#grants) {
-      if (matchTool(pattern, tool.name)) {
+      if (matchGrantPattern(pattern, tool.name, subject)) {
         return "allow";
       }
     }

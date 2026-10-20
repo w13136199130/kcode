@@ -33,6 +33,22 @@ export function bellOnEdge(prevBusy: boolean, busy: boolean, startedAt: number |
   return startedAt !== null && now - startedAt >= BELL_MIN_BUSY_MS;
 }
 
+/** 2-22：需要人工确认的上升沿（ask/plan/question 打开时响一次，不随重渲染重复） */
+export function attentionBellOnEdge(prevAttention: boolean, attention: boolean): boolean {
+  return attention && !prevAttention;
+}
+
+/** TUI 挂载点：确认面板打开时响一次；关闭后再打开会再次响 */
+export function useAttentionBell(attention: boolean): void {
+  const wasAttention = useRef(false);
+  useEffect(() => {
+    if (attentionBellOnEdge(wasAttention.current, attention)) {
+      ringBell();
+    }
+    wasAttention.current = attention;
+  }, [attention]);
+}
+
 /** TUI 挂载点：跟踪 busy 沿与本轮起点，下降沿满足阈值时响铃一次 */
 export function useCompletionBell(busy: boolean, busySince: number | null, now: () => number = Date.now): void {
   const wasBusy = useRef(false);

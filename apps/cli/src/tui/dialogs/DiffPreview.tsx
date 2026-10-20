@@ -1,14 +1,25 @@
 import type { AskPreviewPayload } from "@kcode/contracts";
-import { Box, Text } from "ink";
-import { truncateVisual } from "../terminal/width.js";
+import { Box, Text, useInput } from "ink";
+import { useState } from "react";
 import { c } from "../theme/theme.js";
 
-/** diff 预览行渲染：- 红 / + 绿 / 上下文 dim；行数超限截断 */
-const PREVIEW_MAX_LINES = 20;
+/** 每页行数：完整内容可翻页查看，不再静默截断 */
+const PAGE_LINES = 25;
 
 export function DiffPreview(props: { preview: AskPreviewPayload }) {
   const lines = props.preview.diff.split("\n");
-  const shown = lines.slice(0, PREVIEW_MAX_LINES);
+  const [offset, setOffset] = useState(0);
+  const maxOffset = Math.max(0, lines.length - PAGE_LINES);
+  useInput((_ch, key) => {
+    if (key.pageDown) {
+      setOffset((o) => Math.min(maxOffset, o + PAGE_LINES));
+      return;
+    }
+    if (key.pageUp) {
+      setOffset((o) => Math.max(0, o - PAGE_LINES));
+    }
+  });
+  const shown = lines.slice(offset, offset + PAGE_LINES);
   return (
     <Box flexDirection="column">
       {props.preview.path !== undefined && (
@@ -22,16 +33,18 @@ export function DiffPreview(props: { preview: AskPreviewPayload }) {
           key={i}
           color={line.startsWith("+") ? c("success") : line.startsWith("-") ? c("destructive") : undefined}
           dimColor={!line.startsWith("+") && !line.startsWith("-")}
+          wrap="wrap"
         >
           {"  "}
-          {truncateVisual(line, 120)}
+          {line}
         </Text>
       ))}
-      {lines.length > PREVIEW_MAX_LINES && (
-        <Text dimColor>
-          {"  "}…（共 {lines.length} 行，已截断）
-        </Text>
-      )}
+      <Text dimColor>
+        {"  "}
+        {lines.length > PAGE_LINES
+          ? `第 ${offset + 1}-${Math.min(lines.length, offset + PAGE_LINES)} 行 / 共 ${lines.length} 行 · PgUp/PgDn 翻页`
+          : `共 ${lines.length} 行`}
+      </Text>
     </Box>
   );
 }

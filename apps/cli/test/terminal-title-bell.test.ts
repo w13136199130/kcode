@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { writeTerminalTitle } from "../src/tui/terminal/title.js";
-import { BELL_MIN_BUSY_MS, bellOnEdge, ringBell } from "../src/tui/terminal/notify.js";
+import { terminalTitle, writeTerminalTitle } from "../src/tui/terminal/title.js";
+import {
+  BELL_MIN_BUSY_MS,
+  attentionBellOnEdge,
+  bellOnEdge,
+  ringBell,
+} from "../src/tui/terminal/notify.js";
 import { SUBAGENT_NOTIFICATION_HEADER, isBackgroundCompletionNotice } from "@kcode/session";
 
 /** 假 sink：记录写入并可控 isTTY */
@@ -23,6 +28,12 @@ describe("N3F-2 终端标题栏", () => {
     const off = fakeSink();
     writeTerminalTitle("x", off.sink, { KCODE_TITLE: "0" });
     expect(off.written).toEqual([]);
+  });
+
+  it("2-22 确认等待标题优先显示 ❗", () => {
+    expect(terminalTitle(false, "等待工具确认：bash", true)).toBe("kcode ❗ 等待工具确认：bash");
+    expect(terminalTitle(true, "处理工具：bash", false)).toBe("kcode ⏳ 处理工具：bash");
+    expect(terminalTitle(false, "x", false)).toBe("kcode");
   });
 });
 
@@ -48,6 +59,13 @@ describe("N3F-3 完成铃", () => {
     expect(bellOnEdge(false, false, t0, t0 + BELL_MIN_BUSY_MS)).toBe(false);
     expect(bellOnEdge(true, true, t0, t0 + BELL_MIN_BUSY_MS)).toBe(false);
     expect(bellOnEdge(true, false, null, t0 + BELL_MIN_BUSY_MS)).toBe(false);
+  });
+
+  it("2-22 确认面板上升沿才响：打开一次响一次，重渲染/关闭不重复", () => {
+    expect(attentionBellOnEdge(false, true)).toBe(true);
+    expect(attentionBellOnEdge(true, true)).toBe(false);
+    expect(attentionBellOnEdge(true, false)).toBe(false);
+    expect(attentionBellOnEdge(false, false)).toBe(false);
   });
 
   it("后台完成通知判定：完成头命中，respond 中间消息不命中（N3F-4 同头）", () => {

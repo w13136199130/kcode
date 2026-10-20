@@ -37,6 +37,8 @@ export interface LifecycleDeps {
   setCommands(cmds: CommandInfo[]): void;
   pushBlock(block: Block): void;
   modelLabel: string;
+  /** 2-23：当前 UI 档位——/resume、fatal 重试建新会话时沿用，避免 UI 与引擎分叉 */
+  mode: import("@kcode/contracts").PermissionMode;
   exit(): void;
   /** 重试令牌：+1 触发初始会话重新装配（fatal 后按 r） */
   retryToken?: number;
@@ -60,7 +62,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           runtime: props.runtime,
           model: props.model,
           cwd: props.cwd,
-          initialMode: props.initialMode,
+          initialMode: deps.mode,
           disallowedTools: props.disallowedTools,
           resumeFrom: props.resumeFrom,
           onEvent: (e) => {
@@ -173,6 +175,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           runtime: props.runtime,
           model: deps.modelLabel,
           cwd: props.cwd,
+          initialMode: deps.mode,
           resumeFrom,
           onEvent: handleEvent,
           onDelta: stream.appendDelta,
