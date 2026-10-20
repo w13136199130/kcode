@@ -56,14 +56,23 @@ export interface SessionHandle {
   /** 当前 provider 的端点模型清单（对齐批 B：/model 全量菜单数据源；
    * GET /models 拉取 + 会话级缓存 5 分钟；不支持/失败返回空由调用方回退） */
   availableModels(): Promise<string[]>;
-  listSkills(): Promise<{ name: string; description: string }[]>;
+  listSkills(): Promise<
+    { name: string; description: string; source: string; allowedTools?: string[]; manualOnly?: boolean }[]
+  >;
   skillBody(name: string): Promise<string | null>;
   listSessions(): Promise<{ sessionId: string; preview: string; turns: number; title?: string }[]>;
   /** 3-04：给当前会话设置标题（sidecar；空串清除） */
   rename(title: string): Promise<void>;
   /** 3-06：当前会话的有效事件流（含工具全文；rewind/compact 已生效） */
   exportEvents(): Promise<SessionEvent[]>;
-  listCommands(): { name: string; source: "project" | "user" }[];
+  listCommands(): {
+    name: string;
+    source: "project" | "user";
+    description?: string;
+    argumentHint?: string;
+    allowedTools?: string[];
+    model?: string;
+  }[];
   expandCommand(name: string, args: string): Promise<string | null>;
   trustProject(): Promise<void>;
   /** 项目是否已受信任（N3I-4：已信任后 /trust 从菜单隐藏） */
@@ -350,7 +359,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
         }
       };
     })(),
-    listSkills: async () => composed.listSkills().map((s) => ({ name: s.name, description: s.description })),
+    listSkills: async () => composed.listSkills(),
     skillBody: (name) => composed.skillBody(name),
     listSessions: async () => {
       const summaries = await listSessions(join(kcodeHomeDir, "cli", "sessions"));

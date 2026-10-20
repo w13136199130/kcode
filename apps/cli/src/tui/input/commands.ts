@@ -210,7 +210,12 @@ ${result.error}` : ""}`,
             skills === null || skills.length === 0
               ? "（当前会话未发现技能；可在 .kcode/skills/ 或 ~/.kcode/skills/ 添加）"
               : `已装载技能（${skills.length} 个，/skill <名称> 手动注入）：\n${skills
-                  .map((s) => `· ${s.name} — ${s.description}`)
+                  .map(
+                    (s) =>
+                      `· ${s.name}${s.manualOnly === true ? "（手动）" : ""} — ${s.description}${
+                        s.allowedTools !== undefined ? `（工具：${s.allowedTools.join(",")}）` : ""
+                      }`,
+                  )
                   .join("\n")}`,
         });
         return;
@@ -609,12 +614,27 @@ ${hooks
         // 2-24：内置命令来自 BUILTIN_COMMANDS（与补全同源），不再手写清单
         const customs = ctx.session.listCommands().map((c) => ({
           name: c.name,
-          desc: c.source === "project" ? "项目自定义命令" : "用户自定义命令",
+          desc:
+            c.description ??
+            (c.source === "project" ? "项目自定义命令" : "用户自定义命令") +
+              (c.model !== undefined ? ` · model=${c.model}` : "") +
+              (c.allowedTools !== undefined ? ` · 工具=${c.allowedTools.join(",")}` : ""),
+          ...(c.argumentHint !== undefined ? { argsHint: c.argumentHint } : {}),
         }));
         ctx.pushBlock({ kind: "info", text: formatHelp(customs) });
         return;
       }
-      const expanded = await ctx.session.expandCommand(name, args);
+      let expanded: string | null;
+      try {
+        expanded = await ctx.session.expandCommand(name, args);
+      } catch (err) {
+        ctx.pushBlock({
+          kind: "info",
+          tone: "warn",
+          text: `✗ 命令 /${name} 展开失败：${err instanceof Error ? err.message : String(err)}`,
+        });
+        return;
+      }
       if (expanded === null) {
         // 3-28：未知命令不吞原文——回填输入框，用户可改命令或加空格当普通提问
         ctx.setInput(text);

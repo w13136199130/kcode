@@ -63,9 +63,22 @@ export interface ComposedSession {
   setMode(mode: PermissionMode): void;
   /** 运行期换模型（/model）：重建 LLM 与摘要器，历史保留；解析失败抛错 */
   setModel(model: string): Promise<void>;
-  listCommands(): { name: string; source: "project" | "user" }[];
+  listCommands(): {
+    name: string;
+    source: "project" | "user";
+    description?: string;
+    argumentHint?: string;
+    allowedTools?: string[];
+    model?: string;
+  }[];
   expandCommand(name: string, args: string): Promise<string | null>;
-  listSkills(): { name: string; description: string; source: string }[];
+  listSkills(): {
+    name: string;
+    description: string;
+    source: string;
+    allowedTools?: string[];
+    manualOnly?: boolean;
+  }[];
   skillBody(name: string): Promise<string | null>;
   /** 本项目持久放行清单（/permissions） */
   listPersistentGrants(): Promise<string[]>;
@@ -516,10 +529,41 @@ ${plan}`);
       currentModel = model;
       loop.updateModel(model, llm, new LlmSummarizer(llm, model));
     },
-    listCommands: () => commands.list().map((c) => ({ name: c.name, source: c.source })),
-    expandCommand: (name, args) => commands.expand(name, args),
-    listSkills: () => skills.meta().map((s) => ({ name: s.name, description: s.description, source: "" })),
-    skillBody: (name) => skills.body(name).catch(() => null),
+    listCommands: () =>
+      commands.list().map((c) => ({
+        name: c.name,
+        source: c.source,
+        ...(c.description !== undefined ? { description: c.description } : {}),
+        ...(c.argumentHint !== undefined ? { argumentHint: c.argumentHint } : {}),
+        ...(c.allowedTools !== undefined ? { allowedTools: c.allowedTools } : {}),
+        ...(c.model !== undefined ? { model: c.model } : {}),
+      })),
+    // 3-17：`!` 行经用户直执行通道（不问权限、独立 artifacts），输出回填模板
+    expandCommand: (name, args) =>
+      commands.expand(name, args, async (command) => {
+        const result = await runUserBash(command, 30_000, {
+          sessionId,
+          kcodeHomeDir: opts.kcodeHomeDir,
+          cwd: opts.cwd,
+          ...(opts.onNotice !== undefined ? { onNotice: opts.onNotice } : {}),
+        });
+        return {
+          ok: result.ok,
+          output: result.output,
+          ...(result.error !== undefined ? { error: result.error } : {}),
+        };
+      }),
+    // 3-18：完整清单（含手动技能/来源/允许工具）；模型通道只看到 meta() 过滤后的集合
+    listSkills: () =>
+      skills.list().map((s) => ({
+        name: s.name,
+        description: s.description,
+        source: s.source,
+        ...(s.allowedTools !== undefined ? { allowedTools: s.allowedTools } : {}),
+        manualOnly: s.manualOnly,
+      })),
+    // 用户 /skill 是显式手动通道：绕过 disable-model-invocation/第三方默认手动
+    skillBody: (name) => skills.manualBody(name).catch(() => null),
     listPersistentGrants: () => grantStore.list(),
     clearPersistentGrants: () => grantStore.clear(),
     usageSummary: () => loop.getUsage(),

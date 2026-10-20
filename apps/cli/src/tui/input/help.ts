@@ -31,8 +31,8 @@ export function formatHelp(customs: readonly CommandInfo[] = []): string {
   const builtins = BUILTIN_COMMANDS.map(formatCommand);
   const customLines =
     customs.length > 0
-      ? customs.map((c) => `/${c.name} — ${c.desc}`)
-      : ["（暂无自定义命令，可在 .kcode/commands/*.md 添加）"];
+      ? customs.map(formatCommand)
+      : ["（暂无自定义命令，可在 .kcode/commands/*.md 或 commands/**/sub.md 添加）"];
   return [
     "内置命令：",
     ...builtins,

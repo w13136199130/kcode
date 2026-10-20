@@ -50,6 +50,25 @@ describe("skill 工具（显式加载）", () => {
     expect(tool.definition.readOnly).toBe(true);
     expect(tool.definition.permission).toEqual({ default: "allow" });
   });
+
+  it("3-18 手动技能：模型通道错误原样透出，不伪装成未知技能", async () => {
+    const { sink, events } = capturingSink();
+    const tool = buildSkillTool({
+      skills: {
+        meta: () => [],
+        body: async () => {
+          throw new Error("技能「manual」为手动技能（project 来源默认手动），模型不能主动加载");
+        },
+      },
+      sink,
+      sessionId: "s1",
+    });
+    const r = await tool.execute({ name: "manual" }, { sessionId: "s1", cwd: "." });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("手动技能");
+    expect(r.error).not.toContain("未知技能");
+    expect(events).toHaveLength(0);
+  });
 });
 
 describe("formatSkillCatalog（N3I-2 技能描述可见性）", () => {

@@ -3,9 +3,13 @@ import { z } from "zod";
 /** SKILL.md 清单（frontmatter）：技能 = 目录 + SKILL.md（§1.1 C 域） */
 export const SkillManifest = z.object({
   name: z.string().regex(/^[a-z0-9][a-z0-9-_.]{1,63}$/),
-  description: z.string().min(1).max(500),
+  description: z.string().min(1).max(2000),
   /** 自动触发关键词（空 = 仅手动调用；第三方技能默认手动，§5.4） */
   triggers: z.array(z.string()).default([]),
+  /** 3-18：技能声明可用工具（CC allowed-tools；展示与后续执行期约束） */
+  allowedTools: z.array(z.string()).optional(),
+  /** 3-18：禁止模型调用（CC disable-model-invocation；用户仍可 /skill 手动加载） */
+  disableModelInvocation: z.boolean().optional(),
 });
 export type SkillManifest = z.infer<typeof SkillManifest>;
 
@@ -13,6 +17,8 @@ export type SkillManifest = z.infer<typeof SkillManifest>;
 export interface SkillMeta {
   name: string;
   description: string;
+  /** 3-18：模型不可自动/工具调用（仅手动 /skill） */
+  disableModelInvocation?: boolean;
 }
 
 /**

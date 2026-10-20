@@ -36,7 +36,8 @@ describe("P2-1/2-2 E2E：AGENTS.md 记忆 + SKILL.md 渐进加载/自动触发�
     const llm = new ScriptedLLM([{ text: "收到，按技能流程审查。" }]);
     const sink = new MemorySink();
     const skills = await FsSkillLibrary.open([
-      { dir: join(root, ".kcode", "skills"), source: "project" },
+      // 自动触发语义用 user 来源验证（3-18 起 project/plugin 技能默认手动）
+      { dir: join(root, ".kcode", "skills"), source: "user" },
     ]);
     const loop = new AgentLoop(
       {

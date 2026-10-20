@@ -111,7 +111,7 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
 | 核心循环 | Agent loop 状态机、流式输出、并行只读工具、后台任务、子代理（`.kcode/agents` + task 工具）、Plan 双闸门（plan_submit 批准切回执行）、结构化提问（ask_user）、Todo |
 | 工具链 | read/write/edit、glob/grep（捆绑 ripgrep）、bash（超时/后台/cd 跨调用持久/!命令直执行）、sessions |
 | 上下文 | SKILL.md 渐进加载+触发词、AGENTS.md 记忆、三层压缩（micro 截断→auto 阈值→手动 /compact）、真 tokenizer、resume/分支 |
-| 扩展 | MCP（stdio/http/sse + 超时）、hooks（session_start/pre_tool_use/post_tool_use/user_prompt_submit/pre_compact/stop，fail-closed，3-15 matcher + additionalContext + CC 配置/裁决兼容）、斜杠命令、插件装卸 + 沙箱 v1（3-16 插件 hooks/permissions/MCP transport 接线，只装最新版） |
+| 扩展 | MCP（stdio/http/sse + 超时）、hooks（session_start/pre_tool_use/post_tool_use/user_prompt_submit/pre_compact/stop，fail-closed，3-15 matcher + additionalContext + CC 配置/裁决兼容）、斜杠命令（3-17 frontmatter/命名空间/`!`bash）、插件装卸 + 沙箱 v1（3-16 插件 hooks/permissions/MCP transport 接线，只装最新版）、skills（3-18 allowed-tools/disable-model-invocation，project/plugin 默认手动） |
 | 权限 | 三态 + 四档（plan/default/acceptEdits/fullAccess）、项目级持久放行 + /permissions、automation 权限语义、只读档不可穿透 |
 | 会话 | JSONL append-only + v:1、--resume、/rewind 检查点（已落盘）、/diff 改动审查+逐文件回退、/cost、/context、/status、/clear |
 | 模型 | BYOK 多厂商（openai-compatible/Ollama/GLM/DeepSeek/中转）、key 受众绑定、DPAPI keychain、瞬态失败指数退避重试 |

@@ -72,7 +72,13 @@ ${formatSkillCatalog(deps.skills.meta())}`,
         return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
       }
       const name = parsed.data.name;
-      const body = await deps.skills.body(name).catch(() => null);
+      let body: string | null;
+      try {
+        body = await deps.skills.body(name);
+      } catch (err) {
+        // 3-18：手动技能（项目/插件默认、disable-model-invocation）在此明确拒绝，不伪装成“未知技能”
+        return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
+      }
       if (body === null || body === "") {
         return { ok: false, output: "", error: `未知技能「${name}」；可用：${names().join("、") || "（无）"}` };
       }

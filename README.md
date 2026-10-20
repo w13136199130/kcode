@@ -119,11 +119,11 @@ In the REPL: `/plan` toggles plan mode (read-only research → switch back after
 
 **终端兼容与安全 | Terminal safety**：不可信文本（模型回复/工具输出/粘贴内容/文件名/审批命令）渲染前剥离 ESC/OSC/CSI 控制序列，恶意内容不能改窗口标题或写剪贴板；自家 OSC8 文件链接在剥离后重新生成。`NO_COLOR=1` 关闭颜色；`KCODE_PLAIN=1` 关闭颜色并把状态符换成 ASCII（CI/日志友好）；`KCODE_THEME=light` 切亮色主题（白底可读）；`KCODE_LINKS=0/1` 强制关/开文件链接。
 
-**试试技能自动触发 | Try skill auto-trigger** —— 建一个技能目录（项目级 `.kcode/skills/<name>/SKILL.md`）：
-Create a skill directory and mention a trigger word in your prompt:
+**试试技能自动触发 | Try skill auto-trigger** —— 建一个**用户级**技能目录（`~/.kcode/skills/<name>/SKILL.md`；项目/插件技能默认手动，需 `/skill <name>` 显式加载）：
+Create a user-level skill directory and mention a trigger word in your prompt:
 
 ```text
-.kcode/skills/code-review/SKILL.md
+~/.kcode/skills/code-review/SKILL.md
 ---
 name: code-review
 description: 审查当前变更的代码质量
@@ -136,6 +136,8 @@ triggers:
 
 输入任何包含"审查"的话，技能正文会自动注入本轮上下文（界面显示 📖 已加载）。
 Any prompt containing a trigger word auto-loads the skill body into the turn (shown as 📖 loaded).
+
+3-18 起：`disable-model-invocation: true` 强制仅手动，`allowed-tools` 解析并展示（执行期工具约束留后续）；**project/plugin 来源技能一律手动**（不进系统提示、不自动触发、模型 `skill` 工具会被拒），用户 `/skill` 仍可加载。`description` 支持 `|`/`>` 多行与引号。
 
 **内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`task`（派生子代理 · spawn subagents: `general-purpose` 通用 / `explore` 只读搜索 / `.kcode/agents/*.md` 自定义 · custom agent files）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
 
@@ -157,7 +159,11 @@ Any prompt containing a trigger word auto-loads the skill body into the turn (sh
 - `permissions` 只允许 `<工具名>:ask` 或 `<工具名>:deny`——**只能收紧，不能提权**；`allow`/未知格式在安装期拒装、加载期拒载，多插件冲突 deny 优先。
 - 只装/只载**最新版本**：升级安装会清理旧版缓存，加载兜底只取同名最高版本。
 
-**斜杠命令 Slash commands**：`.kcode/commands/<name>.md`（项目级）或 `~/.kcode/commands/<name>.md`（用户级），同名项目覆盖用户。模板中 `$ARGUMENTS` 替换为命令后参数。内置：`/plan` `/trust` `/help`。
+**斜杠命令 Slash commands**：`.kcode/commands/<name>.md`（项目级）或 `~/.kcode/commands/<name>.md`（用户级），同名项目覆盖用户；子目录生成命名空间（`commands/git/commit.md` → `/git:commit`）。模板中 `$ARGUMENTS` 替换为命令后参数。
+
+- **frontmatter（3-17，CC 兼容）**：`description` / `argument-hint` / `allowed-tools` / `model` 会被解析进补全与 `/help`，**不会**作为正文发给模型（未闭合的 `---` 也会剥掉）。`allowed-tools`/`model` 目前只做展示，执行期强制留给后续批次。
+- **`!` bash（3-17）**：正文行首 `!`command`` 或 `!command` 在展开时经用户直执行通道运行（30s 超时、输出 8k 截断），结果以 `<bash_command>` 回填；围栏代码块内的 `!` 行不执行。
+- 内置：`/plan` `/trust` `/help`。
 
 **MCP 服务器**（`~/.kcode/mcp.json`，stdio 独立进程，权限预设中走 ask 确认）：
 ```json
