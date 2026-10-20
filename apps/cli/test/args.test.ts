@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCliArgs, UsageError } from "../src/args.js";
+import { mergeStdinPrompt, parseCliArgs, UsageError } from "../src/args.js";
 
 describe("parseCliArgs（N3C-1 参数解析）", () => {
   it("子命令首 token 命中即短路，后续 token 原样透传", () => {
@@ -14,8 +14,20 @@ describe("parseCliArgs（N3C-1 参数解析）", () => {
     expect(parseCliArgs(["--help"]).help).toBe(true);
     expect(parseCliArgs(["--settings", "E:/tmp/kcode.json"]).settings).toBe("E:/tmp/kcode.json");
     expect(parseCliArgs(["--interactive"]).interactive).toBe(true);
+    expect(parseCliArgs(["--output-format", "json"]).outputFormat).toBe("json");
+    expect(parseCliArgs(["--max-turns", "3"]).maxTurns).toBe(3);
+    expect(parseCliArgs(["--ephemeral"]).ephemeral).toBe(true);
+    expect(parseCliArgs(["--session-id", "sess_fixed"]).sessionId).toBe("sess_fixed");
+    expect(() => parseCliArgs(["--output-format", "xml"])).toThrow(UsageError);
+    expect(() => parseCliArgs(["--max-turns", "0"])).toThrow(UsageError);
     expect(() => parseCliArgs(["--bad"])).toThrow(UsageError);
     expect(() => parseCliArgs(["--mode", "yolo"])).toThrow(UsageError);
+  });
+
+  it("2-08 stdin 管道合并：上下文前置；`-` 整段替换；空 stdin 不污染 prompt", () => {
+    expect(mergeStdinPrompt("log line\r\n", "explain")).toBe("log line\n\nexplain");
+    expect(mergeStdinPrompt("hello", "-")).toBe("hello");
+    expect(mergeStdinPrompt("  \n", "explain")).toBe("explain");
   });
 
   it("位置参数拼为提示词；-p 显式提示词等价", () => {

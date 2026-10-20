@@ -20,6 +20,7 @@ export interface LifecycleDeps {
     images?: string[];
     model: string;
     initialMode?: import("@kcode/contracts").PermissionMode;
+    disallowedTools?: string[];
   };
   ui: UiStore;
   stream: StreamController;
@@ -60,6 +61,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           model: props.model,
           cwd: props.cwd,
           initialMode: props.initialMode,
+          disallowedTools: props.disallowedTools,
           resumeFrom: props.resumeFrom,
           onEvent: (e) => {
             if (!cancelled) handleEvent(e);

@@ -126,6 +126,12 @@ export interface LocalSessionOptions {
   initialMode?: PermissionMode;
   /** 组装期剔除的工具名（--disallowed-tools）：未知名在组装期抛错 */
   disallowedTools?: string[];
+  /** 2-12：显式会话 ID */
+  sessionId?: string;
+  /** 2-12：单轮工具循环上限 */
+  maxTurns?: number;
+  /** 2-12：不落 JSONL */
+  ephemeral?: boolean;
 }
 
 /** 计划批准三选项 */
@@ -159,7 +165,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     cwd: opts.cwd,
     kcodeHomeDir,
     // 续写源会话：不透传 sessionId 会新建 JSONL，二次 `-c` 只剩本次新事件（丢历史）
-    sessionId: resume?.sessionId,
+    sessionId: resume?.sessionId ?? opts.sessionId,
     resumeFrom: resume?.messages,
     resumeUsage: resume?.usage,
     onEvent: opts.onEvent,
@@ -185,6 +191,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     onQueueChange: opts.onQueueChange,
     initialMode: opts.initialMode,
     disallowedTools: opts.disallowedTools,
+    maxTurns: opts.maxTurns,
+    ephemeral: opts.ephemeral,
     planAsker:
       opts.onPlanApproval === undefined
         ? undefined

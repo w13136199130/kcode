@@ -16,6 +16,12 @@
 | 1-08 | CRLF edit 精确匹配 | `packages/tools/src/tools/edit.ts` | 精确匹配前生成 CRLF/LF 变体；原样出现多次仍判歧义，不"挑一个"；保留文件原 EOL。 |
 | 2-02 | LLM 延迟解析 | `packages/session/src/lazy-llm.ts`、`composition.ts` | compose 阶段只拿工厂，不碰 keychain/路由；首次 `stream`/`listModels` 才 resolve，失败不缓存（/login 后同会话可重试）；`setModel` 同样延迟。`!命令` 直执行不再创建父 LLM（测试从 1 改 0）。 |
 | 2-01 | unconfigured TUI + init + /login 热生效 | `apps/cli/src/{bootstrap,main,args}.ts`、`tui/{App.tsx,state/lifecycle.ts,state/services.ts,dialogs/LoginWizardPanel.tsx}` | 缺 `config.json` 返回空 providers（损坏仍 fail-fast）；无 default 也进 TUI，banner 提示 `/login`；新增 `kcode init` 空骨架；登录保存后 `reloadRuntime` 重读配置并 `Object.assign` 同一 Runtime，再 `session.setModel`，无需重启。 |
+| 2-12 | 脚本化输出/轮次/临时会话 | `apps/cli/src/{args,headless,main,session}.ts`、`packages/session/src/composition.ts` | `--output-format text|json|stream-json`（json 只出单条 result，stream-json 出事件流）；`--max-turns` 透传 AgentLoop；`--ephemeral` 不创建 JSONL；`--session-id` 指定 ID；`--json` 保持 stream-json 兼容。 |
+| 2-11 | 退出码契约 + result 字段 | `apps/cli/src/{headless,main}.ts` | 0 成功 / 1 通用 / 2 参数配置 / 3 认证 / 4 模型 API / 130 中断；`result` 增加 `permissionDenials/toolFailures/usage`；有 deny 且 completed 时状态改 failed、退出码 1，避免 CI 假绿。 |
+| 2-07 | `-p` 恒无头 + `--interactive` | `apps/cli/src/{args,main}.ts` | `-p`/`--prompt` 在 TTY 下也不再渲染 Ink；`--interactive` 显式回 TUI oneShot；`--json` 仍优先无头。 |
+| 2-08 | stdin 管道上下文 | `apps/cli/src/{args,main}.ts` | 非 TTY 下 `-p` 先读尽 stdin，`stdin + 空行 + prompt`；`-p -` 用整段 stdin 替换 prompt；TTY 下 `-p -` 报 UsageError。 |
+| 2-09 | `--mode` TUI 生效 | `apps/cli/src/{main}.ts`、`tui/{App.tsx,state/lifecycle.ts}` | `--mode plan/default/acceptEdits` 直接进 TUI 并传 `initialMode`；`fullAccess` 仍要求 `/mode` 显式确认；项目 `mode` 同路径。 |
+| 2-10 | `--disallowed-tools` 透传 TUI | `apps/cli/src/{main}.ts`、`tui/{App.tsx,state/lifecycle.ts}` | 交互态同样在 compose 期剔除；未知名走 fatal 屏，不再静默忽略。 |
 | 2-06 | 配置层级最小化 | `apps/cli/src/{bootstrap,args,main}.ts`、`packages/contracts/src/provider.ts`、`tui/state/{services,lifecycle}.ts` | `KCODE_HOME` 覆盖主目录；`--settings` 覆盖用户配置并贯穿 `/login` 写回；项目 `.kcode/config.json` 的 `default`/`mode` 生效（providers 仍不可表达）；用户配置未知键改为 stderr 告警不阻断，保存时保留未知根键。 |
 | 2-03 | /login provider 级合并 | `apps/cli/src/bootstrap.ts`、`tui/dialogs/LoginWizardPanel.tsx` | 读旧配置 → 只合并当前 provider → 保留其他 provider/budget → 临时文件 + `.bak` + rename；损坏配置拒绝覆盖。 |
 | 2-04 | `--help` / 用法错误出口 | `apps/cli/src/{args,main}.ts` | `-h/--help` 在任何 IO 前打印 usage 并 exit 0；未知参数/非法 mode/缺值抛 `UsageError`，exit 2 且不打 stack。 |
@@ -52,7 +58,7 @@
 
 ```text
 pnpm typecheck   → 16/16 packages 通过
-pnpm test        → 112 files / 573 passed / 1 skipped
+pnpm test        → 112 files / 578 passed / 1 skipped
 pnpm lint        → 0 errors（40 warnings）
 pnpm gates:check → 11 条例外，无过期/无漂移
 pnpm build       → 8/8 tasks 通过
@@ -83,7 +89,8 @@ desktop E2E      → 1 passed（首启/replay/preload/CSP/关闭）
 
 ## 下一批（建议顺序）
 
-1. **CLI 2-07~2-12**：`-p` 恒无头、stdin 管道、`--mode` TUI 生效、退出码契约、输出格式。
+1. **CLI 2-13~2-19 安全最小集**：bash env 清洗、敏感路径 denylist、SSRF 逐跳、hook 改参复判、项目扩展 trust、key 不走 argv、update 链收紧。
+2. **CLI 2-20~2-24 审批/交互一致性**：完整 diff、参数级放行、通知、模式同步、/help 生成化。
 3. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
 
 ## 备注

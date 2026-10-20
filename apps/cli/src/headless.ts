@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@kcode/contracts";
+import type { PermissionMode, SessionEvent } from "@kcode/contracts";
 import { jsonlLine } from "@kcode/shared";
 import type { Runtime } from "./bootstrap.js";
 import { createSession } from "./session.js";
@@ -17,13 +17,30 @@ export interface HeadlessOptions {
   mode?: PermissionMode;
   disallowedTools?: string[];
   resumeFrom?: string;
+  /** 兼容入口：true 等价 outputFormat=stream-json */
   json: boolean;
+  /** 2-12：text | json（单条 result） | stream-json（事件流 + result） */
+  outputFormat?: "text" | "json" | "stream-json";
+  maxTurns?: number;
+  ephemeral?: boolean;
+  sessionId?: string;
 }
 
-/** 结束码对齐常见 CLI 惯例：成功 0、失败 1、中断 130（SIGINT 语义） */
-function exitCodeFor(status: string): number {
-  if (status === "completed") return 0;
+/**
+ * 2-11 退出码契约：0 成功 / 1 通用失败 / 2 参数配置 / 3 认证 / 4 模型 API / 130 中断。
+ * 认证与模型 API 只能从 llm_error 文本归类（provider 层没有结构化错误码）。
+ */
+function exitCodeFor(status: string, events: readonly SessionEvent[]): number {
   if (status === "aborted") return 130;
+  if (status === "completed") return 0;
+  const error = [...events]
+    .reverse()
+    .find((e): e is Extract<SessionEvent, { type: "llm_error" }> => e.type === "llm_error")
+    ?.error;
+  if (error === undefined) return 1;
+  if (/(401|403|unauthori[sz]ed|invalid[^\n]*key|keychain|KCODE_KEYCHAIN|认证|鉴权)/i.test(error)) return 3;
+  if (/(未配置|请先.*配置|config)/i.test(error)) return 2;
+  if (/(429|5\d\d|timeout|timed out|ECONN|ENOTFOUND|fetch failed|模型|provider)/i.test(error)) return 4;
   return 1;
 }
 
@@ -91,8 +108,10 @@ export async function runHeadless(
   /** 流式增量原始写通道（不加换行——正文必须连续）；缺省复用 write（测试收集器语义一致） */
   writeRaw: (chunk: string) => void = write,
 ): Promise<number> {
-  // -p 非 --json：onDelta 直写 stdout（微缓冲）；--json 保持纯 NDJSON 通道
-  const streamer = opts.json ? undefined : new DeltaWriter(writeRaw);
+  const format = opts.outputFormat ?? (opts.json ? "stream-json" : "text");
+  // text：onDelta 直写 stdout（微缓冲）；json/stream-json 保持纯 NDJSON 通道
+  const streamer = format === "text" ? new DeltaWriter(writeRaw) : undefined;
+  const events: SessionEvent[] = [];
   const session = await createSession({
     runtime,
     model,
@@ -100,7 +119,13 @@ export async function runHeadless(
     resumeFrom: opts.resumeFrom,
     initialMode: opts.mode,
     disallowedTools: opts.disallowedTools,
-    onEvent: opts.json ? (event) => write(jsonlLine(event)) : undefined,
+    maxTurns: opts.maxTurns,
+    ephemeral: opts.ephemeral,
+    sessionId: opts.sessionId,
+    onEvent: (event) => {
+      events.push(event);
+      if (format === "stream-json") write(jsonlLine(event));
+    },
     onDelta: streamer !== undefined ? (delta) => streamer.push(delta) : undefined,
   });
   try {
@@ -108,18 +133,31 @@ export async function runHeadless(
       opts.prompt,
       opts.images !== undefined ? { images: opts.images } : {},
     );
-    if (opts.json) {
+    const permissionDenials = events.filter(
+      (e) =>
+        e.type === "permission_decision" &&
+        (e.decision === "deny" || e.decision === "ask-denied"),
+    ).length;
+    const toolFailures = events.filter(
+      (e) => e.type === "tool_result" && !e.ok,
+    ).length;
+    const usage = (await session.usage()) ?? { inputTokens: 0, outputTokens: 0, calls: 0 };
+    // 2-11：有权限拒绝时不能报“成功”——CI 会把假绿当通过
+    const status = summary.status === "completed" && permissionDenials > 0 ? "failed" : summary.status;
+    const result = {
+      type: "result" as const,
+      status,
+      sessionId: summary.sessionId,
+      turns: summary.turns,
+      toolCalls: summary.toolCalls,
+      permissionDenials,
+      toolFailures,
+      usage,
+    };
+    if (format === "json" || format === "stream-json") {
       // 末行是 CLI 级汇总记录：type=result 与 SessionEvent 的 type 联合区分，
-      // 消费方读到 type==="result" 即为终点
-      write(
-        jsonlLine({
-          type: "result",
-          status: summary.status,
-          sessionId: summary.sessionId,
-          turns: summary.turns,
-          toolCalls: summary.toolCalls,
-        }),
-      );
+      // 消费方读到 type==="result" 即为终点；json 模式只有这一行
+      write(jsonlLine(result));
     } else {
       // 先冲刷再分支：正文若还在微缓冲里（<64B 且未满 50ms），此刻必须落盘
       streamer?.flush();
@@ -127,11 +165,15 @@ export async function runHeadless(
         // 流式模式：正文已逐段写出，末尾换行收尾不重复摘要（状态经退出码传达）
         streamer.endNewline();
       } else {
-        const mark = summary.status === "completed" ? "✓" : "✗";
-        write(`${mark} ${summary.status} · ${summary.turns} turns · ${summary.toolCalls} tool calls · ${summary.sessionId}`);
+        const mark = status === "completed" ? "✓" : "✗";
+        write(
+          `${mark} ${status} · ${summary.turns} turns · ${summary.toolCalls} tool calls · ${summary.sessionId}` +
+            (permissionDenials > 0 ? ` · ${permissionDenials} permission denied` : "") +
+            (toolFailures > 0 ? ` · ${toolFailures} tool failures` : ""),
+        );
       }
     }
-    return exitCodeFor(summary.status);
+    return exitCodeFor(status, events);
   } finally {
     await session.close();
   }

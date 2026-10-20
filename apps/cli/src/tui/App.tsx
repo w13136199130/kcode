@@ -43,6 +43,8 @@ export interface KcodeAppProps {
   historyFile?: string;
   /** 项目配置的默认权限档（2-06；fullAccess 不会从这里进入） */
   initialMode?: PermissionMode;
+  /** 组装期剔除的工具（2-10：与 headless 同一路径，未知名在 compose 期抛错） */
+  disallowedTools?: string[];
 }
 
 

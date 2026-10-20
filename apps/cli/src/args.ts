@@ -15,6 +15,9 @@ const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skil
 
 const MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "fullAccess"];
 
+type OutputFormat = "text" | "json" | "stream-json";
+const OUTPUT_FORMATS: readonly OutputFormat[] = ["text", "json", "stream-json"];
+
 /** 用法错误：main 出口据此走 exit 2，且不打印 stack（2-04） */
 export class UsageError extends Error {
   constructor(message: string) {
@@ -42,9 +45,24 @@ export interface CliArgs {
   /** --settings <path>：用户级配置文件覆盖（CI/多 profile） */
   settings?: string;
   json: boolean;
+  /** --output-format：text | json（单条 result） | stream-json（事件流 + result） */
+  outputFormat?: OutputFormat;
+  /** --max-turns：单轮工具循环上限 */
+  maxTurns?: number;
+  /** --ephemeral：不落 JSONL（临时会话） */
+  ephemeral: boolean;
+  /** --session-id：显式会话 ID（脚本可复现/幂等） */
+  sessionId?: string;
   /** --interactive：即使带 -p 也进 TUI（默认 -p 恒无头） */
   interactive: boolean;
   disallowedTools?: string[];
+}
+
+/** 2-08：stdin 管道内容作为上下文；`-` 表示整段输入就是 prompt */
+export function mergeStdinPrompt(stdinText: string, prompt: string): string {
+  const stdin = stdinText.replace(/\r\n/g, "\n").trim();
+  if (prompt === "-") return stdin;
+  return stdin === "" ? prompt : `${stdin}\n\n${prompt}`;
 }
 
 export function usageText(): string {
@@ -58,7 +76,11 @@ export function usageText(): string {
     "      --attach <路径>           附件（v1 为图片，等价 --image；文档抽取走会话内 extract 工具）",
     "      --mode <档>               初始权限档：plan | default | acceptEdits | fullAccess",
     "      --model <provider/model>  本次运行覆盖默认模型（最高优先级，如 deepseek/deepseek-chat）",
-    "      --json                   无 TUI：NDJSON 输出会话事件流（脚本/CI 消费）",
+    "      --json                   无 TUI：NDJSON 输出会话事件流（= --output-format stream-json）",
+    "      --output-format <fmt>     text | json（单条 result） | stream-json（事件流 + result）",
+    "      --max-turns <n>           单轮工具循环上限（默认 24）",
+    "      --ephemeral               不落 JSONL（临时会话，CI 不产生垃圾）",
+    "      --session-id <id>         显式会话 ID（脚本复现/幂等）",
     "      --interactive            即使带 -p 也进入 TUI（默认 -p 恒无头）",
     "      --cwd <路径>              以指定目录为工作区启动",
     "      --settings <路径>         用户级配置文件覆盖（缺省 ~/.kcode/config.json）",
@@ -77,7 +99,7 @@ function valueOf(argv: readonly string[], index: number, flag: string): string {
 }
 
 export function parseCliArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { images: [], json: false, help: false, interactive: false };
+  const args: CliArgs = { images: [], json: false, help: false, interactive: false, ephemeral: false };
   const words: string[] = [];
   let promptFlag: string | undefined;
   let disallowed: string[] | undefined;
@@ -141,6 +163,33 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         break;
       case "--json":
         args.json = true;
+        args.outputFormat = "stream-json";
+        break;
+      case "--output-format": {
+        const v = valueOf(argv, i, arg);
+        if (!(OUTPUT_FORMATS as readonly string[]).includes(v)) {
+          throw new UsageError(`--output-format 的值只能是：${OUTPUT_FORMATS.join(" | ")}（收到 ${v}）`);
+        }
+        args.outputFormat = v as OutputFormat;
+        i += 1;
+        break;
+      }
+      case "--max-turns": {
+        const v = valueOf(argv, i, arg);
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          throw new UsageError(`--max-turns 需要正整数（收到 ${v}）`);
+        }
+        args.maxTurns = n;
+        i += 1;
+        break;
+      }
+      case "--ephemeral":
+        args.ephemeral = true;
+        break;
+      case "--session-id":
+        args.sessionId = valueOf(argv, i, arg);
+        i += 1;
         break;
       case "--interactive":
         args.interactive = true;

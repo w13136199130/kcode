@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -66,9 +66,119 @@ describe("runHeadless", () => {
     // 会话生命周期事件在流里，末行是 CLI 级 result 记录
     expect(parsed[0]?.type).toBe("session_start");
     expect(parsed.some((e) => e.type === "assistant_message")).toBe(true);
-    const last = parsed.at(-1);
+    const last = parsed.at(-1) as {
+      type: string;
+      status?: string;
+      permissionDenials?: number;
+      toolFailures?: number;
+      usage?: { inputTokens: number; outputTokens: number; calls: number };
+    };
     expect(last?.type).toBe("result");
     expect(last?.status).toBe("completed");
+    expect(last?.permissionDenials).toBe(0);
+    expect(last?.toolFailures).toBe(0);
+    expect(last?.usage?.inputTokens).toBe(0);
+    expect(last?.usage?.outputTokens).toBe(0);
+    expect(last?.usage?.calls).toBeGreaterThanOrEqual(1);
+  }, 30_000);
+
+  it("2-12 --output-format json 只输出一条 result；stream-json 输出事件流", async () => {
+    process.chdir(workspace);
+    const one: string[] = [];
+    const code = await runHeadless(
+      fakeRuntime(new ScriptedLLM([{ text: "ok" }])),
+      "scripted/simple",
+      { prompt: "json", json: false, outputFormat: "json" },
+      (l) => one.push(l),
+    );
+    expect(code).toBe(0);
+    expect(one).toHaveLength(1);
+    expect((JSON.parse(one[0]!) as { type: string }).type).toBe("result");
+
+    const stream: string[] = [];
+    await runHeadless(
+      fakeRuntime(new ScriptedLLM([{ text: "ok" }])),
+      "scripted/simple",
+      { prompt: "stream", json: false, outputFormat: "stream-json" },
+      (l) => stream.push(l),
+    );
+    expect(stream.length).toBeGreaterThan(1);
+    expect((JSON.parse(stream[0]!) as { type: string }).type).toBe("session_start");
+  }, 30_000);
+
+  it("2-12 --max-turns 生效：一轮工具调用后到顶", async () => {
+    process.chdir(workspace);
+    const lines: string[] = [];
+    const code = await runHeadless(
+      fakeRuntime(
+        new ScriptedLLM([
+          { toolCalls: [{ callId: "c1", tool: "read", args: { path: "missing.txt" } }] },
+          { text: "不应到达" },
+        ]),
+      ),
+      "scripted/simple",
+      { prompt: "limit", json: true, maxTurns: 1 },
+      (l) => lines.push(l),
+    );
+    expect(code).toBe(1);
+    const result = JSON.parse(lines.at(-1)!) as { status: string; turns: number };
+    expect(result.status).toBe("limit_reached");
+    expect(result.turns).toBe(1);
+  }, 30_000);
+
+  it("2-12 --ephemeral 不创建 JSONL；--session-id 可指定 ID", async () => {
+    process.chdir(workspace);
+    const id = `sess_ephemeral_${Date.now()}`;
+    const lines: string[] = [];
+    const code = await runHeadless(
+      fakeRuntime(new ScriptedLLM([{ text: "ok" }])),
+      "scripted/simple",
+      { prompt: "ephemeral", json: true, ephemeral: true, sessionId: id },
+      (l) => lines.push(l),
+    );
+    expect(code).toBe(0);
+    const result = JSON.parse(lines.at(-1)!) as { sessionId: string };
+    expect(result.sessionId).toBe(id);
+    await expect(access(join(home, "cli", "sessions", `${id}.jsonl`))).rejects.toThrow();
+  }, 30_000);
+
+  it("2-11 退出码：401 → 3、429 → 4；权限拒绝且 completed 改 failed", async () => {
+    process.chdir(workspace);
+    const authCode = await runHeadless(
+      fakeRuntime(new ScriptedLLM([{ error: "401 unauthorized: invalid api key" }])),
+      "scripted/simple",
+      { prompt: "auth", json: true },
+      () => {},
+    );
+    expect(authCode).toBe(3);
+
+    const apiCode = await runHeadless(
+      fakeRuntime(new ScriptedLLM([{ error: "429 rate limit" }])),
+      "scripted/simple",
+      { prompt: "api", json: true },
+      () => {},
+    );
+    expect(apiCode).toBe(4);
+
+    const lines: string[] = [];
+    const deniedCode = await runHeadless(
+      fakeRuntime(
+        new ScriptedLLM([
+          { toolCalls: [{ callId: "c1", tool: "write", args: { path: "x.txt", content: "x" } }] },
+          { text: "done" },
+        ]),
+      ),
+      "scripted/simple",
+      { prompt: "write", json: true },
+      (l) => lines.push(l),
+    );
+    expect(deniedCode).toBe(1);
+    const result = JSON.parse(lines.at(-1)!) as {
+      status?: string;
+      permissionDenials?: number;
+    };
+    expect(result.status).toBe("failed");
+    expect(result.permissionDenials).toBeGreaterThanOrEqual(1);
   }, 30_000);
 
   it("非 json（N3F-7）：正文流式写出、末尾换行、不重复摘要行", async () => {

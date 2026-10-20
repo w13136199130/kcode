@@ -3,7 +3,7 @@
 > 配套文档：[现状诊断](./cli-gap-analysis-2026-10.md) · [竞品基线](./cli-agent-benchmark-2026.md) · [桌面端方案](./desktop-plan-2026-10.md)
 > 范围：本文是 **CLI 主线**（`apps/cli` + `packages/*`）。桌面端已纳入，见 [desktop-plan-2026-10.md](./desktop-plan-2026-10.md)；两者共享 `packages/*` 与同一会话语义，**CLI 阶段一（共享内核止血）仍是桌面的前置**。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 实施状态：阶段一 1-01~1-11 已落地（1-11 Windows CI 待首次 Actions 验证）；阶段二 2-01~2-06 已完成（unconfigured TUI / init / login 热生效 / provider 合并 / help / fatal 驻留 / KCODE_HOME + --settings + 项目配置）。2026-10-19，记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
+> 实施状态：阶段一 1-01~1-11 已落地（1-11 Windows CI 待首次 Actions 验证）；阶段二 2-01~2-12 已全部完成（登录/配置/help/fatal/KCODE_HOME/--settings/项目配置/-p 无头/stdin 管道/--mode/--disallowed-tools/退出码/输出格式）。2026-10-20，记录见 [optimization-log-2026-10-19.md](./optimization-log-2026-10-19.md)。
 
 ---
 

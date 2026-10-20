@@ -107,6 +107,10 @@ export interface ComposeSessionOptions {
   resumeFrom?: ChatMessage[];
   /** 会话 ID（resume 续接时传原 ID——新 JSONL 同文件追加，侧栏/重放一致；缺省 newId） */
   sessionId?: string;
+  /** 单轮工具循环上限（默认 24） */
+  maxTurns?: number;
+  /** 临时会话：不落 JSONL（事件仍经 onEvent 给调用方） */
+  ephemeral?: boolean;
   /** 续接的历史累计用量（旧会话 session_end 求和；/cost 跨续接可见） */
   resumeUsage?: SessionUsage;
   onEvent?: (event: SessionEvent) => void;
@@ -140,11 +144,12 @@ export interface ComposeSessionOptions {
 export async function composeSession(opts: ComposeSessionOptions): Promise<ComposedSession> {
   const sessionId = opts.sessionId ?? newId("sess");
   const jsonlPath = join(opts.kcodeHomeDir, "cli", "sessions", `${sessionId}.jsonl`);
-  const disk = await JsonlSessionSink.open(jsonlPath);
+  // 2-12 --ephemeral：事件仍交给调用方，但不创建 JSONL（CI/临时任务不产垃圾）
+  const disk = opts.ephemeral === true ? null : await JsonlSessionSink.open(jsonlPath);
   const sink: SessionSink = {
     append: async (event) => {
       opts.onEvent?.(event);
-      await disk.append(event);
+      await disk?.append(event);
     },
   };
   // 空闲计时锚点（N3E-6）：任一事件活动即刷新；下一次输入距此超阈值先压缩
@@ -360,7 +365,7 @@ ${plan}`);
       agentsMd,
       initialHistory: opts.resumeFrom,
       initialUsage: opts.resumeUsage,
-      maxTurns: 24,
+      maxTurns: opts.maxTurns ?? 24,
       sessionBudgetTokens: opts.sessionBudgetTokens,
       onBudgetLimit: opts.onBudgetLimit,
     },

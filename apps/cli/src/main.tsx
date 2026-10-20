@@ -22,7 +22,7 @@ import {
   resolveModelOverride,
 } from "./bootstrap.js";
 import { KcodeApp } from "./tui/App.js";
-import { parseCliArgs, UsageError, usageText } from "./args.js";
+import { mergeStdinPrompt, parseCliArgs, UsageError, usageText } from "./args.js";
 import { doctorCommand } from "./doctor.js";
 import { mcpCommand } from "./mcp-cmd.js";
 import { runHeadless } from "./headless.js";
@@ -36,6 +36,29 @@ const print = (s: string): void => {
 const printErr = (s: string): void => {
   process.stderr.write(`${s}\n`);
 };
+
+/** 2-11：顶层错误归类（参数/配置 2、认证 3、模型 API 4、其余 1） */
+function exitCodeForError(err: unknown): number {
+  if (err instanceof UsageError) return 2;
+  const message = err instanceof Error ? err.message : String(err);
+  if (/(401|403|unauthori[sz]ed|invalid[^\n]*key|keychain|KCODE_KEYCHAIN|认证|鉴权)/i.test(message)) {
+    return 3;
+  }
+  if (/(参数|配置|--\w|不存在|不合法|未配置|需要配合)/.test(message)) return 2;
+  if (/(429|5\d\d|timeout|timed out|ECONN|ENOTFOUND|fetch failed|模型|provider)/i.test(message)) {
+    return 4;
+  }
+  return 1;
+}
+
+/** 2-08：一次性读尽管道 stdin（TTY 不调用） */
+async function readStdinText(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 /** key 录入子命令：直接操作本地加密文件（平台能力经 IPlatformService 注入，N2-1） */
 async function keyCommand(platform: IPlatformService, args: string[]): Promise<void> {
@@ -226,9 +249,17 @@ async function main(): Promise<void> {
     }
     process.chdir(args.cwd);
   }
-  const oneShot = args.prompt ?? args.positionalPrompt;
-  if (args.json && oneShot === undefined) {
-    throw new Error(`--json 需要配合提问使用（-p "..." 或位置参数）\n${usageText()}`);
+  let oneShot = args.prompt ?? args.positionalPrompt;
+  const machineFormat = args.outputFormat === "json" || args.outputFormat === "stream-json";
+  if ((args.json || machineFormat) && oneShot === undefined) {
+    throw new UsageError(`--json/--output-format 需要配合提问使用（-p "..." 或位置参数）\n${usageText()}`);
+  }
+  // 2-08：管道输入作为上下文；`-p -` 直接把整段 stdin 当 prompt
+  if (args.prompt !== undefined && process.stdin.isTTY !== true) {
+    const stdinText = await readStdinText();
+    oneShot = mergeStdinPrompt(stdinText, oneShot ?? "");
+  } else if (args.prompt === "-") {
+    throw new UsageError("-p - 需要从管道/heredoc 提供输入（当前 stdin 是终端）");
   }
 
   if (process.stdin.isTTY !== true && oneShot === undefined) {
@@ -295,7 +326,7 @@ async function main(): Promise<void> {
 
   // headless（N3C-1 / 2-07）：--json、显式 -p（默认恒无头）、或"非 TTY 且带提问"
   const promptIsHeadless = args.prompt !== undefined && !args.interactive;
-  if (args.json || promptIsHeadless || (oneShot !== undefined && process.stdin.isTTY !== true)) {
+  if (machineFormat || args.json || promptIsHeadless || (oneShot !== undefined && process.stdin.isTTY !== true)) {
     if (modelRef === "") {
       throw new Error("未配置模型：请先运行 kcode init，再在交互界面输入 /login 配置厂商与 key");
     }
@@ -309,6 +340,10 @@ async function main(): Promise<void> {
         ...(args.disallowedTools !== undefined ? { disallowedTools: args.disallowedTools } : {}),
         ...(args.resume !== undefined ? { resumeFrom: args.resume } : {}),
         json: args.json,
+        ...(args.outputFormat !== undefined ? { outputFormat: args.outputFormat } : {}),
+        ...(args.maxTurns !== undefined ? { maxTurns: args.maxTurns } : {}),
+        ...(args.ephemeral ? { ephemeral: true } : {}),
+        ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
       },
       print,
       // 流式增量不加换行直写 stdout（print 会逐次补 \n，正文会被切碎）
@@ -316,15 +351,15 @@ async function main(): Promise<void> {
     );
     process.exit(code);
   }
-  if (args.mode !== undefined) {
-    // --mode 语义依赖 headless 的"ask 即拒"降级；TUI 内档位切换走 /mode（含 fullAccess 确认闸）
-    throw new Error("--mode 用于 headless（--json 或非 TTY 提问）；交互界面内请用 /mode 切换档位");
-  }
-  // 2-06：项目配置可给默认档，但 fullAccess 仍需交互确认，不能由仓库静默授予
-  const projectMode = project.mode;
-  if (projectMode === "fullAccess") {
+  // 2-09：--mode / 项目 mode 在 TUI 生效；fullAccess 不能在启动时静默授予
+  const requestedMode = args.mode ?? project.mode;
+  if (requestedMode === "fullAccess") {
+    if (args.mode === "fullAccess") {
+      throw new UsageError("--mode fullAccess 需进入 TUI 后输入 /mode fullAccess 显式确认");
+    }
     printErr("⚠ 项目配置请求 fullAccess 已忽略：交互态请用 /mode fullAccess 显式确认");
   }
+  const initialMode = requestedMode === "fullAccess" ? undefined : requestedMode;
 
   if (process.stdout.isTTY !== true) {
     // 输出经管道（如 pnpm --filter 转发）时 Ink 无法局部刷新，帧会逐行堆积刷屏
@@ -372,7 +407,8 @@ async function main(): Promise<void> {
       oneShot={oneShot}
       images={args.images.length > 0 ? args.images : undefined}
       resumeFrom={args.resume}
-      initialMode={projectMode === "fullAccess" ? undefined : projectMode}
+      initialMode={initialMode}
+      disallowedTools={args.disallowedTools}
     />,
     { exitOnCtrlC: false },
   );
@@ -405,15 +441,14 @@ process.on("unhandledRejection", (reason) => {
 });
 
 main().catch((err) => {
+  const code = exitCodeForError(err);
   printErr(`✗ ${err instanceof Error ? err.message : String(err)}`);
-  if (err instanceof UsageError) {
-    process.exit(2);
-  }
-  if (err instanceof Error && err.stack !== undefined) {
+  // 2/3/4 是可操作错误，不打栈；只有未归因的 1 留现场
+  if (code === 1 && err instanceof Error && err.stack !== undefined) {
     printErr(err.stack);
     try {
       appendFileSync(join(homedir(), "kcode-crash.log"), `${new Date().toISOString()}\n${err.stack}\n`, "utf8");
     } catch {}
   }
-  process.exit(1);
+  process.exit(code);
 });
