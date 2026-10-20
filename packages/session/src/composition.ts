@@ -9,12 +9,13 @@ import type {
   PermissionMode,
   SessionEvent,
   SessionSink,
+  TodoItem,
   Tool,
   ToolCallRef,
   UserPromptPort,
 } from "@kcode/contracts";
 import { normalizePermissionAnswer } from "@kcode/contracts";
-import { AgentLoop, InMemoryToolRegistry, MemoryAudit, type SessionUsage } from "@kcode/core";
+import { AgentLoop, InMemoryToolRegistry, type AuditSink, type SessionUsage } from "@kcode/core";
 import {
   AgentLibrary,
   CommandLibrary,
@@ -48,6 +49,7 @@ import { loadMcpConfigs, loadAgentsMd, normalizeDisallowedTools, applyDisallowed
 import { CheckpointStore, listCheckpointChanges, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
 import { runUserBash } from "./user-bash.js";
+import { openFileAuditSink } from "./audit.js";
 import { PLAN_MODE_SUFFIX, SYSTEM_PROMPT } from "./prompt.js";
 
 export interface ComposedSession {
@@ -84,6 +86,8 @@ export interface ComposedSession {
   listPersistentGrants(): Promise<string[]>;
   /** 清空本项目持久放行，返回清除条数（/permissions） */
   clearPersistentGrants(): Promise<number>;
+  /** 3-29：本会话审计日志路径（/audit 读取） */
+  auditPath(): string;
   /** 会话累计用量（含 resume 种子；/cost） */
   usageSummary(): SessionUsage;
   /** D2-05：本会话写/编辑产生的 changed files（相对检查点前像的真实 diff） */
@@ -126,7 +130,7 @@ export interface ComposedSession {
     historyBudget: number;
     systemTokens: number;
     pinnedAnchor: boolean;
-    sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
+    sessionUsage: SessionUsage;
     sessionBudgetTokens?: number;
   };
   close(): Promise<void>;
@@ -149,6 +153,10 @@ export interface ComposeSessionOptions {
   ephemeral?: boolean;
   /** 续接的历史累计用量（旧会话 session_end 求和；/cost 跨续接可见） */
   resumeUsage?: SessionUsage;
+  /** 3-13：续接恢复的最新任务清单 */
+  resumeTodos?: TodoItem[];
+  /** 3-13：续接恢复的子代理用量分项 */
+  resumeSubagents?: { count: number; inputTokens: number; outputTokens: number };
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
   /** 思考过程增量（reasoning 模型）：与 onDelta 平行的瞬态通道 */
@@ -182,14 +190,23 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const jsonlPath = join(opts.kcodeHomeDir, "cli", "sessions", `${sessionId}.jsonl`);
   // 2-12 --ephemeral：事件仍交给调用方，但不创建 JSONL（CI/临时任务不产垃圾）
   const disk = opts.ephemeral === true ? null : await JsonlSessionSink.open(jsonlPath);
+  // 3-13：子代理用量从任意事件流来源累计（子代理 parentSink 绕过 sinkWithIdle）
+  const subagentUsage = { ...(opts.resumeSubagents ?? { count: 0, inputTokens: 0, outputTokens: 0 }) };
   const sink: SessionSink = {
     append: async (event) => {
+      if (event.type === "subagent_stopped") {
+        subagentUsage.count += 1;
+        subagentUsage.inputTokens += event.usage.inputTokens;
+        subagentUsage.outputTokens += event.usage.outputTokens;
+      }
       opts.onEvent?.(event);
       await disk?.append(event);
     },
   };
   // 空闲计时锚点（N3E-6）：任一事件活动即刷新；下一次输入距此超阈值先压缩
   let lastEventAt = Date.now();
+  // 3-13：todo 状态从工具回调进入会话，loop 每轮读取（压缩/续接后仍在）
+  let todoState: TodoItem[] = opts.resumeTodos ?? [];
   const sinkWithIdle: SessionSink = {
     append: async (event) => {
       lastEventAt = Date.now();
@@ -198,6 +215,18 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   };
   // 2-14：敏感路径保护在会话级放行之外——grant 不能把 .env/.ssh 放行打穿
   let sessionMode: PermissionMode = "default";
+  // 3-29：审计独立落盘（工具/裁决/scope/耗时/cwd/权限档）；MemoryAudit 仅测试用
+  const auditFile = await openFileAuditSink(
+    join(opts.kcodeHomeDir, "cli", "audit", `${sessionId}.jsonl`),
+    opts.onNotice,
+  );
+  const auditSink: AuditSink = (record) =>
+    auditFile.sink({
+      ...record,
+      cwd: opts.cwd,
+      mode: sessionMode,
+      ...(record.parentSessionId !== undefined ? { parentSessionId: record.parentSessionId } : {}),
+    });
   const mutablePermissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
   const basePermissions = new SensitivePathPermissionEngine(mutablePermissions, () => sessionMode);
   // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
@@ -240,29 +269,6 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir, { includeProject: projectTrusted });
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
   const shell = await currentShellInfo();
-  // B1 子代理定义：project > user，同名先见者胜；保留名不可覆盖
-  const agents = await AgentLibrary.open(
-    [
-      ...(projectTrusted
-        ? [{ dir: join(opts.cwd, ".kcode", "agents"), source: "project" as const }]
-        : []),
-      { dir: join(opts.kcodeHomeDir, "agents"), source: "user" as const },
-    ],
-    opts.onNotice,
-  );
-  const customAgents = agents.list();
-  if (customAgents.length > 0) {
-    opts.onNotice?.(
-      `已装载 ${customAgents.length} 个自定义子代理：${customAgents.map((a) => a.name).join("、")}`,
-    );
-  }
-  const subagentLine = `- 大范围搜索/多文件调研/可独立的子任务用 task 工具派生子代理（隔离上下文，只回传结论，不占用本会话历史）；可用类型：general-purpose（通用）、explore（只读搜索）${customAgents.length > 0 ? `、${customAgents.map((a) => `${a.name}（${a.description}）`).join("、")}` : ""}`;
-  const basePrompt = `${SYSTEM_PROMPT}
-${subagentLine}
-
-<env>
-OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
-</env>`;
 
   // 插件装载与技能/命令根构造（N3C-3 单一事实源）：与 skills list / commands list 子命令同源，
   // 停用（state.json）与加载期完整性校验（N3-5）在此统一收口——
@@ -279,6 +285,34 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     );
   }
   const plugins = extensionRoots.plugins;
+
+  // B1 子代理定义：project > user > plugin，同名先见者胜；保留名不可覆盖
+  const agents = await AgentLibrary.open(
+    [
+      ...(projectTrusted
+        ? [{ dir: join(opts.cwd, ".kcode", "agents"), source: "project" as const }]
+        : []),
+      { dir: join(opts.kcodeHomeDir, "agents"), source: "user" as const },
+      // 3-19：插件声明了 agents 才装载其 agents/ 目录（清单仍是同意边界）
+      ...plugins
+        .filter((p) => p.manifest.agents.length > 0)
+        .map((p) => ({ dir: join(p.installPath, "agents"), source: "plugin" as const })),
+    ],
+    opts.onNotice,
+  );
+  const customAgents = agents.list();
+  if (customAgents.length > 0) {
+    opts.onNotice?.(
+      `已装载 ${customAgents.length} 个自定义子代理：${customAgents.map((a) => a.name).join("、")}`,
+    );
+  }
+  const subagentLine = `- 大范围搜索/多文件调研/可独立的子任务用 task 工具派生子代理（隔离上下文，只回传结论，不占用本会话历史）；可用类型：general-purpose（通用）、explore（只读搜索）${customAgents.length > 0 ? `、${customAgents.map((a) => `${a.name}（${a.description}）`).join("、")}` : ""}`;
+  const basePrompt = `${SYSTEM_PROMPT}
+${subagentLine}
+
+<env>
+OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
+</env>`;
 
   // 3-16：插件权限只允许收紧（ask/deny），多插件冲突 deny 优先；包在既有引擎外
   const pluginPermissionRules = new Map<string, "ask" | "deny">();
@@ -317,7 +351,11 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const hookConfigs = [...baseHookConfigs, ...pluginHookConfigs];
   const hooks = new ProcessHookRunner(hookConfigs, { sessionId, onWarn: opts.onNotice });
   const commands = await CommandLibrary.open(extensionRoots.commandRoots, opts.onNotice);
-  const mcpConfigs = await loadMcpConfigs(opts.kcodeHomeDir);
+  const mcpConfigs = await loadMcpConfigs(opts.kcodeHomeDir, {
+    projectDir: opts.cwd,
+    trusted: projectTrusted,
+    ...(opts.onNotice !== undefined ? { onWarn: opts.onNotice } : {}),
+  });
   const mcpSessions = await connectMcpServers(mcpConfigs, {
     onWarn: opts.onNotice,
   });
@@ -353,6 +391,9 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       sink,
       prompt: opts.askUser,
       registry: bashTasks,
+      onTodoUpdate: (todos) => {
+        todoState = todos;
+      },
     }),
     createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
     // Skill 显式工具：模型按名读技能正文（渐进加载的显式通道，与自动触发/手动 /skill 共存）
@@ -382,11 +423,11 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     baseTools: subagentBaseTools,
     readFiles,
     hooks,
-    // 只读子代理走 plan 档语义（声明驱动的只读放行面）；其余同默认档
-    permissionFor: (kind) => {
-      const mode = kind === "readonly" ? "plan" : "default";
-      return withPluginRules(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode));
-    },
+    audit: auditSink,
+    // 3-19：子代理权限档由声明决定（plan/default/acceptEdits）；插件限制规则继续叠加
+    permissionFor: (mode) =>
+      withPluginRules(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode)),
+    parentMode: () => sessionMode,
     asker,
     agents,
     envBlock: `<env>
@@ -436,11 +477,12 @@ ${plan}`);
       permissions,
       hooks,
       sink: sinkWithIdle,
-      audit: new MemoryAudit().sink,
+      audit: auditSink,
       asker,
       onDelta: opts.onDelta,
       onReasoning: opts.onReasoning,
       skills,
+      todos: () => todoState,
       summarizer: new LlmSummarizer(initialLlm, opts.model),
     },
     {
@@ -566,7 +608,8 @@ ${plan}`);
     skillBody: (name) => skills.manualBody(name).catch(() => null),
     listPersistentGrants: () => grantStore.list(),
     clearPersistentGrants: () => grantStore.clear(),
-    usageSummary: () => loop.getUsage(),
+    usageSummary: () => ({ ...loop.getUsage(), subagents: { ...subagentUsage } }),
+    auditPath: () => auditFile.path,
     listChanges: () => listCheckpointChanges(checkpoints),
     revertChanges: async (paths) => {
       // 运行中回退会与写类工具竞态（半回滚 / 把正在写的内容覆盖掉）——与 host 侧同一守卫
@@ -665,6 +708,8 @@ ${plan}`);
       bashTasks.stopAll();
       await runner.drain(2_000);
       await Promise.allSettled([...mcpSessions, ...pluginMcpSessions].map((s) => s.close()));
+      // 3-29：审计队列排空（最后几条工具记录不丢）
+      await auditFile.close();
       // 检查点目录不再随关闭清理：保留清单与前像，重启后可继续列出/回退
     },
   };

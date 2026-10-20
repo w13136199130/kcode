@@ -82,4 +82,27 @@ describe("task_output / task_stop（后台任务显式控制）", () => {
     expect(noop.ok).toBe(true);
     expect(noop.output).toContain("已结束");
   }, 20_000);
+
+  it("3-13 task_list 列清单；task_wait 等到终态并回看日志", async () => {
+    const registry = new BackgroundTaskRegistry();
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art3"), registry });
+    const [, , taskList, taskWait] = createTaskTools(registry);
+    const started = await bash.execute({ command: "echo wait-line", runInBackground: true }, ctx());
+    const id = (started.output.match(/bg_[a-z0-9-]+/) ?? [])[0] ?? "";
+    expect(id).not.toBe("");
+
+    const listed = await taskList.execute({}, ctx());
+    expect(listed.ok).toBe(true);
+    expect(listed.output).toContain(id);
+    expect(listed.output).toContain("echo wait-line");
+
+    const waited = await taskWait.execute({ taskId: id, timeoutMs: 5000 }, ctx());
+    expect(waited.ok).toBe(true);
+    expect(waited.output).toContain("已完成");
+    expect(waited.output).toContain("wait-line");
+
+    const unknown = await taskWait.execute({ taskId: "bg_none" }, ctx());
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error).toContain("未知任务");
+  }, 20_000);
 });

@@ -28,6 +28,14 @@ describe("todo 工具（§1.1 A 域）", () => {
     expect(event && "todos" in event ? event.todos : []).toHaveLength(3);
   });
 
+  it("3-13 onUpdate 回调：最新清单同步给 loop（resume/压缩后仍可注入）", async () => {
+    let latest: unknown[] = [];
+    const todo = createTodoTool({ sessionId: "s1", sink: new MemorySink(), onUpdate: (todos) => { latest = todos; } });
+    await todo.execute(todoCall, { sessionId: "s1" });
+    expect(latest).toHaveLength(3);
+    expect(latest[1]).toMatchObject({ content: "写码", status: "in_progress" });
+  });
+
   it("多个 in_progress 被拒绝", async () => {
     const todo = createTodoTool({ sessionId: "s1", sink: new MemorySink() });
     const r = await todo.execute(

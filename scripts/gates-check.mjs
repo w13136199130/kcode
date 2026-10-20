@@ -7,7 +7,7 @@
  *    不再只校验 no-console（max-lines 等同类例外同样纳入）。
  * 3) 登记文件自身的 schema 校验（字段齐全、日期合法、期限 ≤ 一季度）。
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,4 +56,39 @@ if (stale.length > 0) {
   fail(`登记中有已失效的 lint 例外（配置已移除，请清理登记）：${stale.join(", ")}`);
 }
 
+// ---- 3) DESIGN 三态化 + 文档本地链接存在（3-31）----
+const checkDoc = (file) => {
+  const text = readFileSync(resolve(root, file), "utf8");
+  const prose = text.replace(/```[\s\S]*?```/g, ""); // 代码块里的示例链接不参与校验
+  let links = 0;
+  for (const match of prose.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {
+    let target = (match[1] ?? "").trim();
+    if (target.startsWith("<") && target.endsWith(">")) target = target.slice(1, -1);
+    if (/^(?:https?:|mailto:|#)/.test(target)) continue;
+    target = target.split("#")[0];
+    if (target === "") continue;
+    let decoded = target;
+    try {
+      decoded = decodeURIComponent(target);
+    } catch {
+      // 非法转义按原样校验
+    }
+    if (!existsSync(resolve(root, decoded))) {
+      fail(`${file} 的本地链接不存在：${target}`);
+    }
+    links += 1;
+  }
+  return links;
+};
+for (const file of ["DESIGN.md", "README.md"]) {
+  checkDoc(file);
+}
+const designLines = readFileSync(resolve(root, "DESIGN.md"), "utf8").split("\n");
+for (const [index, line] of designLines.entries()) {
+  if (line.includes("已落地") && !/[✅⚠️]/.test(line)) {
+    fail(`DESIGN.md:${index + 1} 声称“已落地”但未标 ✅/⚠️：${line.trim().slice(0, 80)}`);
+  }
+}
+
 console.log(`✓ 例外登记校验通过：${registered.size} 条生效例外（含理由与到期日），无过期、无漂移。`);
+console.log("✓ 文档对账通过：DESIGN/README 本地链接存在，“已落地”均带三态标记。");

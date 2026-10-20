@@ -115,6 +115,10 @@ export const SessionEndEvent = z.object({
       outputTokens: z.number().nonnegative(),
       /** 本轮 LLM 调用次数（含未回报用量的调用） */
       calls: z.number().int().nonnegative(),
+      /** 3-21：厂商回报的缓存/推理分项（可选，resume 求和后 /cost 仍可显示） */
+      cacheReadTokens: z.number().nonnegative().optional(),
+      cacheWriteTokens: z.number().nonnegative().optional(),
+      reasoningTokens: z.number().nonnegative().optional(),
     })
     .optional(),
 });

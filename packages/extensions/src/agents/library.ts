@@ -7,7 +7,7 @@ import { parseAgentMd, type ParsedAgent } from "./parse.js";
 export interface AgentSource {
   /** 子代理定义根目录：其下每个 .md 文件是一个子代理 */
   dir: string;
-  source: "project" | "user";
+  source: "project" | "user" | "plugin";
 }
 
 export interface DiscoveredAgent extends ParsedAgent {
@@ -61,11 +61,12 @@ export class AgentLibrary {
     return library;
   }
 
-  list(): { name: string; description: string; source: string }[] {
+  list(): { name: string; description: string; source: string; permissionMode?: string }[] {
     return [...this.#agents.values()].map((a) => ({
       name: a.manifest.name,
       description: a.manifest.description,
       source: a.source,
+      ...(a.manifest.permissionMode !== undefined ? { permissionMode: a.manifest.permissionMode } : {}),
     }));
   }
 

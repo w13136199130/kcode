@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ChatMessage } from "@kcode/contracts";
+import type { ChatMessage, TodoItem } from "@kcode/contracts";
 import { trustProject as trustProjectOnFile, isProjectTrusted as isTrustedOnFile } from "@kcode/extensions";
 import {
   listSessions,
@@ -26,7 +26,13 @@ export async function resolveResumeHistory(
   kcodeHomeDir: string,
   resumeFrom: string,
   workspacePath?: string,
-): Promise<{ sessionId: string; messages: ChatMessage[]; usage: SessionUsage } | null> {
+): Promise<{
+  sessionId: string;
+  messages: ChatMessage[];
+  usage: SessionUsage;
+  todos: TodoItem[];
+  subagents: { count: number; inputTokens: number; outputTokens: number };
+} | null> {
   const sessionsDir = join(kcodeHomeDir, "cli", "sessions");
   const summaries = await listSessions(sessionsDir);
   if (summaries.length === 0) {
@@ -48,14 +54,35 @@ export async function resolveResumeHistory(
   // 用量只累计**有效前缀**：已回退轮次的用量不应继续计入 /cost（否则回退后费用偏高）
   const events = effectiveEvents(all);
   const usage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
+  // 3-13：续接恢复最新任务清单；子代理用量单独累计（/cost 分项）
+  let todos: TodoItem[] = [];
+  const subagents = { count: 0, inputTokens: 0, outputTokens: 0 };
   for (const event of events) {
+    if (event.type === "todo_update") {
+      todos = event.todos;
+    }
+    if (event.type === "subagent_stopped") {
+      subagents.count += 1;
+      subagents.inputTokens += event.usage.inputTokens;
+      subagents.outputTokens += event.usage.outputTokens;
+    }
     if (event.type === "session_end" && event.usage !== undefined) {
       usage.inputTokens += event.usage.inputTokens;
       usage.outputTokens += event.usage.outputTokens;
       usage.calls += event.usage.calls;
+      // 3-21：旧事件没有这些字段——只有厂商回报过的会话才累计
+      if (event.usage.cacheReadTokens !== undefined) {
+        usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + event.usage.cacheReadTokens;
+      }
+      if (event.usage.cacheWriteTokens !== undefined) {
+        usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + event.usage.cacheWriteTokens;
+      }
+      if (event.usage.reasoningTokens !== undefined) {
+        usage.reasoningTokens = (usage.reasoningTokens ?? 0) + event.usage.reasoningTokens;
+      }
     }
   }
-  return { sessionId: target.sessionId, messages: rebuildHistory(events), usage };
+  return { sessionId: target.sessionId, messages: rebuildHistory(events), usage, todos, subagents };
 }
 
 /** 把项目写入受信任清单（幂等） */

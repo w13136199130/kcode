@@ -141,6 +141,7 @@ describe("Esc 连杀后台子代理（trackBackground）", () => {
       // 万能桩：pre 类钩子返回不否决（HookPreOutcome），post 类无返回
       hooks: new Proxy({}, { get: () => async () => ({ veto: false }) }) as never,
       permissionFor: () => ({ decide: async () => "allow" as const }),
+      parentMode: () => "default" as const,
       agents: { get: () => undefined } as never,
       envBlock: "",
       parentSessionId: "parent",

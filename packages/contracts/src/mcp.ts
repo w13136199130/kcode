@@ -13,6 +13,8 @@ export const McpServerConfig = z
     command: z.string().min(1).optional(),
     args: z.array(z.string()).default([]),
     env: z.record(z.string(), z.string()).optional(),
+    /** 3-14：HTTP/SSE 请求头（远端 token 等；stdio 忽略） */
+    headers: z.record(z.string(), z.string()).optional(),
     url: z.string().min(1).optional(),
     timeoutMs: z.number().int().positive().optional(),
   })

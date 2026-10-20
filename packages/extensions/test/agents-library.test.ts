@@ -38,6 +38,28 @@ describe("parseAgentMd（子代理定义 frontmatter）", () => {
     }
   });
 
+  it("3-19：permissionMode / disallowedTools / maxTurns / 内联数组", () => {
+    const parsed = parseAgentMd(
+      "research",
+      [
+        "---",
+        "description: 只读调研",
+        "tools: [read, grep, write]",
+        "disallowedTools: [write, edit]",
+        "permissionMode: plan",
+        "maxTurns: 5",
+        "---",
+        "你是只读调研代理。",
+      ].join("\n"),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.agent.manifest.tools).toEqual(["read", "grep", "write"]);
+    expect(parsed.agent.manifest.disallowedTools).toEqual(["write", "edit"]);
+    expect(parsed.agent.manifest.permissionMode).toBe("plan");
+    expect(parsed.agent.manifest.maxTurns).toBe(5);
+  });
+
   it("缺 frontmatter / 正文为空 / 名字不合法 均报错", () => {
     expect(parseAgentMd("x", "没有 frontmatter").ok).toBe(false);
     expect(parseAgentMd("x", "---\ndescription: d\n---\n").ok).toBe(false);
@@ -75,5 +97,18 @@ describe("AgentLibrary（发现与优先级）", () => {
     expect(warnings.some((w) => w.includes("内置类型"))).toBe(true);
     const empty = await AgentLibrary.open([{ dir: join(root, "not-exist"), source: "user" }]);
     expect(empty.list()).toEqual([]);
+  });
+
+  it("3-19：插件来源子代理可发现并标注 source", async () => {
+    const dir = join(root, "plugin-agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "researcher.md"),
+      "---\ndescription: 插件调研\npermissionMode: plan\n---\n插件子代理正文",
+      "utf8",
+    );
+    const library = await AgentLibrary.open([{ dir, source: "plugin" }]);
+    expect(library.get("researcher")?.source).toBe("plugin");
+    expect(library.list()[0]).toMatchObject({ name: "researcher", source: "plugin", permissionMode: "plan" });
   });
 });

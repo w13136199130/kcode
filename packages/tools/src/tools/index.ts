@@ -1,4 +1,4 @@
-import type { SessionSink, Tool, UserPromptPort } from "@kcode/contracts";
+import type { SessionSink, TodoItem, Tool, UserPromptPort } from "@kcode/contracts";
 import { readTool } from "./read.js";
 import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
@@ -44,6 +44,8 @@ export const builtinTools: Tool[] = [...readOnlyTools, ...writableTools];
 export interface SessionToolOptions extends BashToolOptions {
   sink?: SessionSink;
   prompt?: UserPromptPort;
+  /** 3-13：todo 最新清单回调（loop 注入 `<todo_state>`） */
+  onTodoUpdate?: (todos: TodoItem[]) => void;
 }
 
 /** 会话工具全集：含 bash / todo / ask_user（会话态挂在会话上）+ 后台任务控制（注册表注入时） */
@@ -51,7 +53,7 @@ export function createSessionTools(opts: SessionToolOptions): Tool[] {
   return [
     ...builtinTools,
     createBashTool(opts),
-    createTodoTool({ sessionId: opts.sessionId, sink: opts.sink }),
+    createTodoTool({ sessionId: opts.sessionId, sink: opts.sink, ...(opts.onTodoUpdate !== undefined ? { onUpdate: opts.onTodoUpdate } : {}) }),
     createAskUserTool({ prompt: opts.prompt }),
     ...(opts.registry !== undefined ? createTaskTools(opts.registry) : []),
   ];

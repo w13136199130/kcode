@@ -7,12 +7,13 @@ import type {
   LLMProvider,
   PermissionAsker,
   PermissionEngine,
+  PermissionMode,
   SessionSink,
   Tool,
   ToolOutput,
   UserPromptPort,
 } from "@kcode/contracts";
-import { AgentLoop, InMemoryToolRegistry, MemoryAudit, MemorySink } from "@kcode/core";
+import { AgentLoop, InMemoryToolRegistry, MemoryAudit, MemorySink, type AuditSink } from "@kcode/core";
 import { AgentLibrary } from "@kcode/extensions";
 import { JsonlSessionSink } from "@kcode/runtime";
 import { createAskUserTool, type BackgroundTaskRegistry } from "@kcode/tools";
@@ -27,6 +28,8 @@ export const SUBAGENT_MAX_TURNS = 12;
  * 慢而活的子代理（等长流式响应）不再被误杀，真挂死的照常收敛（对标 zcode runner.ts:1191）。
  */
 export const SUBAGENT_INACTIVITY_MS = 120_000;
+/** 3-13：工具执行期间的心跳上限——长命令（bash 最大 600s）不应被不活动看门狗误杀 */
+const TOOL_WATCHDOG_MS = 610_000;
 /** 完成通知防伪头（定义在 agent-messaging.ts，此处转出口保持既有导入路径） */
 export { SUBAGENT_NOTIFICATION_HEADER };
 
@@ -59,8 +62,12 @@ export interface TaskToolDeps {
   readFiles?: Map<string, FileReadRecord>;
   /** 父会话 hooks（pre_tool_use 守卫对子代理同样生效） */
   hooks: HookRunner;
-  /** 权限引擎工厂：explore 只读档 / 其他默认档（ask 经父 asker 转达用户） */
-  permissionFor: (kind: "readonly" | "default") => PermissionEngine;
+  /** 3-29：父会话审计落盘（子代理记录带 parentSessionId） */
+  audit?: AuditSink;
+  /** 权限引擎工厂：readonly→plan 档 / 其余按子代理声明（3-19） */
+  permissionFor: (mode: PermissionMode) => PermissionEngine;
+  /** 3-19：父会话当前权限档——plan 档只允许派生只读子代理 */
+  parentMode: () => PermissionMode;
   asker?: PermissionAsker;
   agents: AgentLibrary;
   /** 运行环境块（OS/shell 方言） */
@@ -92,7 +99,9 @@ const SUBAGENT_BASE_PROMPT = `你是 kcode 的子代理，在隔离上下文中�
 interface AgentConfig {
   name: string;
   tools: Tool[];
-  permissionKind: "readonly" | "default";
+  permissionMode: PermissionMode;
+  disallowedTools: string[];
+  maxTurns: number;
   model?: string;
   body: string;
 }
@@ -120,7 +129,9 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       return {
         name: type,
         tools: deps.baseTools,
-        permissionKind: "default",
+        permissionMode: "default",
+        disallowedTools: [],
+        maxTurns: SUBAGENT_MAX_TURNS,
         body: "通用子代理：按委派指令使用可用工具完成任务并给出结论。",
       };
     }
@@ -128,7 +139,9 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       return {
         name: type,
         tools: deps.baseTools.filter((t) => EXPLORE_TOOLS.has(t.definition.name)),
-        permissionKind: "readonly",
+        permissionMode: "plan",
+        disallowedTools: [],
+        maxTurns: SUBAGENT_MAX_TURNS,
         body: "只读搜索子代理：广度优先探索代码库，返回结论与关键 file:line 引用；不修改任何文件。",
       };
     }
@@ -143,7 +156,9 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
         names.size === 0
           ? deps.baseTools
           : deps.baseTools.filter((t) => names.has(t.definition.name)),
-      permissionKind: "default",
+      permissionMode: found.manifest.permissionMode ?? "default",
+      disallowedTools: found.manifest.disallowedTools,
+      maxTurns: found.manifest.maxTurns ?? SUBAGENT_MAX_TURNS,
       model: found.manifest.model,
       body: found.body,
     };
@@ -170,7 +185,8 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       readOnly: false,
       // N3D-1：子代理派生本身批内并发安全（并发组模型 + fan-out 的前提）；无墙钟（看门狗在内部）
       concurrentSafe: true,
-      permission: { default: "allow" },
+      // 3-19：plan 档也允许派生——execute 内只放行只读子代理（explore/permissionMode:plan）
+      permission: { default: "allow", plan: "allow" },
     },
     async execute(input, ctx): Promise<ToolOutput> {
       const parsed = TaskArgs.safeParse(input);
@@ -183,8 +199,22 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       if ("error" in config) {
         return { ok: false, output: "", error: config.error };
       }
-      if (config.tools.length === 0) {
-        return { ok: false, output: "", error: `子代理 ${type} 的工具集为空（检查 tools 定义与父会话可用工具的交集）` };
+      // 3-19：plan 档父会话只允许只读子代理——防止借 general-purpose 绕过只读姿态
+      if (deps.parentMode() === "plan" && config.permissionMode !== "plan") {
+        return {
+          ok: false,
+          output: "",
+          error: `当前为 plan（只读）档，只能派生只读子代理：explore 或声明 permissionMode: plan 的自定义子代理（「${type}」声明为 ${config.permissionMode}）`,
+        };
+      }
+      const blocked = new Set(config.disallowedTools);
+      const tools = blocked.size === 0 ? config.tools : config.tools.filter((t) => !blocked.has(t.definition.name));
+      if (tools.length === 0) {
+        return {
+          ok: false,
+          output: "",
+          error: `子代理 ${type} 的工具集为空（检查 tools 定义、disallowedTools 与父会话可用工具的交集）`,
+        };
       }
       const model = config.model ?? deps.currentModel();
       let llm: LLMProvider;
@@ -207,12 +237,22 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
       // 不活动看门狗：任何子事件活动都重置；子代理自身的中断通道（sync 链到父 signal，background 独立）
       const childAbort = new AbortController();
       let watchdog: ReturnType<typeof setTimeout> | undefined;
+      /** 3-13：在途工具数（tool_call 已发、tool_result 未到）——工具执行期间放宽心跳窗口 */
+      let pendingTools = 0;
       const armWatchdog = (): void => {
         clearTimeout(watchdog);
-        watchdog = setTimeout(() => childAbort.abort(), SUBAGENT_INACTIVITY_MS);
+        watchdog = setTimeout(
+          () => childAbort.abort(),
+          pendingTools > 0 ? TOOL_WATCHDOG_MS : SUBAGENT_INACTIVITY_MS,
+        );
       };
       const sink: SessionSink = {
         append: async (event) => {
+          if (event.type === "tool_call") {
+            pendingTools += 1;
+          } else if (event.type === "tool_result") {
+            pendingTools = Math.max(0, pendingTools - 1);
+          }
           armWatchdog();
           await memory.append(event);
           if (disk !== null) {
@@ -228,9 +268,18 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
         deps.notify !== undefined
           ? buildRespondToCoordinatorTool({ childId: subId, childType: type, notify: deps.notify })
           : undefined;
+      // 3-29：子代理审计与父会话同文件，附带 parentSessionId（谁派生、用了什么工具）
+      const childAudit: AuditSink =
+        deps.audit !== undefined
+          ? (record) =>
+              deps.audit!({
+                ...record,
+                ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
+              })
+          : new MemoryAudit().sink;
       const childTools = [
-        ...config.tools,
-        ...(config.permissionKind === "default" && deps.askUser !== undefined
+        ...tools,
+        ...(config.permissionMode !== "plan" && deps.askUser !== undefined
           ? [createAskUserTool({ prompt: deps.askUser })]
           : []),
         ...(respondTool !== undefined ? [respondTool] : []),
@@ -240,12 +289,12 @@ export function buildTaskTool(deps: TaskToolDeps): Tool {
         {
           llm,
           tools: new InMemoryToolRegistry(childTools),
-          permissions: deps.permissionFor(config.permissionKind),
+          permissions: deps.permissionFor(config.permissionMode),
           hooks: deps.hooks,
           sink,
-          audit: new MemoryAudit().sink,
-          // ask 经父 asker 转达用户（项目级持久放行同样生效）；explore 只读档不会触发 ask
-          asker: config.permissionKind === "default" ? deps.asker : undefined,
+          audit: childAudit,
+          // ask 经父 asker 转达用户（项目级持久放行同样生效）；plan 只读档不会触发 ask
+          asker: config.permissionMode !== "plan" ? deps.asker : undefined,
         },
         {
           sessionId: subId,
@@ -257,7 +306,7 @@ ${deps.envBlock}
 【子代理角色】${config.body}`,
           cwd: deps.cwd,
           readFiles: deps.readFiles,
-          maxTurns: SUBAGENT_MAX_TURNS,
+          maxTurns: config.maxTurns,
         },
       );
 

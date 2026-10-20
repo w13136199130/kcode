@@ -1,8 +1,29 @@
 import { join } from "node:path";
-import { deleteSession, listSessions, renameSession, type SessionSummary } from "@kcode/runtime";
+import {
+  cleanupStorage,
+  deleteSession,
+  listSessions,
+  removeSessionData,
+  renameSession,
+  type RetentionOptions,
+  type SessionSummary,
+} from "@kcode/runtime";
 import { workspaceKey } from "@kcode/shared";
 
 type Write = (line: string) => void;
+
+function flagValue(args: string[], flag: string): number | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  const raw = args[index + 1];
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /** 3-04：当前项目作用域的会话 list/rename/rm（与 TUI `/resume` 同一过滤规则） */
 export async function sessionsCommand(
@@ -25,6 +46,29 @@ export async function sessionsCommand(
     for (const s of sessions) {
       const title = s.title ?? (s.preview === "" ? "（空会话）" : s.preview);
       write(`${s.sessionId} · ${s.turns} 轮 · ${title}`);
+    }
+    return true;
+  }
+
+  if (op === "vacuum" || op === "cleanup") {
+    const dryRun = args.includes("--dry-run");
+    const options: Partial<RetentionOptions> = {
+      ...(flagValue(args, "--max-sessions") !== undefined ? { maxSessions: flagValue(args, "--max-sessions")! } : {}),
+      ...(flagValue(args, "--max-age-days") !== undefined ? { maxAgeDays: flagValue(args, "--max-age-days")! } : {}),
+      ...(flagValue(args, "--max-artifact-mb") !== undefined
+        ? { maxArtifactBytes: flagValue(args, "--max-artifact-mb")! * 1024 * 1024 }
+        : {}),
+      ...(flagValue(args, "--max-audit-mb") !== undefined
+        ? { maxAuditBytes: flagValue(args, "--max-audit-mb")! * 1024 * 1024 }
+        : {}),
+      dryRun,
+    };
+    const result = await cleanupStorage(kcodeHomeDir, options);
+    write(
+      `${result.dryRun ? "（dry-run，未删除）" : "✓"} 保留策略：删除会话 ${result.deletedSessions.length} 个 · 派生条带 ${result.deletedPaths.length} 个 · 释放 ${mb(result.freedBytes)} · 保留会话 ${result.keptSessions} 个 · 产物 ${mb(result.artifactBytes)} / 审计 ${mb(result.auditBytes)}`,
+    );
+    if (result.deletedSessions.length > 0) {
+      write(`  会话：${result.deletedSessions.slice(0, 10).join("、")}${result.deletedSessions.length > 10 ? "…" : ""}`);
     }
     return true;
   }
@@ -52,10 +96,12 @@ export async function sessionsCommand(
   }
   if (op === "rm" || op === "delete") {
     await deleteSession(dir, resolved.sessionId);
-    write(`✓ 已删除会话 ${resolved.sessionId}`);
+    // 3-30：rm 级联清理产物/检查点/审计，避免留下无主数据
+    const freed = await removeSessionData(kcodeHomeDir, resolved.sessionId);
+    write(`✓ 已删除会话 ${resolved.sessionId}（连带释放 ${mb(freed)}）`);
     return true;
   }
-  write("用法：kcode sessions list|rename <id> <标题>|rm <id>");
+  write("用法：kcode sessions list|rename <id> <标题>|rm <id>|vacuum [--dry-run] [--max-sessions N] [--max-age-days N] [--max-artifact-mb N] [--max-audit-mb N]");
   return false;
 }
 

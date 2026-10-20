@@ -11,6 +11,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
+    "verify": "pnpm typecheck && pnpm test && pnpm lint && pnpm lint:deps && pnpm knip && pnpm gates:check && pnpm build",
     "lint": "oxlint packages apps services evals",
     "lint:deps": "depcruise packages apps services evals --config .dependency-cruiser.cjs",
     "knip": "knip",

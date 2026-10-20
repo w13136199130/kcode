@@ -11,6 +11,15 @@ export const SubagentManifest = z.object({
   /** 可用工具名清单（空 = 全集）；内置 explore 恒为只读集 */
   tools: z.array(z.string()).default([]),
   model: z.string().optional(),
+  /**
+   * 3-19：子代理权限档（CC permissionMode 的收敛子集）。
+   * plan = 只读（父会话 plan 档只允许派生这种子代理）；acceptEdits 仅影响写类确认语义。
+   */
+  permissionMode: z.enum(["plan", "default", "acceptEdits"]).optional(),
+  /** 3-19：从可用工具中剔除的工具名（比 tools 白名单更细的减法） */
+  disallowedTools: z.array(z.string()).default([]),
+  /** 3-19：子代理轮次上限（缺省 12，最大 50） */
+  maxTurns: z.number().int().min(1).max(50).optional(),
 });
 export type SubagentManifest = z.infer<typeof SubagentManifest>;
 

@@ -16,6 +16,7 @@ export function pluginMcpConfigs(manifest: PluginManifest): { configs: McpServer
       ...(decl.command !== undefined ? { command: decl.command } : {}),
       ...(decl.args !== undefined ? { args: decl.args } : {}),
       ...(decl.env !== undefined ? { env: decl.env } : {}),
+      ...(decl.headers !== undefined ? { headers: decl.headers } : {}),
       ...(decl.url !== undefined ? { url: decl.url } : {}),
     });
     if (!parsed.success) {

@@ -3,7 +3,7 @@
 > 配套参考：[竞品基线](./cli-agent-benchmark-2026.md) · [ZCode 架构对标](./zcode-benchmark.md) · [威胁模型](./threat-model.md)
 > 范围：本文是**唯一执行文档**（CLI 主线 + 共享层 + 桌面冻结边界）。`apps/cli` 与 `apps/desktop` 共享 `packages/*` 与同一会话语义；CLI 是主产品，桌面 D3 冻结。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）。最近一次全量：**143 files / 743 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
+> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**。最近一次全量：**152 files / 780 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
 
 > **产品化优先令（2026-10-20）**：CLI 是主产品，桌面 D3 冻结，只保留共享层类型兼容；先完成 CLI 阶段二尾巴与阶段三 P0，再恢复桌面。阶段三内部按“生命周期可靠性 → 编码闭环 → TUI 摩擦 → 扩展深水区”排序，不再按原表从 3-01 顺序平铺。详见下方「阶段三产品化重排」。
 
@@ -15,10 +15,10 @@
 | 2 | **P0-A 生命周期**：3-03 → 3-01 → 3-04 → 3-20 → 3-05/3-06/3-02 | **P0-A 全部完成**（含 3-02 图片持久化） | 不空白、无孤儿、断网可恢复 |
 | 3 | **P0-B 编码闭环**：3-09 → 3-07 → 3-08 → 3-10 → 3-11 → 3-23 | **P0-B 全部完成**（含 3-23 `/diff` 审查/回退）；下一步 P1-C 3-28 | 改得准、看得见、退得回 |
 | 4 | **P1-C TUI**：3-28 → 3-24 → 3-22 → 3-25 → 3-26 → 3-27 | **P1-C 全部完成**；下一步 P1-D 3-15 hooks matcher | 不需要第二个终端 |
-| 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | **进行中**：3-15~3-18 完成；下一步 3-19 subagent 策略 | 扩展边界与 `/trust` 一致 |
-| 6 | **P2-E 治理**：3-29、3-30、3-32、3-31 | 未开始 | 文档/审计有证据 |
+| 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | **P1-D 全部完成**；下一步 P2-E 3-29 审计 | 扩展边界与 `/trust` 一致 |
+| 6 | **P2-E 治理**：3-29→3-30→3-32→3-31 | **P2-E 全部完成** | 文档/审计有证据 |
 
-**立即下一步**：P1-D 进行中——3-15 hooks、3-16 插件、3-17 命令、3-18 skills 完成；下一步 **3-19 subagent 策略** → 3-21 费用分项 → 3-13 todo/task → 3-14 MCP。Windows CI 需推送仓库后首跑。P1-D 完成前不要开始桌面 D3。
+**立即下一步**：P2-E 全部完成（3-29/3-30/3-32/3-31）。P0/P1/P2 计划项已收口；下一步进入**阶段四**（Windows 沙箱、策略文件、LSP、fork/命名/搜索、auto memory）或按 0.4 使用数据选做。Windows CI 需推送仓库后首跑。D3 仍冻结。
 
 **桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。
 
@@ -203,8 +203,8 @@
 | 3-10 | **bash 体验**：artifact 路径前置、超时保留已产生输出、超时/中断 abort 进程树、`timeoutMs` 上限、输出流式回显 | `bash.ts`、`output-collector.ts`、`pipeline.ts` | `npm run build` 超时能看到错误；长命令有实时输出 | 2 |
 | 3-11 | **grep/glob 补齐**：grep 总数上限 + `-C/-U/-t/-l` + offset；glob 读 .gitignore、mtime 排序、反斜杠归一 | `grep.ts`、`glob.ts` | 与 rg 语义一致；模型不用绕 bash | 1.5 |
 | 3-12 | **文档抽取修复**：XLSX 公式/超链接/错误值/本地日期；PDF 空页提示；PPTX/CSV；DOCX 结构 | `extract.ts` | 读表格不再 `[object Object]`；扫描件有明确提示 | 2.5 |
-| 3-13 | **todo 回注 + task 治理**：每轮注入 `<todo_state>`；task 看门狗心跳、usage 汇总、`task_list`/`wait` | `loop.ts`、`todo.ts`、`subagent.ts`、`task-tools.ts` | resume/压缩后模型知道清单；长命令不被误杀；/cost 含子代理 | 2 |
-| 3-14 | **MCP 能力补齐**：annotations.readOnlyHint、signal 透传、图片/结构化内容、失败重连、项目级 `.kcode/mcp.json`（trust 门控）、headers/env | `mcp/provider.ts`、`contracts/mcp.ts`、`mcp-cmd.ts` | 只读 MCP 在 plan 可用；Esc 能取消；远端带 token 可用 | 3 |
+| 3-13 | **todo 回注 + task 治理**（✅）：每轮注入 `<todo_state>`（工具回调→loop 读取，续接从最后一个 todo_update 恢复）；task 看门狗在工具在途时放宽到 610s（长命令不被误杀）；`task_list` + `task_wait`；`/cost` 子代理分项（subagent_stopped 汇总，续接保留） | `loop.ts`、`context/assemble.ts`、`todo.ts`、`task-tools.ts`、`subagent.ts`、`resume.ts` | resume/压缩后模型知道清单；长命令不被误杀；/cost 含子代理 | 2 |
+| 3-14 | **MCP 能力补齐**（✅）：`annotations.readOnlyHint`→只读+plan 放行；`ctx.signal` 透传（Esc 立即结束等待）；图片内容落盘 `imagePaths`、resource/structuredContent 转文本；传输断开自动重连重试一次；项目级 `.kcode/mcp.json` 按 trust 门控（同名覆盖用户）；http/sse `headers`、stdio `env` | `mcp/provider.ts`、`contracts/mcp.ts`、`composition-helpers.ts` | 只读 MCP 在 plan 可用；Esc 能取消；远端带 token 可用 | 3 |
 
 ### 3.3 扩展与模型
 
@@ -214,9 +214,9 @@
 | 3-16 | **插件接线**（✅）：manifest.hooks 进同一 runner（source=plugin，cwd=插件安装目录）；permissions 转 ask/deny 规则（allow/未知格式安装期拒装，加载期拒载，deny 冲突优先）；MCP 按 transport 分流（stdio command/args/env、http/sse url）；同名只装/只载最新版 | `plugins/install.ts`、`plugins/permissions.ts`、`plugins/mcp.ts`、`roots.ts`、`composition.ts` | 同意摘要里写的内容真的生效 | 2 |
 | 3-17 | **命令 frontmatter / `!bash` / 命名空间**（✅）：递归目录生成 `ns:cmd`；frontmatter `description/argument-hint/allowed-tools/model` 解析且不进正文；`!`cmd``（或行首 `!命令`）展开时执行并 `<bash_command>` 回填（30s/8k 截断，围栏内不执行）；未闭合 frontmatter 也剥标记 | `commands/index.ts`、`commands/frontmatter.ts`、`composition.ts` | CC 风格命令可直接用 | 2 |
 | 3-18 | **skills 两字段 + 来源策略**（✅）：`allowed-tools`、`disable-model-invocation`；解析器支持 `|`/`>` 多行、引号、布尔/列表；project/plugin 技能**默认手动**（不进 system prompt、不自动触发、模型 `skill` 工具拒绝），用户 `/skill` 仍可加载 | `contracts/skill.ts`、`skills/parse.ts`、`skills/library.ts`、`skill-tool.ts` | 项目/插件技能不会静默自动注入 | 2 |
-| 3-19 | **subagent 扩展**：`permissionMode`、`disallowedTools`、`maxTurns`、插件来源；`explore` 在 plan 档可用 | `contracts/agent.ts`、`session/src/subagent.ts` | 只读子代理可声明只读；plan 能派 research | 1.5 |
+| 3-19 | **subagent 扩展**（✅）：`permissionMode`（plan/default/acceptEdits）、`disallowedTools`、`maxTurns`、插件 `agents/` 来源；plan 档只允许只读子代理（explore 或声明 plan），task 工具声明 `plan: allow` 后 plan 可派 research | `contracts/agent.ts`、`agents/parse.ts`、`session/src/subagent.ts`、`composition.ts` | 只读子代理可声明只读；plan 能派 research | 2 |
 | 3-20 | **模型层**：请求/空闲超时、上下文溢出自动 compact+retry、headers/代理、modelRef 支持 `:` 与嵌套 `/`、`env:` keyRef、窗口表可配 | `openai-compatible.ts`、`provider.ts`、`budget.ts` | 断网/超限不再挂死；Ollama tag/OpenRouter 可用；CI 可用 env key | 3 |
-| 3-21 | **费用与用量**：cache token、按模型/子代理/压缩分项；`/usage` | `contracts/usage.ts`、`loop.ts`、`commands.ts` | `/cost` 能解释钱花在哪 | 1.5 |
+| 3-21 | **费用分项**（✅）：`/cost`（`/usage` 别名）缓存命中/写入、推理 token、按模型/工具分项；usage 预留字段从 provider→流→事件→resume 全链接线；未知厂商缺分项时降级提示不造假 0 | `contracts/provider.ts`、`providers/openai-compatible.ts`、`core/loop.ts`、`tui/input/cost.ts` | 分项可解释；未知厂商降级 | 1.5 |
 
 ### 3.4 TUI 体验
 
@@ -234,10 +234,10 @@
 
 | ID | 动作 | 落点 | 验收 | 人日 |
 |---|---|---|---|---|
-| 3-29 | **审计落盘**：`AuditSink` 写 JSONL/独立文件（工具、决策、scope、耗时）；MemoryAudit 仅供测试 | `composition.ts`、`shared/logger` | 能回答"谁在何时允许了什么" | 1 |
-| 3-30 | **保留策略**：sessions/artifacts/checkpoints 配额与清理；`kcode sessions vacuum/rm` | runtime/session | 长期使用磁盘不失控 | 1.5 |
-| 3-31 | **文档对账**：DESIGN 全部"已落地"三态化并附测试/入口；`gates:check` 校验链接存在 | `DESIGN.md`、`scripts/gates-check.mjs` | 不再出现"文档说完成、代码没有" | 2 |
-| 3-32 | **Windows CI 扩展**：交互测试（Ink render）+ 真实路径/DPAPI/clipboard | `.github/workflows/ci.yml` | Windows 回归可发现 | 1 |
+| 3-29 | **审计落盘**（✅）：独立 JSONL（`~/.kcode/cli/audit/<sessionId>.jsonl`）记录工具/裁决/scope/耗时/cwd/权限档；子代理记录带 parentSessionId；串行追加、写失败不阻断、close 排空；`/audit [N]` 查看 | `core/pipeline.ts`、`session/audit.ts`、`composition.ts`、`tui/input/audit-view.ts` | 能回答"谁在何时允许了什么" | 1 |
+| 3-30 | **保留策略**（✅）：会话按年龄/数量保留最新；孤儿产物/检查点/审计清理；产物体积与审计总量超限从最旧淘汰；过期子代理会话清理；`kcode sessions vacuum [--dry-run] [--max-sessions/--max-age-days/--max-artifact-mb/--max-audit-mb]`；`rm` 级联删产物/检查点/审计 | `runtime/session/retention.ts`、`sessions-command.ts` | 长期使用磁盘不失控 | 1.5 |
+| 3-31 | **文档对账**（✅）：DESIGN 增状态图例 + §0.1 落地状态索引（阶段→✅/⚠️/⏳/❄→测试/入口）；全部“已落地”断言带三态标记；`gates:check` 校验 DESIGN/README 本地链接存在 + “已落地”未带标记即 fail；修正技能来源/hash 过时结论 | `DESIGN.md`、`scripts/gates-check.mjs` | 不再出现"文档说完成、代码没有" | 2 |
+| 3-32 | **Windows CI 扩展**（✅）：Windows job 从 6 个 smoke 文件扩为**全量 `pnpm test`**（Ink 交互渲染、真实路径/CRLF、DPAPI keychain、剪贴板、bash 进程树、host lease）+ desktop E2E；Linux 门禁补 `pnpm build`；turbo `.turbo` 缓存、concurrency 取消旧跑、job 超时 | `.github/workflows/ci.yml` | Windows 回归可发现 | 1 |
 
 **小计：约 58 人日。** 3 人并行约 4 周；1 人约 11–12 周。若只有 1 人，按 3-01/3-03/3-07/3-08/3-09/3-10/3-20/3-22/3-25/3-26/3-31 排序，其余延后。
 
@@ -323,6 +323,14 @@
 | `plugin-wiring` | 插件 hook 以安装目录执行；permissions 收紧引擎；MCP transport 分流；只装最新版 | 三 |
 | `command-frontmatter` | frontmatter 不进正文；命名空间递归；`!`bash`` 回填/失败/围栏不执行 | 三 |
 | `skill-policy` | project/plugin 技能默认手动；模型 body 拒绝、/skill 可用；多行/引号解析 | 三 |
+| `subagent-policy` | plan 档只放只读子代理；disallowedTools 剔除；插件 agents 可派；maxTurns 解析 | 三 |
+| `cost-breakdown` | cache/推理分项跨 provider→事件→resume；未知厂商降级；byModel/byTool | 三 |
+| `todo-task` | todo 每轮注入且续接恢复；task 在途心跳 610s；task_list/wait；/cost 子代理 | 三 |
+| `mcp-capabilities` | readOnlyHint/plan、signal 取消、图片/结构化、重连、项目 trust、headers/env | 三 |
+| `audit-log` | 每工具一行 JSONL；裁决/scope/耗时/cwd/mode；子代理 parentSessionId；close 排空 | 三 |
+| `retention` | 年龄/数量/总量三重配额；dry-run 不改盘；孤儿与 rm 级联清理 | 三 |
+| `ci-windows` | Windows 全量测试含 Ink/DPAPI/clipboard；Linux build；turbo 缓存 | 三 |
+| `docs-reconcile` | DESIGN 三态图例/索引；本地链接存在；“已落地”必须带 ✅/⚠️ | 三 |
 | `static-running-tool` | 排队提示不冻结工具卡 | 三 |
 | `terminal-escape` | OSC/ESC 被剥离 | 三 |
 | `sandbox-windows` | 沙箱内写边界/网络 | 四 |
@@ -391,20 +399,20 @@
 
 - CLI 阶段一 1-01~1-11；阶段二 2-01~2-24（脚本化契约 + 安全最小集 + 审批闭环 + 通知/模式同步 + 生成式 /help）。
 - 桌面 D0/D1/D2：onboarding、host config RPC、队列、时间线、会话标题/删除、单实例/窗口状态、Composer slash/@、审批键盘/真实 diff/changed files/任务面板。
-- 验证基线：143 test files / 743 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿。
+- 验证基线：152 test files / 780 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
 
 ### 当前 P0（按序）
 
 1. **P0-0 尾巴**：`AGENTS.md` trust ✅；顶层 `kcode login` ✅；`--verbose` ✅；Windows CI 首跑 ⏳（待推送）。
 2. **P0-A 生命周期**：3-03 退出清理 ✅ → 3-01 resume 转写 ✅ → 3-04 `/resume` 过滤/命名/删除 ✅ → 3-20 超时/溢出恢复 ✅ → 3-05 检查点配额/子代理范围 ✅ → 3-06 `/export` ✅ → 3-02 图片持久化 ✅ → **P0-A 完成** → 3-09 读后过期校验 ✅ → 3-07 `apply_patch` ✅ → 3-08 `edit.replaceAll`/多编辑 ✅ → 3-10 bash 超时/进程树/流式进度 ✅ → 3-11 grep/glob 参数与边界 ✅ → 3-23 `/diff` 审查/逐文件回退 ✅ → **P0-B 完成**。
 3. **P1-C TUI 摩擦**：3-28 `#`/`/` 输入边界 ✅ → 3-24 编辑键 ✅ → 3-22 长输出 ✅ → 3-25 Static 边界 ✅ → 3-26 终端安全/降级 ✅ → 3-27 后台任务可见 ✅ → **P1-C 完成**。
-4. **P1-D 扩展深水区**：3-15 hooks matcher ✅ → 3-16 插件接线 ✅ → 3-17 命令 frontmatter ✅ → 3-18 skills 策略 ✅ → 3-19 subagent → 3-21 费用分项 → 3-13 todo/task → 3-14 MCP。
+4. **P1-D 扩展深水区**：3-15 hooks matcher ✅ → 3-16 插件接线 ✅ → 3-17 命令 frontmatter ✅ → 3-18 skills 策略 ✅ → 3-19 subagent ✅ → 3-21 费用分项 ✅ → 3-13 todo/task ✅ → 3-14 MCP ✅ → **P1-D 完成**。
 
 ### 后续
 
 - **P1-C TUI**：✅ 全部完成（3-28/3-24/3-22/3-25/3-26/3-27）。
-- **P1-D 扩展**：3-19 → 3-21 → 3-13 → 3-14（3-15~3-18 已完成，从这里继续）。
-- **P2-E 治理**：3-29、3-30、3-32、3-31。
+- **P1-D 扩展**：✅ 全部完成（3-15~3-19、3-21、3-13、3-14）。
+- **P2-E 治理**：✅ 全部完成（3-29/3-30/3-32/3-31）。
 - **阶段四**：Windows 沙箱、策略文件、LSP、fork/命名/搜索、auto memory（看 0.4 数据再定）。
 
 ### 桌面冻结

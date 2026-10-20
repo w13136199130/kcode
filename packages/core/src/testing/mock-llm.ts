@@ -1,4 +1,4 @@
-import type { LLMChunk, LLMProvider, LLMRequest } from "@kcode/contracts";
+import type { LLMChunk, LLMProvider, LLMRequest, LLMUsage } from "@kcode/contracts";
 
 export interface ScriptedToolCall {
   callId: string;
@@ -17,7 +17,7 @@ export interface ScriptedTurn {
   error?: string;
   toolCalls?: ScriptedToolCall[];
   /** 模拟端点回报的 token 用量（end chunk 携带；缺省不报——旧回放夹具保持字节一致） */
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: LLMUsage;
 }
 
 /** mock LLM（§11.A ②）：按脚本吐 chunk；记录收到的请求供测试/evals 断言 */

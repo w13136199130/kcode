@@ -20,6 +20,25 @@ const TaskStopArgs = z.object({
   taskId: z.string().min(1),
 });
 
+const WaitArgs = z.object({
+  taskId: z.string().min(1),
+  /** 等待上限（毫秒，默认 30s，最大 120s；超时返回仍在运行，可再次 wait/task_output） */
+  timeoutMs: z.number().int().positive().max(120_000).optional(),
+});
+
+function stateOf(task: { status: string; exitCode?: number }): string {
+  return task.status === "running"
+    ? "运行中"
+    : task.status === "done"
+      ? `已完成（exit ${task.exitCode ?? 0}）`
+      : `失败（exit ${task.exitCode ?? -1}）`;
+}
+
+function formatTaskLine(task: { id: string; status: string; command: string; startedAt: number; exitCode?: number }, now = Date.now()): string {
+  const elapsed = task.status === "running" ? ` · ${Math.round((now - task.startedAt) / 1000)}s` : "";
+  return `- ${task.id} · ${stateOf(task)}${elapsed} · ${task.command.slice(0, 80)}`;
+}
+
 /** 运行中任务的日志尾部（运行中日志是追加流，读到的是当时的快照） */
 async function tailOf(taskId: string, logPath: string, lines: number): Promise<string> {
   let text: string;
@@ -54,7 +73,7 @@ async function tailOf(taskId: string, logPath: string, lines: number): Promise<s
   return text.split("\n").slice(-lines).join("\n");
 }
 
-export function createTaskTools(registry: BackgroundTaskRegistry): [Tool, Tool] {
+export function createTaskTools(registry: BackgroundTaskRegistry): [Tool, Tool, Tool, Tool] {
   const taskOutput: Tool = {
     definition: {
       name: "task_output",
@@ -87,12 +106,7 @@ export function createTaskTools(registry: BackgroundTaskRegistry): [Tool, Tool] 
       if (task.status !== "running") {
         registry.update(task.id, { notified: true });
       }
-      const state =
-        task.status === "running"
-          ? "运行中"
-          : task.status === "done"
-            ? `已完成（exit ${task.exitCode ?? 0}）`
-            : `失败（exit ${task.exitCode ?? -1}）`;
+      const state = stateOf(task);
       return {
         ok: true,
         output: `任务 ${task.id} · ${state} · 命令：${task.command}\n日志尾部（${task.logPath}）：\n${tail}`,
@@ -137,5 +151,73 @@ export function createTaskTools(registry: BackgroundTaskRegistry): [Tool, Tool] 
     },
   };
 
-  return [taskOutput, taskStop];
+  const taskList: Tool = {
+    definition: {
+      name: "task_list",
+      description:
+        "列出本会话全部后台任务（bash runInBackground 与后台子代理）：id/状态/耗时/命令；长任务轮询前先看清单",
+      parameters: { type: "object", properties: {} },
+      readOnly: true,
+      permission: { default: "allow" },
+      timeoutMs: 10_000,
+    },
+    async execute() {
+      const tasks = registry.list();
+      if (tasks.length === 0) {
+        return { ok: true, output: "（本会话暂无后台任务）" };
+      }
+      return {
+        ok: true,
+        output: `后台任务（${tasks.length}）：\n${tasks.map((t) => formatTaskLine(t)).join("\n")}`,
+      };
+    },
+  };
+
+  const taskWait: Tool = {
+    definition: {
+      name: "task_wait",
+      description:
+        "等待后台任务结束（默认最多 30s，上限 120s）：返回终态与日志尾部；超时仍运行则返回当前状态，可再次调用或改用 task_output",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "string", description: "后台任务 id（bg_ 或 sub_ 前缀）" },
+          timeoutMs: { type: "number", description: "等待上限毫秒（默认 30000，最大 120000）" },
+        },
+        required: ["taskId"],
+      },
+      readOnly: true,
+      permission: { default: "allow" },
+      timeoutMs: 125_000,
+      resultBudget: 4096,
+    },
+    async execute(input) {
+      const parsed = WaitArgs.safeParse(input);
+      if (!parsed.success) {
+        return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
+      }
+      const { taskId } = parsed.data;
+      const timeoutMs = parsed.data.timeoutMs ?? 30_000;
+      const deadline = Date.now() + timeoutMs;
+      let task = registry.get(taskId);
+      if (task === undefined) {
+        return { ok: false, output: "", error: `未知任务 ${taskId}（本会话的后台任务才有记录）` };
+      }
+      while (task.status === "running" && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        task = registry.get(taskId);
+        if (task === undefined) {
+          return { ok: false, output: "", error: `任务 ${taskId} 已从注册表移除` };
+        }
+      }
+      const tail = await tailOf(task.id, task.logPath, 40);
+      if (task.status === "running") {
+        return { ok: true, output: `任务 ${task.id} 仍在运行（已等待 ${Math.round(timeoutMs / 1000)}s）\n日志尾部：\n${tail}` };
+      }
+      registry.update(task.id, { notified: true });
+      return { ok: true, output: `任务 ${task.id} · ${stateOf(task)}\n日志尾部：\n${tail}` };
+    },
+  };
+
+  return [taskOutput, taskStop, taskList, taskWait];
 }

@@ -5,6 +5,10 @@ interface UsageAccumulator {
   inputTokens: number;
   outputTokens: number;
   calls: number;
+  /** 3-21：厂商回报才累计；未回报保持 undefined */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
 }
 
 /**
@@ -67,6 +71,16 @@ export async function consumeStream(dep: {
         if (chunk.usage !== undefined) {
           dep.runUsage.inputTokens += chunk.usage.inputTokens;
           dep.runUsage.outputTokens += chunk.usage.outputTokens;
+          // 3-21：缓存/推理分项独立累计（厂商未回报不制造 0 假象）
+          if (chunk.usage.cacheReadTokens !== undefined) {
+            dep.runUsage.cacheReadTokens = (dep.runUsage.cacheReadTokens ?? 0) + chunk.usage.cacheReadTokens;
+          }
+          if (chunk.usage.cacheWriteTokens !== undefined) {
+            dep.runUsage.cacheWriteTokens = (dep.runUsage.cacheWriteTokens ?? 0) + chunk.usage.cacheWriteTokens;
+          }
+          if (chunk.usage.reasoningTokens !== undefined) {
+            dep.runUsage.reasoningTokens = (dep.runUsage.reasoningTokens ?? 0) + chunk.usage.reasoningTokens;
+          }
           // provider 回报的本轮输入侧总量 = 该请求的上下文真值（system+工具 schema+历史全量），
           // loop 以最近一次值校准压缩判据（N3 对齐批：估算降为兜底）
           lastInputTokens = chunk.usage.inputTokens;

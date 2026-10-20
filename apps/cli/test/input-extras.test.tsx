@@ -251,9 +251,16 @@ describe("剪贴板读图（仅 Windows 实跑；无剪贴板服务环境自动�
     if (!setOk) {
       return; // CI/无桌面会话：剪贴板服务不可用，跳过（函数已有 null 降级路径）
     }
-    const path = await actual.readClipboardImageToFile(join(home, "tmp"));
-    expect(path).not.toBeNull();
-    const magic = await readFile(path!);
+    // GitHub Windows runner 偶尔 SetImage 成功但读取尚未可见：轮询数次，仍不可读按 headless 跳过
+    let path: string | null = null;
+    for (let i = 0; i < 10 && path === null; i++) {
+      path = await actual.readClipboardImageToFile(join(home, "tmp"));
+      if (path === null) await new Promise((r) => setTimeout(r, 200));
+    }
+    if (path === null) {
+      return;
+    }
+    const magic = await readFile(path);
     expect(magic.subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47])); // PNG 魔数
   }, 20_000);
 

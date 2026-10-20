@@ -13,10 +13,14 @@ import { MODE_META, MODE_CYCLE } from "../theme/modes.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import { contextWindowFor, modelWindowKnown } from "@kcode/core";
 import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { atomicWriteText } from "@kcode/tools";
 import { eventsToMarkdown, serializeEvents } from "../export.js";
 import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
+import { formatCostUsage } from "./cost.js";
+import { formatAuditRecords } from "./audit-view.js";
+import type { AuditRecord } from "@kcode/core";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
 /**
@@ -309,21 +313,36 @@ ${body}
         });
         return;
       }
-      if (name === "cost") {
+      if (name === "cost" || name === "usage") {
         const usage = await ctx.session.usage().catch(() => null);
         if (usage === null) {
           ctx.pushBlock({ kind: "info", tone: "warn", text: "用量获取失败（会话操作异常）" });
           return;
         }
-        const fmt = (n: number): string => n.toLocaleString("en-US");
-        const known = usage.inputTokens > 0 || usage.outputTokens > 0;
-        ctx.pushBlock({
-          kind: "info",
-          text:
-            `⏱ 本会话用量：输入 ${fmt(usage.inputTokens)} tok · 输出 ${fmt(usage.outputTokens)} tok` +
-            `（合计 ${fmt(usage.inputTokens + usage.outputTokens)}）· LLM 调用 ${usage.calls} 次 · 模型 ${ctx.modelLabel}` +
-            (known ? "\n（BYOK 自带 key，按厂商定价计费；旧版本会话或端点未回报用量时仅显示调用次数）" : ""),
-        });
+        ctx.pushBlock({ kind: "info", text: formatCostUsage(usage, ctx.modelLabel) });
+        return;
+      }
+      if (name === "audit") {
+        const requested = args.trim() === "" ? 20 : Number.parseInt(args.trim(), 10);
+        if (!Number.isFinite(requested) || requested <= 0) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/audit [条数]（默认 20，上限 200）" });
+          return;
+        }
+        const limit = Math.min(200, requested);
+        const path = ctx.session.auditPath();
+        const raw = await readFile(path, "utf8").catch(() => "");
+        const records: AuditRecord[] = raw
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .slice(-limit)
+          .flatMap((line) => {
+            try {
+              return [JSON.parse(line) as AuditRecord];
+            } catch {
+              return [];
+            }
+          });
+        ctx.pushBlock({ kind: "info", text: formatAuditRecords(records, path) });
         return;
       }
       if (name === "clear") {

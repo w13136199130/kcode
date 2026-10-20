@@ -9,18 +9,42 @@
 > 对标对象：**ZCode**（zai-org/ZCode，Apache-2.0，v3.14.3）、Claude Code、Codex CLI、OpenCode
 > 对标方式：只参考公开文档与公开仓库的**设计取舍**，不复制代码；每条结论标注依据 `[ZCode]` / `[kcode 代码]` / `[推断]`。
 > 目标水位：**对标 ZCode 全量能力，并在安全（key 受众绑定、DPAPI、只读档不可穿透、E2E）、评测（可回放 + eval 基准）与本地优先上超过它。**
+>
+> **状态标记（3-31）**：**✅ 已落地**（同条附测试/入口）· **⚠️ 部分落地**（同条列缺口）· **⏳ 未开始/计划中** · **❄ 冻结**。
+> `gates:check` 会拒绝“已落地”但未带 ✅/⚠️ 的条目，并校验本文/README 的本地链接存在。
 
 ---
 
 ## 0. 一页总结
 
-kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约/治理/身份/日志/令牌、N2 平台抽象/排队/UI 拆包/发行链）与通道前三项（N3-1 host 宿主、N3-2 凭证边界、N3-3 Web+中继）均已落地**（2026-09-29 复核）。剩余主线四处：
+kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约/治理/身份/日志/令牌、N2 平台抽象/排队/UI 拆包/发行链）与通道前三项（N3-1 host 宿主、N3-2 凭证边界、N3-3 Web+中继）均已 ✅ 落地**（2026-09-29 复核）。剩余主线四处：
 
-1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
+1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份 ✅ 已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
 2. **CLI 入口层与 TUI 交互补全（N3C，P1 快赢批，§8.4b）**：headless flag 组（`-p/--mode/--json` 等）、`doctor`、管理子命令、状态栏常驻信息与逐卡展开等交互件——用户最可感、成本最低、无依赖可插队的一批。
 3. **CLI 桌面前收尾（N3I，P1，§8.4f；2026-10-08 自查驱动）**：原子写、放行参数级粒度、hooks 一期、token 预算、会话导出等 9 项——N3-4 开工前的内功收口 + 0.2.0 发版节点。
 4. **通道收尾（N3-4/5）**：Desktop Electron 主线（**0.2.0 已发，N3-4 设计定稿 §8.4g，开工中**，2026-10-09）与插件加载期 hash 校验。
 5. **生态与云（N4）**：插件市场、账户 IdP、调度、长期 Memory、遥测。
+
+### 0.1 落地状态索引（2026-10-20）
+
+| 阶段 | 状态 | 证据（测试/入口）与缺口 |
+|---|---|---|
+| N0 会话一致性 | ⚠️ | [checkpoints](packages/session/src/checkpoints.ts) · [resume test](packages/session/test/rewind-persistence.test.ts)；压缩切片按完整轮次仍待复核（§2.3） |
+| N1 契约/治理/身份/日志/令牌 | ✅ | [gates](scripts/gates-check.mjs) · [CI](.github/workflows/ci.yml) · [contracts](packages/contracts/src/index.ts) |
+| N2 平台抽象/排队/UI 拆包/发行链 | ✅ | [queue](packages/runtime/src/session/command-queue.ts) · [ui](packages/ui/src/index.ts) · [release](apps/cli/scripts/release.mjs) |
+| N3-1 host 宿主 | ✅ | [host](apps/host/src/main.ts) · [host tests](apps/host/test/host.test.ts) |
+| N3-2 凭证边界 | ✅ | [host protocol](packages/contracts/src/host-protocol.ts) · [host tests](apps/host/test/host.test.ts) |
+| N3-3 Web + 中继 | ✅ | [web](apps/web/src/App.tsx) · [relay E2E](services/server/test/e2e-relay.test.ts) |
+| N3-4 Desktop | ❄ | D3 冻结；D0/D1/D2 资产保留 |
+| N3-5 插件加载期 hash | ✅ | [install](packages/extensions/src/plugins/install.ts) · [plugin tests](packages/extensions/test/plugins-state.test.ts) |
+| N3C CLI 入口层/TUI 快赢批 | ✅ | [args](apps/cli/src/args.ts) · [headless test](apps/cli/test/headless.test.ts) |
+| N3D 子代理异步化 | ✅ | [subagent](packages/session/src/subagent.ts) · [background test](packages/session/test/subagent-background.test.ts) |
+| N3E 执行层体验批 | ✅ | [retry](packages/platform/src/providers/retry.ts) · [update test](apps/cli/test/update.test.ts) |
+| N3F/G 终端打磨 + 输入补全 | ✅ | [sanitize](apps/cli/src/tui/terminal/sanitize.ts) · [input test](apps/cli/test/input-editing.test.tsx) |
+| N3H 深度交互 | ⏳ | 未开始（§8.4e） |
+| N3I CLI 内功收口 | ✅ | [hooks](packages/extensions/test/hooks.test.ts) · [budget](packages/core/test/budget-gate.test.ts) · [audit](packages/session/test/audit-log.test.ts) |
+| P1-D 扩展深水区（3-15~3-14） | ✅ | [plan](docs/cli-optimization-plan-2026-10.md) · [plugins](packages/extensions/test/plugins.test.ts) · [mcp](packages/tools/test/mcp.test.ts) |
+| P2-E 治理（3-29/3-30/3-32/3-31） | ✅ | [audit](packages/session/test/audit-log.test.ts) · [retention](packages/runtime/test/retention.test.ts) · [CI](.github/workflows/ci.yml) |
 
 ```
 N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台抽象/排队/UI 拆包/发行链 ✅
@@ -111,9 +135,9 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
 | 核心循环 | Agent loop 状态机、流式输出、并行只读工具、后台任务、子代理（`.kcode/agents` + task 工具）、Plan 双闸门（plan_submit 批准切回执行）、结构化提问（ask_user）、Todo |
 | 工具链 | read/write/edit、glob/grep（捆绑 ripgrep）、bash（超时/后台/cd 跨调用持久/!命令直执行）、sessions |
 | 上下文 | SKILL.md 渐进加载+触发词、AGENTS.md 记忆、三层压缩（micro 截断→auto 阈值→手动 /compact）、真 tokenizer、resume/分支 |
-| 扩展 | MCP（stdio/http/sse + 超时）、hooks（session_start/pre_tool_use/post_tool_use/user_prompt_submit/pre_compact/stop，fail-closed，3-15 matcher + additionalContext + CC 配置/裁决兼容）、斜杠命令（3-17 frontmatter/命名空间/`!`bash）、插件装卸 + 沙箱 v1（3-16 插件 hooks/permissions/MCP transport 接线，只装最新版）、skills（3-18 allowed-tools/disable-model-invocation，project/plugin 默认手动） |
+| 扩展 | MCP（stdio/http/sse + 超时，3-14 readOnlyHint/signal/图片/重连/项目级 trust/headers）、hooks（session_start/pre_tool_use/post_tool_use/user_prompt_submit/pre_compact/stop，fail-closed，3-15 matcher + additionalContext + CC 配置/裁决兼容）、斜杠命令（3-17 frontmatter/命名空间/`!`bash）、插件装卸 + 沙箱 v1（3-16 插件 hooks/permissions/MCP transport 接线，只装最新版）、skills（3-18 allowed-tools/disable-model-invocation，project/plugin 默认手动）、子代理（3-19 permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生） |
 | 权限 | 三态 + 四档（plan/default/acceptEdits/fullAccess）、项目级持久放行 + /permissions、automation 权限语义、只读档不可穿透 |
-| 会话 | JSONL append-only + v:1、--resume、/rewind 检查点（已落盘）、/diff 改动审查+逐文件回退、/cost、/context、/status、/clear |
+| 会话 | JSONL append-only + v:1、--resume、/rewind 检查点（已落盘）、/diff 改动审查+逐文件回退、/cost（缓存/推理/按模型/工具/子代理分项，/usage 别名）、/context、/status、/clear、todo `<todo_state>` 每轮回注（续接恢复）、审计 JSONL `/audit`（工具/裁决/scope/耗时/cwd/mode，子代理带 parentSessionId）、`kcode sessions vacuum/rm` 保留策略（年龄/数量/总量配额，级联清理） |
 | 模型 | BYOK 多厂商（openai-compatible/Ollama/GLM/DeepSeek/中转）、key 受众绑定、DPAPI keychain、瞬态失败指数退避重试 |
 | TUI | Ink、Markdown + 语法高亮、工具状态行、Todo 面板、结构化选择题、后台通知、Shift+Tab 权限循环、@ 文件补全、输入历史持久化、`# `/`/remember` 记忆、斜杠路径不误判、Ctrl+A/E/U/K/W 行编辑 + 按词移动、Ctrl+B 工具详情分页/搜索/复制（失败默认末尾 + JSONL 路径）、Static 活区边界 + Ctrl+O 重放、ESC/OSC 剥离 + NO_COLOR/KCODE_PLAIN/light 主题、后台任务 `⚙ N` + 完成铃 + Ctrl+T/`/tasks` 停止 |
 | 安全 | key 受众绑定、双作用域配置、E2E epoch/ratchet/envelope 加密层（**无 relay 消费者**）、威胁模型 v2 |
@@ -135,7 +159,7 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
 
 **仍开放**：
 
-1. **技能自动注入不区分来源**：`match()` 只按触发词过滤，第三方技能默认手动策略未落地（含 frontmatter `allowed-tools`/`disable-model-invocation` 两字段，benchmark §1.15）。
+1. **技能自动注入不区分来源** ✅ 已收口（3-18）：`match()`/`meta()`/`body()` 对手动技能统一过滤；frontmatter `allowed-tools`/`disable-model-invocation` 已解析；project/plugin 技能默认手动（[skills tests](packages/extensions/test/skills.test.ts)）。
 2. **`contracts/{update,keyhierarchy}.ts` 零消费者**：knip 已挂 CI，待消费或删除。
 
 **已收口**（移出缺陷清单，防过时信息误导）：手动 `/compact` 落盘（compactNow 经 sink 写盘，`compact-persistence.test.ts` 锁定）、压缩按完整轮次切片+锚点（`compact.ts` 含 covered/taskAnchor，不再产生孤立 tool result）、插件加载期 hash 校验（N3-5：`verifyPluginSeed` + `buildExtensionRoots` 拒载，seed 排除自身）、检查点持久化（N0-4，`manifest.json`+快照落盘重启可用）、workspace 身份（N0-6/N1-3，`workspaceKey` 贯穿 resume 分组）、治理门禁（N2-5，规则 error + `gates-exceptions.json` 登记）、发行链（N2-4，tsup bundle + 安装器双端）。
@@ -347,7 +371,7 @@ export interface IPlatformService {
 | B4 进程 → 命令执行 | 任意命令 | 权限确认 + 超时 + 进程树清理 + /trust 门控 **已实现** |
 | B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash 校验（N3-5：篡改拒载）**已实现**；Sigstore 签名 **目标（N4-4）** |
 
-**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能自动注入不区分来源；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块不原地重绘——Ctrl+O 以清屏 + `renderEpoch` 重放切换展开度；原地编辑消息/内联进度卡类交互仍只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。
+**已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能来源策略已由 3-18 收口（project/plugin 默认手动）；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块不原地重绘——Ctrl+O 以清屏 + `renderEpoch` 重放切换展开度；原地编辑消息/内联进度卡类交互仍只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。
 
 ---
 
@@ -385,11 +409,11 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 验收标准 |
 |---|---|---|---|
-| N2-1 | `IPlatformService` + 依赖注入装配 | N1-2 | UI 不碰平台 API（§6 规则5 机器校验：装配点唯一 bootstrap.ts）——**已落地** |
-| N2-2 | `RuntimeCommandQueue`（priority now/next/later）+ 单 reservation；busy 时入队不抛错 | N1-2/N1-3 | 运行中提交 3 条输入按序执行（简化版，不抄 ZCode 500 行幂等网关；owner/lease 随 host 进程挪至 N3-1）——**已落地**（runtime 队列 + session 句柄暴露 + CLI 输入区常驻/中断清空；TUI 集成测试覆盖验收场景） |
-| N2-3 | `App.tsx` 拆为 `theme/ terminal/ state/ transcript/ input/ dialogs/ status/`；`packages/ui` 立包（注入模式见下方注）；工具统一 `ToolEntry` 契约（schema+permission+resultBudget+timeout） | N2-1 | 新增文件立即受限（maxFileLines 500，oxlint `max-lines` 覆盖 `tui/**`；全仓启用随 N2-5 清零存量超限后）；Ink 与 DOM 组件均经 `useServices` 取服务，不直接 import runtime/core——**已落地**（App.tsx 2078→484 行；ToolEntry：`ToolDefinition` 扩展 permission/timeoutMs/resultBudget，档位裁决改声明驱动） |
-| N2-4 | 发行链：tar.gz + sha256 + `latest.json` + 安装脚本 | N1 | 干净机器从零安装后首个任务通过——**已落地**（tsup 单文件 bundle + yoga.wasm + rg 平台包随包；`pnpm release` 一键出产物；install.sh/install.ps1 双端安装器；干净目录解包 + 真实 LLM 首任务验收通过） |
-| N2-5 | 例外清零，门禁升 error（§6.2 B4）+ 例外登记制（对标 ZCode expired-exception） | N2-3 | `gates-exceptions.json` 每条例外带理由与到期日，过期即 CI fail；门禁成真门禁——**已落地**（规则4 升 error＝app 只准经 `src/index.ts` 公开入口 import 包，零警告；`max-lines: error 500` 全仓启用（loop.ts 581→495、composition.ts 553→495 拆分达标）；`gates:check` 挂 CI 校验过期与漂移，现存 no-console 白名单 5 条已入登记） |
+| N2-1 | `IPlatformService` + 依赖注入装配 | N1-2 | UI 不碰平台 API（§6 规则5 机器校验：装配点唯一 bootstrap.ts）——**✅ 已落地** |
+| N2-2 | `RuntimeCommandQueue`（priority now/next/later）+ 单 reservation；busy 时入队不抛错 | N1-2/N1-3 | 运行中提交 3 条输入按序执行（简化版，不抄 ZCode 500 行幂等网关；owner/lease 随 host 进程挪至 N3-1）——**✅ 已落地**（runtime 队列 + session 句柄暴露 + CLI 输入区常驻/中断清空；TUI 集成测试覆盖验收场景） |
+| N2-3 | `App.tsx` 拆为 `theme/ terminal/ state/ transcript/ input/ dialogs/ status/`；`packages/ui` 立包（注入模式见下方注）；工具统一 `ToolEntry` 契约（schema+permission+resultBudget+timeout） | N2-1 | 新增文件立即受限（maxFileLines 500，oxlint `max-lines` 覆盖 `tui/**`；全仓启用随 N2-5 清零存量超限后）；Ink 与 DOM 组件均经 `useServices` 取服务，不直接 import runtime/core——**✅ 已落地**（App.tsx 2078→484 行；ToolEntry：`ToolDefinition` 扩展 permission/timeoutMs/resultBudget，档位裁决改声明驱动） |
+| N2-4 | 发行链：tar.gz + sha256 + `latest.json` + 安装脚本 | N1 | 干净机器从零安装后首个任务通过——**✅ 已落地**（tsup 单文件 bundle + yoga.wasm + rg 平台包随包；`pnpm release` 一键出产物；install.sh/install.ps1 双端安装器；干净目录解包 + 真实 LLM 首任务验收通过） |
+| N2-5 | 例外清零，门禁升 error（§6.2 B4）+ 例外登记制（对标 ZCode expired-exception） | N2-3 | `gates-exceptions.json` 每条例外带理由与到期日，过期即 CI fail；门禁成真门禁——**✅ 已落地**（规则4 升 error＝app 只准经 `src/index.ts` 公开入口 import 包，零警告；`max-lines: error 500` 全仓启用（loop.ts 581→495、composition.ts 553→495 拆分达标）；`gates:check` 挂 CI 校验过期与漂移，现存 no-console 白名单 5 条已入登记） |
 
 > **N2-3 注入模式（对标 ZCode `useServices`/`IServiceAccessor`，先定后拆）**：`packages/ui` 分 DOM-free 内核与 DOM 组件两层——`services/`（`ServiceAccessor` 接口 + `ServicesProvider`/`useServices` React Context）与 `state/`（Zustand slice）不依赖 DOM，Ink（apps/cli）与 DOM（N3 web/desktop）两端同用；组件只经 accessor + store 取数，不直接 import runtime/core。宿主（CLI bootstrap / Web 入口）负责实现并注入 accessor。Ink 即 React，Context 在两端行为一致，无需两套注入。不定此层先拆包，拆出的组件仍是 cli 私有，立包白立。
 
@@ -401,11 +425,11 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 说明 |
 |---|---|---|---|
-| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 + lease 机制（自 N2-2 挪入：host 进程出现，防幽灵 run 才有舞台；设计注 A–D 见下方） | N1-2/N2-1 | kill -9 host 重启无幽灵 run 写回；Desktop 与 Web 共同前置——**已落地**（`apps/host` stdio 宿主：boot/server/session 三模块；`contracts/host-protocol.ts` 词汇表 + `host_lease` 事件；`runtime` HostClient 传输；4 个集成测试全绿：握手+事件流 / kill -9 lease+1 无幽灵 / 双活拒绝 / 断连 fail-closed） |
-| N3-2 | 凭证边界收敛到 host（§3.5；设计注 E 见下方） | N3-1 | 与 N3-1 同批；key 只在 host——**已落地**（`PlatformClientPort` 前端接口 + `platformClientAdapter` 本地适配器；Login 向导改走 `saveKey`；宿主协议新增 `platform/probe + platform/save_key` 方法） |
-| N3-3 | Web 客户端（React + Vite，复用 ui+design） | N3-1 | 远程访问：TLS 非可选 + 令牌默认生成 + 权限默认收紧——**已落地**（中继服务器 + Web 客户端；设计令牌对接 + 审批面板 + Markdown 渲染 + 流式文本 + 暗色自适应） |
+| N3-1 | `apps/host` + 子进程宿主 + stdio 协议 + lease 机制（自 N2-2 挪入：host 进程出现，防幽灵 run 才有舞台；设计注 A–D 见下方） | N1-2/N2-1 | kill -9 host 重启无幽灵 run 写回；Desktop 与 Web 共同前置——**✅ 已落地**（`apps/host` stdio 宿主：boot/server/session 三模块；`contracts/host-protocol.ts` 词汇表 + `host_lease` 事件；`runtime` HostClient 传输；4 个集成测试全绿：握手+事件流 / kill -9 lease+1 无幽灵 / 双活拒绝 / 断连 fail-closed） |
+| N3-2 | 凭证边界收敛到 host（§3.5；设计注 E 见下方） | N3-1 | 与 N3-1 同批；key 只在 host——**✅ 已落地**（`PlatformClientPort` 前端接口 + `platformClientAdapter` 本地适配器；Login 向导改走 `saveKey`；宿主协议新增 `platform/probe + platform/save_key` 方法） |
+| N3-3 | Web 客户端（React + Vite，复用 ui+design） | N3-1 | 远程访问：TLS 非可选 + 令牌默认生成 + 权限默认收紧——**✅ 已落地**（中继服务器 + Web 客户端；设计令牌对接 + 审批面板 + Markdown 渲染 + 流式文本 + 暗色自适应） |
 | N3-4 | Desktop（Electron，可替换；设计注 F 见下方） | N3-1 | 复用 ui + host 协议 |
-| N3-5 | 插件加载期 hash 校验 | 无 | 独立于商店；篡改拒绝加载——**已落地**（`verifyPluginSeed` 重算内容哈希与 seed 比对、seed 自身排除；`buildExtensionRoots` 校验失败拒绝装载并 onWarn，会话与 CLI 盘点同点收口；`plugin list` 显示 ⚠ 完整性校验失败） |
+| N3-5 | 插件加载期 hash 校验 | 无 | 独立于商店；篡改拒绝加载——**✅ 已落地**（`verifyPluginSeed` 重算内容哈希与 seed 比对、seed 自身排除；`buildExtensionRoots` 校验失败拒绝装载并 onWarn，会话与 CLI 盘点同点收口；`plugin list` 显示 ⚠ 完整性校验失败） |
 
 > **N3-1 注 A（排空权威在 host，N3 设计修订）**：N2-2 的排队/排空（reservation、drain 递归）在单进程下由 CLI App 驱动；进程边界后排空权威**移入 host**——host 收 `session/submit`（含 priority）后自行排队/预约/执行/取下一条，CLI/Web 只投递命令并收 `queue/change` 事件。前端侧以 **SessionProxy** 消费：与 `SessionHandle`/`CliServices` 同形的接口、方法转发 RPC（N2-3 注入缝的价值兑现——组件不改）。断连重连后队列状态不丢失（它在 host）。
 
@@ -425,9 +449,9 @@ export interface IPlatformService {
 
 | ID | 项 | 验收标准 |
 |---|---|---|
-| N3C-1 | headless flag 组（**已落地**）：`-p/--prompt`；`--mode`（四档，headless 语义=ask 即拒，走同一 applyMode 路径）；`--json`（NDJSON 复用 SessionEvent + jsonlLine，末行 CLI 级 result 记录）；`--cwd`（chdir 先于一切 IO）；`--attach`（v1=图片并入 `--image` 管线）；`--disallowed-tools`（组装期过滤全集含 MCP/task/plan_submit，子代理继承，未知名 fail-fast）；`-c` 别名；`--` 分隔。**行为变更**：未知 flag 从静默并入提问改为报错 | 无 TTY 下 `kcode -p "..." --json --mode plan` 全链路可跑且输出可 `jq` 解析；`--disallowed-tools "write edit"` 后该次会话无此二工具 |
-| N3C-2 | `doctor` 子命令（**已落地**）：Node≥22 / 配置与默认模型 / 钥匙串（DPAPI 或口令）/ 默认 key 探测（probe）/ rg 落点 / mcp.json 解析 / 会话目录可写 / 终端能力（⚠ 级） | 异常环境一命令定位；有 ✗ 退出码 1 |
-| N3C-3 | 管理类子命令（**已落地**：`skills list`、`commands list`、`plugins enable/disable` + list 显示 [已停用]；停用状态 `~/.kcode/cli/plugins/state.json` 原子写，`validate/update/marketplace` 后续） | 根构造提取为 `@kcode/extensions.buildExtensionRoots` 单一事实源，会话组装与 CLI 盘点同源 |
+| N3C-1 | headless flag 组（**✅ 已落地**）：`-p/--prompt`；`--mode`（四档，headless 语义=ask 即拒，走同一 applyMode 路径）；`--json`（NDJSON 复用 SessionEvent + jsonlLine，末行 CLI 级 result 记录）；`--cwd`（chdir 先于一切 IO）；`--attach`（v1=图片并入 `--image` 管线）；`--disallowed-tools`（组装期过滤全集含 MCP/task/plan_submit，子代理继承，未知名 fail-fast）；`-c` 别名；`--` 分隔。**行为变更**：未知 flag 从静默并入提问改为报错 | 无 TTY 下 `kcode -p "..." --json --mode plan` 全链路可跑且输出可 `jq` 解析；`--disallowed-tools "write edit"` 后该次会话无此二工具 |
+| N3C-2 | `doctor` 子命令（**✅ 已落地**）：Node≥22 / 配置与默认模型 / 钥匙串（DPAPI 或口令）/ 默认 key 探测（probe）/ rg 落点 / mcp.json 解析 / 会话目录可写 / 终端能力（⚠ 级） | 异常环境一命令定位；有 ✗ 退出码 1 |
+| N3C-3 | 管理类子命令（**✅ 已落地**：`skills list`、`commands list`、`plugins enable/disable` + list 显示 [已停用]；停用状态 `~/.kcode/cli/plugins/state.json` 原子写，`validate/update/marketplace` 后续） | 根构造提取为 `@kcode/extensions.buildExtensionRoots` 单一事实源，会话组装与 CLI 盘点同源 |
 | N3C-4 | TUI 交互补全（**①—⑦全部落地，本批收尾**）：① 状态栏常驻上下文余量/用量/git 分支；② 工具卡片逐块展开（Ctrl+B 覆盖层浏览器）；③ 后台任务面板（Ctrl+T，注册表会话级注入 + 1s 轮询 + 日志尾部）；④ Ctrl+G 外部编辑长输入（$EDITOR 回填，仅空闲；3-24 起从 Ctrl+E 迁移，Ctrl+E 让位行尾）；⑤ Ctrl+V 剪贴板贴图（Windows 经 WinForms 读位图落盘 PNG，v1 仅 Windows、其他平台提示走 --image；pendingImages 状态 + 指示器，空闲提交随行、排队不消费避免静默丢失，清空在 App 守卫之后防 exit 丢图）；⑥ Ctrl+R 历史搜索覆盖层（跨会话输入历史子串过滤、Enter 回填输入框）；⑦ 欢迎横幅键位发现性两行（全部快赢键位一览） | §9.2 对应行全部达标 |
 
 ### 8.4c 阶段 N3D：子代理异步化与消息互通（P1–P2，两期；对标 zcode 异步子代理体系）
@@ -438,8 +462,8 @@ export interface IPlatformService {
 
 | ID | 项 | 依赖 | 设计要点（zcode 机制 → kcode 落点） | 量级 |
 |---|---|---|---|---|
-| N3D-1 | 后台子代理 + 完成通知 + 子会话落盘 + ask_user 透传（**已落地**，含增补⑨并行组/⑩看门狗） | N3C-4③ | 验收：`task wait:"background"` 立即回执 → task_output 查活动/task_stop 终止 → 完成通知注入父上下文（防伪头 + 幂等 + Esc 连杀）；子会话落 `sessions/subagents/`；同批多 task fan-out 并发 | ✅ 测试锁定（subagent-background/executor-groups） |
-| N3D-2 | SendMessage 两态投递 + RespondToCoordinator + steer（**已落地**；设计修订：zcode 三态在 kcode 简化为两态——无"空闲存活"态，终态同 loop 新 run 即复活，优于 resumeFromStore） | N3D-1 + **前置：TurnPhase 显式化（已落地）** | **前置任务已落地**：`packages/core/turn-state.ts` 八态机（zcode 十态裁剪——kcode 无独立 AwaitingModelResponse/权限等待在 ExecutingTools 内）+ `TURN_TRANSITIONS` 合法迁移表 + `transition()` 唯一强制点（非法即抛）+ `finish()` 幂等归位；loop.ts 十处位点推进（输入/流式/调度/执行/聚合/错误/收尾），`onPhase` 观察缝（测试断言与未来 steer 判定）；consumeStream 抽出独立模块（行数治理，loop 477 行）。**steer 状态将独立成层**不塞进 phase（zcode 教训：drain 合法性独立判定不读 TurnPhase）。主体：① 收件人运行中 → steer 拼进当前请求 ② 收件人空闲 → 注册表 `pendingMessages` 排队冲刷 ③ 收件人终态 → 消息作为新 prompt 经 resume 复活（依赖 N3D-1 落盘 + 既有 `resolveResumeHistory`）④ RespondToCoordinator **无条件注入**子代理工具面、异步单向入队（子不等待回复）⑤ 入站消息统一 system-reminder 包装 + 防伪头；⑥ SendMessage 非阻塞、只回 queued/steered/resumed 三态回执 | 1.5–2.5 周 |
+| N3D-1 | 后台子代理 + 完成通知 + 子会话落盘 + ask_user 透传（**✅ 已落地**，含增补⑨并行组/⑩看门狗） | N3C-4③ | 验收：`task wait:"background"` 立即回执 → task_output 查活动/task_stop 终止 → 完成通知注入父上下文（防伪头 + 幂等 + Esc 连杀）；子会话落 `sessions/subagents/`；同批多 task fan-out 并发 | ✅ 测试锁定（subagent-background/executor-groups） |
+| N3D-2 | SendMessage 两态投递 + RespondToCoordinator + steer（**✅ 已落地**；设计修订：zcode 三态在 kcode 简化为两态——无"空闲存活"态，终态同 loop 新 run 即复活，优于 resumeFromStore） | N3D-1 + **前置：TurnPhase 显式化（已落地）** | **前置任务已落地**：`packages/core/turn-state.ts` 八态机（zcode 十态裁剪——kcode 无独立 AwaitingModelResponse/权限等待在 ExecutingTools 内）+ `TURN_TRANSITIONS` 合法迁移表 + `transition()` 唯一强制点（非法即抛）+ `finish()` 幂等归位；loop.ts 十处位点推进（输入/流式/调度/执行/聚合/错误/收尾），`onPhase` 观察缝（测试断言与未来 steer 判定）；consumeStream 抽出独立模块（行数治理，loop 477 行）。**steer 状态将独立成层**不塞进 phase（zcode 教训：drain 合法性独立判定不读 TurnPhase）。主体：① 收件人运行中 → steer 拼进当前请求 ② 收件人空闲 → 注册表 `pendingMessages` 排队冲刷 ③ 收件人终态 → 消息作为新 prompt 经 resume 复活（依赖 N3D-1 落盘 + 既有 `resolveResumeHistory`）④ RespondToCoordinator **无条件注入**子代理工具面、异步单向入队（子不等待回复）⑤ 入站消息统一 system-reminder 包装 + 防伪头；⑥ SendMessage 非阻塞、只回 queued/steered/resumed 三态回执 | 1.5–2.5 周 |
 
 **明确不抄**（zcode 为多端平台付的税，与"子代理最小集"原则一致）：profile 系统（351 行）、持久通知账本（kcode 的 JSONL append-only 本身就是账本）、`branchGeneration` 回退代际、闲时轮拒发、镜像 toolCallId 重写（v1 用 spawned/stopped 事件 + task_output 查详情替代）。
 
@@ -449,12 +473,12 @@ export interface IPlatformService {
 
 | ID | 项 | zcode 机制（file:line） | kcode 落点 | 量级 |
 |---|---|---|---|---|
-| N3E-1 | bash 三段预算输出（**已落地**：OutputCollector 内联 30k/全文落盘 artifacts/尾部 2k，内存硬顶 1M 保头尾诚实注记；与 loop 层 capToolResult 职责分离） | OutputCollector 三预算（bash 内联 30k 字节/落盘/4KB tail；on_truncate 激活时**回放已缓存内联块**保证落盘完整；`output-collector.ts:51-138`） | `bash.ts` 的 64k 一刀切改为：内联 30k 字符 + 溢出全文落 `<artifactsDir>/<callId>.log` + 尾部 2k 与 artifact 路径随结果返回；与 loop 层 `capToolResult` 职责分离（bash 层保全文不丢，loop 层管回灌预算） | 2 天 |
-| N3E-2 | cd 持久的项目边界（**已落地**：越界重置回会话目录并在输出中告知模型） | `decideBashCwdPolicy`：持久目录仅项目内保留，越界重置回 workspace root（`bash-cwd-policy.ts:36`） | `bash.ts` 的 `lastCwd` 加边界判定（必须在 ctx.cwd 子树内）——修复"cd 出项目后持久滞留" | 0.5 天 |
-| N3E-3 | 配置 Env/Project 覆盖层（**已落地**：用户级 providers 唯一 → Project 仅 default → Env 白名单 KCODE_DEFAULT_MODEL；项目 providers 投毒被忽略） | 五级优先级数值 + **一层浅 spread 非递归深合并** + Env 白名单逐项硬编码（`config-merger.ts:26`、`env-config.adapter.ts:14`） | 补 Env 白名单（KCODE_TIMEOUT_MS/KCODE_MAX_TOOL_CONCURRENCY/代理类）与 Project 层 `.kcode/config.json`（**仅非 provider 字段**：defaultModel 覆盖、features 开关）；providers 锁死用户级不动（kcode 比 zcode 更强的安全边界，不为对齐放弃）；CLI 层（--mode/--disallowed-tools）已有 | 2–3 天 |
-| N3E-4 | `kcode update` 自更新（**已落地**：latest.json URL/本地通道，size+sha256 校验，staging 原子换名，翻 current Junction；win32 显式 System32 bsdtar——GNU tar 把 C: 当远程主机） | zcode 实测**无 TUF**——catalog+semver+SHA-256/尺寸校验+part 临时文件原子落位+pending/current 指针（`releaseDownload.ts:137`），~1,300 行 | kcode 发行链（N2-4）已有 tar.gz+sha256+latest.json+releases+current 指针，只差消费方：`kcode update` 子命令复用安装器逻辑下载校验翻指针，~300 行；sha256+https 即 zcode 同级 | 2 天 |
-| N3E-5 | 凭证机器指纹回退（**已落地**：口令 > DPAPI > 指纹三级；原"禁止机器 ID 派生"原则修正为显式降级层+文档声明） | `ZCODE_CREDENTIAL_SECRET` 未设时回退指纹 `盐:platform:homedir:username`→sha256→AES-GCM（`credential-cipher.ts:87-101`） | 非 Windows 且未设口令时同款指纹回退（Windows 已有 DPAPI）；威胁模型写入 threat-model：指纹是"防误提交"级（同机可推导），非防本地恶意用户——与 zcode 同级诚实 | 1 天 |
-| N3E-6 | idle 微压缩（**已落地**：空闲超 60min 下一次输入先走 persistedCompact；阈值可注入测试） | 挂机 >60min 触发微压缩（zcode 后台定时） | kcode 单进程不必后台定时：**下一次用户输入时**检查距上次活动超 60min 即触发压缩——语义等价成本更低 | 0.5 天 |
+| N3E-1 | bash 三段预算输出（**✅ 已落地**：OutputCollector 内联 30k/全文落盘 artifacts/尾部 2k，内存硬顶 1M 保头尾诚实注记；与 loop 层 capToolResult 职责分离） | OutputCollector 三预算（bash 内联 30k 字节/落盘/4KB tail；on_truncate 激活时**回放已缓存内联块**保证落盘完整；`output-collector.ts:51-138`） | `bash.ts` 的 64k 一刀切改为：内联 30k 字符 + 溢出全文落 `<artifactsDir>/<callId>.log` + 尾部 2k 与 artifact 路径随结果返回；与 loop 层 `capToolResult` 职责分离（bash 层保全文不丢，loop 层管回灌预算） | 2 天 |
+| N3E-2 | cd 持久的项目边界（**✅ 已落地**：越界重置回会话目录并在输出中告知模型） | `decideBashCwdPolicy`：持久目录仅项目内保留，越界重置回 workspace root（`bash-cwd-policy.ts:36`） | `bash.ts` 的 `lastCwd` 加边界判定（必须在 ctx.cwd 子树内）——修复"cd 出项目后持久滞留" | 0.5 天 |
+| N3E-3 | 配置 Env/Project 覆盖层（**✅ 已落地**：用户级 providers 唯一 → Project 仅 default → Env 白名单 KCODE_DEFAULT_MODEL；项目 providers 投毒被忽略） | 五级优先级数值 + **一层浅 spread 非递归深合并** + Env 白名单逐项硬编码（`config-merger.ts:26`、`env-config.adapter.ts:14`） | 补 Env 白名单（KCODE_TIMEOUT_MS/KCODE_MAX_TOOL_CONCURRENCY/代理类）与 Project 层 `.kcode/config.json`（**仅非 provider 字段**：defaultModel 覆盖、features 开关）；providers 锁死用户级不动（kcode 比 zcode 更强的安全边界，不为对齐放弃）；CLI 层（--mode/--disallowed-tools）已有 | 2–3 天 |
+| N3E-4 | `kcode update` 自更新（**✅ 已落地**：latest.json URL/本地通道，size+sha256 校验，staging 原子换名，翻 current Junction；win32 显式 System32 bsdtar——GNU tar 把 C: 当远程主机） | zcode 实测**无 TUF**——catalog+semver+SHA-256/尺寸校验+part 临时文件原子落位+pending/current 指针（`releaseDownload.ts:137`），~1,300 行 | kcode 发行链（N2-4）已有 tar.gz+sha256+latest.json+releases+current 指针，只差消费方：`kcode update` 子命令复用安装器逻辑下载校验翻指针，~300 行；sha256+https 即 zcode 同级 | 2 天 |
+| N3E-5 | 凭证机器指纹回退（**✅ 已落地**：口令 > DPAPI > 指纹三级；原"禁止机器 ID 派生"原则修正为显式降级层+文档声明） | `ZCODE_CREDENTIAL_SECRET` 未设时回退指纹 `盐:platform:homedir:username`→sha256→AES-GCM（`credential-cipher.ts:87-101`） | 非 Windows 且未设口令时同款指纹回退（Windows 已有 DPAPI）；威胁模型写入 threat-model：指纹是"防误提交"级（同机可推导），非防本地恶意用户——与 zcode 同级诚实 | 1 天 |
+| N3E-6 | idle 微压缩（**✅ 已落地**：空闲超 60min 下一次输入先走 persistedCompact；阈值可注入测试） | 挂机 >60min 触发微压缩（zcode 后台定时） | kcode 单进程不必后台定时：**下一次用户输入时**检查距上次活动超 60min 即触发压缩——语义等价成本更低 | 0.5 天 |
 
 ### 8.4e 阶段 N3F/G/H：CLI 体验三期（2026-09-29 对标审计产出；zcode 引用指向本地克隆，CC=Claude Code / OC=opencode 按公开行为对标）
 
@@ -464,24 +488,24 @@ export interface IPlatformService {
 
 | ID | 项 | 设计要点（机制 → 落点 → 对标 → 取舍） | 量级 |
 |---|---|---|---|
-| N3F-1 | OSC 8 可点击链接（**一期只做结构化链接**——复审修订；**已落地**：`tui/terminal/links.ts` + truncateVisual 链接感知） | 机制：`\x1b]8;;file:///<abs>#L<line>\x1b\\<label>\x1b]8;;\x1b\\` 零宽序列包裹。**一期只覆盖结构性位置**（路径是已知值零误报）：工具 argsPreview、bash 三段预算 artifact 路径、task_output 日志路径、检查点/子代理会话路径——CC/OC 的链接同样来自结构位而非文本扫描。二期（可选）才扩展 assistant 正文，且**仅限 Markdown code span 内**（markdownToLines 已产出 span 边界，检测面缩 95%；全文正则扫路径的误报——版本号/URL/盘符——是 CC/OC 都不走的死路）。**两个坑**：① `truncateVisual` 可能切掉 OSC8 闭合序列造成悬空链接——截断必须链接感知（先截 label 再包序列）；② Ink 宽度计量 POC 先行（宽度回归测试再铺开）。**支持面诚实化**：`file://` 点了开编辑器仅 VS Code 集成终端成立（iTerm2/WezTerm 走系统默认应用），独立 WT 会丢给浏览器——默认仅 `TERM_PROGRAM=vscode` 等已知良好终端发射，其余 `KCODE_LINKS=1` 手动开 | 1 天（含 POC） |
-| N3F-2 | 终端标题栏进度（**已落地**：`tui/terminal/title.ts`，KCODE_TITLE=0 门） | 机制：OSC 0 `\x1b]0;kcode ⏳ <activity>\x07`；busy 或 activityLabel 变化时写，空闲/卸载复位为 `kcode`。落点：新建 `tui/terminal/title.ts`（写序列 + isTTY 门 + KCODE_TITLE=0 门），App 挂一行 effect（逻辑全在模块——App 行数红线）。对标：CC 同款。取舍：终端不自动还原标题，卸载时复位常量即可 | 0.5 天 |
-| N3F-3 | 任务完成 bell（**已落地**：`tui/terminal/notify.ts`，KCODE_BELL=0 门；后台完成同触发、respond 中间消息不响） | 机制：busy 下降沿且本轮耗时 >10s → 写 `\a` 一次；后台完成通知同触发。落点：`tui/terminal/notify.ts`（bell + 耗时判定 + KCODE_BELL=0 门）。对标：CC hooks 通知/bell 同语义。取舍：不做系统级通知（OS 通知属 N4 桌面） | 0.5 天 |
-| N3F-4 | respond 通知显示瑕疵修复（**已落地**：载荷统一防伪头，常量移 agent-messaging 防循环引用） | 机制：`buildRespondToCoordinatorTool` 的 notify 载荷统一加 `SUBAGENT_NOTIFICATION_HEADER` 前缀（与完成通知同头）→ TUI 既有 📩 分支直接命中，XML 载荷随头之后。对标：zcode 入站消息统一防伪头（`incoming-message.ts:9`）。取舍：改载荷而非改 TUI 分支——单一事实源 | 10 分钟 |
-| N3F-5 | `--model <provider/model>` 旗标（**已落地**：第四层覆盖，contracts isModelRef 同源校验+provider fail-fast） | 机制：args.ts 增旗标；main.tsx 覆盖 `modelRef`（contracts modelRef 格式校验 + provider 存在性检查，未知 provider fail-fast 列可用清单）；TUI 与 headless 同一生效点。对标：CC `--model`。取舍：不另建配置层——这是 N3E-3 三层之上的第四层（CLI 覆盖，优先级最高），与 zcode `ConfigScope.Cli=50` 同位 | 0.5 天 |
-| N3F-6 | `kcode mcp` 子命令（**已落地**：`mcp-cmd.ts` list/add/remove/test，tmp+rename 原子写，损坏文件拒覆盖） | 机制：`list`（名称/transport）/ `add <name> -- <stdio 命令>` 或 `add <name> <url> --transport http` / `remove <name>` / `test <name>`（单服务器连接探针，复用 `connectMcpServers` + 10s 超时）。落点：新 `apps/cli/src/mcp-cmd.ts`（镜像 doctor.ts 的 print/exit 约定）；写 `~/.kcode/mcp.json` 前 zod 校验 + tmp/rename 原子写。对标：CC `claude mcp add/list/remove`。取舍：不做 add-json（手改文件仍是逃生门）。**复审注**：项目级 MCP 配置（zcode 五级含 mcp.servers、CC --scope project）是已知缺口——但项目 mcp.json 能注入"启动即执行"的 stdio 命令，**实作前提是 /trust 门控**（同 hooks 项目级），排 N3H 之后 | 1.5–2 天 |
-| N3F-7 | headless 流式文本（**已落地**：DeltaWriter 64B/50ms 微缓冲，流式收尾不重复摘要） | 机制：`-p` 非 `--json` 时 onDelta 直写 stdout，50ms/64 字符合帧（防逐 token 系统调用抖动）；流式模式末尾换行收尾不重复摘要。落点：headless.ts 增 onDelta 通道 + 微缓冲。对标：CC `--print` 流式 | 1 天 |
+| N3F-1 | OSC 8 可点击链接（**一期只做结构化链接**——复审修订；**✅ 已落地**：`tui/terminal/links.ts` + truncateVisual 链接感知） | 机制：`\x1b]8;;file:///<abs>#L<line>\x1b\\<label>\x1b]8;;\x1b\\` 零宽序列包裹。**一期只覆盖结构性位置**（路径是已知值零误报）：工具 argsPreview、bash 三段预算 artifact 路径、task_output 日志路径、检查点/子代理会话路径——CC/OC 的链接同样来自结构位而非文本扫描。二期（可选）才扩展 assistant 正文，且**仅限 Markdown code span 内**（markdownToLines 已产出 span 边界，检测面缩 95%；全文正则扫路径的误报——版本号/URL/盘符——是 CC/OC 都不走的死路）。**两个坑**：① `truncateVisual` 可能切掉 OSC8 闭合序列造成悬空链接——截断必须链接感知（先截 label 再包序列）；② Ink 宽度计量 POC 先行（宽度回归测试再铺开）。**支持面诚实化**：`file://` 点了开编辑器仅 VS Code 集成终端成立（iTerm2/WezTerm 走系统默认应用），独立 WT 会丢给浏览器——默认仅 `TERM_PROGRAM=vscode` 等已知良好终端发射，其余 `KCODE_LINKS=1` 手动开 | 1 天（含 POC） |
+| N3F-2 | 终端标题栏进度（**✅ 已落地**：`tui/terminal/title.ts`，KCODE_TITLE=0 门） | 机制：OSC 0 `\x1b]0;kcode ⏳ <activity>\x07`；busy 或 activityLabel 变化时写，空闲/卸载复位为 `kcode`。落点：新建 `tui/terminal/title.ts`（写序列 + isTTY 门 + KCODE_TITLE=0 门），App 挂一行 effect（逻辑全在模块——App 行数红线）。对标：CC 同款。取舍：终端不自动还原标题，卸载时复位常量即可 | 0.5 天 |
+| N3F-3 | 任务完成 bell（**✅ 已落地**：`tui/terminal/notify.ts`，KCODE_BELL=0 门；后台完成同触发、respond 中间消息不响） | 机制：busy 下降沿且本轮耗时 >10s → 写 `\a` 一次；后台完成通知同触发。落点：`tui/terminal/notify.ts`（bell + 耗时判定 + KCODE_BELL=0 门）。对标：CC hooks 通知/bell 同语义。取舍：不做系统级通知（OS 通知属 N4 桌面） | 0.5 天 |
+| N3F-4 | respond 通知显示瑕疵修复（**✅ 已落地**：载荷统一防伪头，常量移 agent-messaging 防循环引用） | 机制：`buildRespondToCoordinatorTool` 的 notify 载荷统一加 `SUBAGENT_NOTIFICATION_HEADER` 前缀（与完成通知同头）→ TUI 既有 📩 分支直接命中，XML 载荷随头之后。对标：zcode 入站消息统一防伪头（`incoming-message.ts:9`）。取舍：改载荷而非改 TUI 分支——单一事实源 | 10 分钟 |
+| N3F-5 | `--model <provider/model>` 旗标（**✅ 已落地**：第四层覆盖，contracts isModelRef 同源校验+provider fail-fast） | 机制：args.ts 增旗标；main.tsx 覆盖 `modelRef`（contracts modelRef 格式校验 + provider 存在性检查，未知 provider fail-fast 列可用清单）；TUI 与 headless 同一生效点。对标：CC `--model`。取舍：不另建配置层——这是 N3E-3 三层之上的第四层（CLI 覆盖，优先级最高），与 zcode `ConfigScope.Cli=50` 同位 | 0.5 天 |
+| N3F-6 | `kcode mcp` 子命令（**✅ 已落地**：`mcp-cmd.ts` list/add/remove/test，tmp+rename 原子写，损坏文件拒覆盖） | 机制：`list`（名称/transport）/ `add <name> -- <stdio 命令>` 或 `add <name> <url> --transport http` / `remove <name>` / `test <name>`（单服务器连接探针，复用 `connectMcpServers` + 10s 超时）。落点：新 `apps/cli/src/mcp-cmd.ts`（镜像 doctor.ts 的 print/exit 约定）；写 `~/.kcode/mcp.json` 前 zod 校验 + tmp/rename 原子写。对标：CC `claude mcp add/list/remove`。取舍：不做 add-json（手改文件仍是逃生门）。**复审注**：项目级 MCP 配置（zcode 五级含 mcp.servers、CC --scope project）是已知缺口——但项目 mcp.json 能注入"启动即执行"的 stdio 命令，**实作前提是 /trust 门控**（同 hooks 项目级），排 N3H 之后 | 1.5–2 天 |
+| N3F-7 | headless 流式文本（**✅ 已落地**：DeltaWriter 64B/50ms 微缓冲，流式收尾不重复摘要） | 机制：`-p` 非 `--json` 时 onDelta 直写 stdout，50ms/64 字符合帧（防逐 token 系统调用抖动）；流式模式末尾换行收尾不重复摘要。落点：headless.ts 增 onDelta 通道 + 微缓冲。对标：CC `--print` 流式 | 1 天 |
 
-| N3F-8 | 搜索后端可配置（**已落地**：KCODE_SEARCH=duckduckgo|searxng|none + KCODE_SEARXNG_URL；none 不注册工具） | 机制：web_search 现硬编码 DDG HTML 抓取；Env 白名单加 `KCODE_SEARCH`（duckduckgo|searxng|none）+ searxng 实例 URL 参数。对标：CC 服务端搜索（kcode 保持本地免 key 优先）。取舍：不做 API-key 搜索引擎（需要者可自配 MCP） | 0.5 天 |
+| N3F-8 | 搜索后端可配置（**✅ 已落地**：KCODE_SEARCH=duckduckgo|searxng|none + KCODE_SEARXNG_URL；none 不注册工具） | 机制：web_search 现硬编码 DDG HTML 抓取；Env 白名单加 `KCODE_SEARCH`（duckduckgo|searxng|none）+ searxng 实例 URL 参数。对标：CC 服务端搜索（kcode 保持本地免 key 优先）。取舍：不做 API-key 搜索引擎（需要者可自配 MCP） | 0.5 天 |
 
 **N3G 输入补全批（Tab 补全单独立批——要动 InputBox 补全状态机，值得专注）**
 
 | ID | 项 | 设计要点 | 量级 |
 |---|---|---|---|
-| N3G-1 | Tab 路径/命令参数补全（**已落地**：Tab 三态判定 + completePath 泛化；@ 优先；参数提示展示不插入） | 机制：按光标左侧 token 三态判定——① 路径形态（含 /或\ 或 `./`）→ 路径补全菜单：`file-complete.ts` 泛化为 `complete(prefix, cwd)`（去 @ 前缀强绑定，评分排序复用）；② 斜杠命令参数位 → 提示菜单：`CommandInfo` 增 `argsHint?: string`（内置命令逐个补文案；自定义命令显示 $ARGUMENTS 模板说明），展示不插入；③ 菜单内 Tab=选中（既有）。落点：InputBox 按键分支 + file-complete 泛化 + builtin-commands 加字段。对标：CC Tab 全场景 / OC dialog 内 Tab。取舍：只补**项目内相对路径**（绝对路径场景少风险高）；与 @ 补全共存（@ 优先） | 2–3 天 |
-| N3G-2 | 输入 undo/redo（**已落地**：UndoStack 双栈 100ms 合并 + 边界事件；Ctrl+Z/Y；上限 50 不持久化） | 机制：InputBox 本地双栈；入栈点合并（100ms 窗口或边界事件：提交/粘贴/清空）；Ctrl+Z / Ctrl+Y 与 Ctrl+Shift+Z；IME 组合中不入栈。对标：OC（ctrl+z/super+z）。取舍：历史上限 50，不持久化 | 1 天 |
-| N3G-3 | `#` 快捷追加记忆（**已落地**：InputArea 包装层拦截 + tui/memory.ts；不进模型不进历史） | 机制：InputArea 的 onSubmit 包装层拦截首字符 `#` → `tui/memory.ts` 追加 `cwd/AGENTS.md`（空行分隔）+ 📝 通知，不进模型不进历史。对标：CC `#`。取舍：项目级 AGENTS.md（与记忆加载同源）；不经 App（行数红线），模块自治 | 0.5 天 |
-| N3G-4 | 空态建议提示词（**数字快捷填入**——复审补强；**已落地**：①②③ 建议空态渲染 + 数字键填入 + ghost 一行） | 机制：转写仅横幅时渲染 3 条建议，前缀 ①②③——**输入为空时按数字键直接填入输入框**（终端原生替代 CC 的可点击建议，成本不变价值翻倍；InputBox 空值分支加三键判定）；输入框空时 ghost 提示 1 条（dim 前缀，输入即让位）。对标：CC 欢迎页可点建议 / OC ghost text。取舍：ghost 只展示不预填 | 1 天 |
+| N3G-1 | Tab 路径/命令参数补全（**✅ 已落地**：Tab 三态判定 + completePath 泛化；@ 优先；参数提示展示不插入） | 机制：按光标左侧 token 三态判定——① 路径形态（含 /或\ 或 `./`）→ 路径补全菜单：`file-complete.ts` 泛化为 `complete(prefix, cwd)`（去 @ 前缀强绑定，评分排序复用）；② 斜杠命令参数位 → 提示菜单：`CommandInfo` 增 `argsHint?: string`（内置命令逐个补文案；自定义命令显示 $ARGUMENTS 模板说明），展示不插入；③ 菜单内 Tab=选中（既有）。落点：InputBox 按键分支 + file-complete 泛化 + builtin-commands 加字段。对标：CC Tab 全场景 / OC dialog 内 Tab。取舍：只补**项目内相对路径**（绝对路径场景少风险高）；与 @ 补全共存（@ 优先） | 2–3 天 |
+| N3G-2 | 输入 undo/redo（**✅ 已落地**：UndoStack 双栈 100ms 合并 + 边界事件；Ctrl+Z/Y；上限 50 不持久化） | 机制：InputBox 本地双栈；入栈点合并（100ms 窗口或边界事件：提交/粘贴/清空）；Ctrl+Z / Ctrl+Y 与 Ctrl+Shift+Z；IME 组合中不入栈。对标：OC（ctrl+z/super+z）。取舍：历史上限 50，不持久化 | 1 天 |
+| N3G-3 | `#` 快捷追加记忆（**✅ 已落地**：InputArea 包装层拦截 + tui/memory.ts；不进模型不进历史） | 机制：InputArea 的 onSubmit 包装层拦截首字符 `#` → `tui/memory.ts` 追加 `cwd/AGENTS.md`（空行分隔）+ 📝 通知，不进模型不进历史。对标：CC `#`。取舍：项目级 AGENTS.md（与记忆加载同源）；不经 App（行数红线），模块自治 | 0.5 天 |
+| N3G-4 | 空态建议提示词（**数字快捷填入**——复审补强；**✅ 已落地**：①②③ 建议空态渲染 + 数字键填入 + ghost 一行） | 机制：转写仅横幅时渲染 3 条建议，前缀 ①②③——**输入为空时按数字键直接填入输入框**（终端原生替代 CC 的可点击建议，成本不变价值翻倍；InputBox 空值分支加三键判定）；输入框空时 ghost 提示 1 条（dim 前缀，输入即让位）。对标：CC 欢迎页可点建议 / OC ghost text。取舍：ghost 只展示不预填 | 1 天 |
 
 **N3H 深度交互批（N3-4 Desktop 之后）**
 
@@ -504,29 +528,29 @@ export interface IPlatformService {
 
 | ID | 项 | 设计要点（机制 → 落点 → zcode 参照 → 取舍） | 量级 |
 |---|---|---|---|
-| N3I-1 | write/edit 原子写（**已落地**：`packages/tools/src/tools/atomic-write.ts`——落点微调：与 paths.ts 同层的公共件目录即 tools/ 根，不另建 util/） | 机制：tmp+rename 原子替换——同目录临时文件写入、继承原文件 mode、rename 替换、失败清理临时文件并降级直写。落点：新 `packages/tools/src/util/atomic-write.ts`（write.ts/edit.ts 共用；`apps/cli/src/mcp-cmd.ts` 的 tmp/rename 是同款雏形，上移为工具层公共件）。zcode 参照：`adapters/src/fs/index.ts:700-755`（atomicWrite：lstat 拒穿符号链接 + O_EXCL|O_NOFOLLOW + fsync + chmod 继承 + rename，737-754 失败降级直写；edit/write 均 atomic:true 默认）。取舍：不做 expectedRevision 乐观并发（zcode `mtime:size` revision 防丢更新——kcode 单会话单写者场景收益小，观察后排）；fsync 保留（断电语义） | 0.5 天 |
-| N3I-2 | 技能描述对模型可见（**已落地**：formatSkillCatalog 纯函数 + 工具描述逐行清单） | 机制：skill 工具描述从纯名字清单改为 `name（description 截断 80 字符）` 逐行；总预算 2K 字符，超限降级仅名字（预算分级防技能膨胀撑爆工具描述）。落点：`packages/session/src/skill-tool.ts` description 构造（metadata 已含 description，只是没进描述）。zcode 参照：`core/src/context/sections/skills.ts:17-79`（`- name: description - whenToUse` 注入 meta-user reminder，250 字符/条、20K 总预算、超限降级名字-only——分级预算思路照搬；注入位不同：zcode 走 meta-user 附件层，kcode 工具描述即常驻清单，少引一个概念）。取舍：whenToUse 不做（kcode 技能 frontmatter 无此字段） | 2 小时 |
-| N3I-3 | /model 菜单窗口注记（**已落地**：modelWindowNote 纯函数 + 菜单项后缀） | 机制：菜单项 `id · 200k`，窗口取 `core/context/budget.ts` 内置表；表外模型标 `· ?`（不猜——与 /context 的 windowKnown 注记同源诚实化）。落点：commands.ts /model 菜单构造 + session.availableModels 回传窗口（provider listModels 无窗口字段，仅表命中者标注）。zcode 参照：zcode 菜单刻意极简不显示窗口（`tui/src/app-model-suggestion-panel.tsx:176-184` 仅 label+current+provider；contextWindow 字段在 `zcode-protocol/index.ts:797-810` schema 里但不进菜单）——kcode 反向取舍：窗口直接决定压缩阈值与价位感知，BYOK 多厂商切换是关键决策信息，值得占一列 | 0.5 天 |
-| N3I-4 | 命令面收敛（hidden 机制）（**已落地**：/plan、/sessions 静态隐藏别名；/trust 已信任后经 lifecycle 动态过滤——isProjectTrusted 经 extensions→session→SessionHandle 三层透传） | 机制：`CommandInfo` 增 `hidden?: true`——菜单/补全不列，输入仍识别执行（隐藏别名）。三个应用：`/plan`（= /mode plan，菜单去重）、`/trust`（已信任项目隐藏）、`/sessions`（并入 /resume 菜单，菜单去重）。落点：builtin-commands.ts 字段 + InputBox 菜单 filter + commands.ts（/resume 无参已开菜单吸收列表形态）。zcode 参照：zcode 20 个内置命令无一隐藏（`shared/src/zcode-slash-command-help.ts:9-200`），无此机制——kcode 主动收敛（19 入口 → 16，菜单扫描成本下降）。取舍：/cost、/context 与 /status 信息重叠在可接受域，**不动** | 0.5–1 天 |
+| N3I-1 | write/edit 原子写（**✅ 已落地**：`packages/tools/src/tools/atomic-write.ts`——落点微调：与 paths.ts 同层的公共件目录即 tools/ 根，不另建 util/） | 机制：tmp+rename 原子替换——同目录临时文件写入、继承原文件 mode、rename 替换、失败清理临时文件并降级直写。落点：新 `packages/tools/src/util/atomic-write.ts`（write.ts/edit.ts 共用；`apps/cli/src/mcp-cmd.ts` 的 tmp/rename 是同款雏形，上移为工具层公共件）。zcode 参照：`adapters/src/fs/index.ts:700-755`（atomicWrite：lstat 拒穿符号链接 + O_EXCL|O_NOFOLLOW + fsync + chmod 继承 + rename，737-754 失败降级直写；edit/write 均 atomic:true 默认）。取舍：不做 expectedRevision 乐观并发（zcode `mtime:size` revision 防丢更新——kcode 单会话单写者场景收益小，观察后排）；fsync 保留（断电语义） | 0.5 天 |
+| N3I-2 | 技能描述对模型可见（**✅ 已落地**：formatSkillCatalog 纯函数 + 工具描述逐行清单） | 机制：skill 工具描述从纯名字清单改为 `name（description 截断 80 字符）` 逐行；总预算 2K 字符，超限降级仅名字（预算分级防技能膨胀撑爆工具描述）。落点：`packages/session/src/skill-tool.ts` description 构造（metadata 已含 description，只是没进描述）。zcode 参照：`core/src/context/sections/skills.ts:17-79`（`- name: description - whenToUse` 注入 meta-user reminder，250 字符/条、20K 总预算、超限降级名字-only——分级预算思路照搬；注入位不同：zcode 走 meta-user 附件层，kcode 工具描述即常驻清单，少引一个概念）。取舍：whenToUse 不做（kcode 技能 frontmatter 无此字段） | 2 小时 |
+| N3I-3 | /model 菜单窗口注记（**✅ 已落地**：modelWindowNote 纯函数 + 菜单项后缀） | 机制：菜单项 `id · 200k`，窗口取 `core/context/budget.ts` 内置表；表外模型标 `· ?`（不猜——与 /context 的 windowKnown 注记同源诚实化）。落点：commands.ts /model 菜单构造 + session.availableModels 回传窗口（provider listModels 无窗口字段，仅表命中者标注）。zcode 参照：zcode 菜单刻意极简不显示窗口（`tui/src/app-model-suggestion-panel.tsx:176-184` 仅 label+current+provider；contextWindow 字段在 `zcode-protocol/index.ts:797-810` schema 里但不进菜单）——kcode 反向取舍：窗口直接决定压缩阈值与价位感知，BYOK 多厂商切换是关键决策信息，值得占一列 | 0.5 天 |
+| N3I-4 | 命令面收敛（hidden 机制）（**✅ 已落地**：/plan、/sessions 静态隐藏别名；/trust 已信任后经 lifecycle 动态过滤——isProjectTrusted 经 extensions→session→SessionHandle 三层透传） | 机制：`CommandInfo` 增 `hidden?: true`——菜单/补全不列，输入仍识别执行（隐藏别名）。三个应用：`/plan`（= /mode plan，菜单去重）、`/trust`（已信任项目隐藏）、`/sessions`（并入 /resume 菜单，菜单去重）。落点：builtin-commands.ts 字段 + InputBox 菜单 filter + commands.ts（/resume 无参已开菜单吸收列表形态）。zcode 参照：zcode 20 个内置命令无一隐藏（`shared/src/zcode-slash-command-help.ts:9-200`），无此机制——kcode 主动收敛（19 入口 → 16，菜单扫描成本下降）。取舍：/cost、/context 与 /status 信息重叠在可接受域，**不动** | 0.5–1 天 |
 
 **II 权限结构（本批最值单项）**
 
 | ID | 项 | 设计要点 | 量级 |
 |---|---|---|---|
-| N3I-5 | 持久放行参数级粒度 v2（**已落地**；三处实施修订——① 存储形态弃"tool:content 模式串"改 JSON 对象条目 `{tool, content?}`：工具名模式可含冒号（plugin:…）、Windows 路径含盘符冒号，单字符分隔符先天歧义，v1 字符串条目兼容读取=整工具；② AskPanel 不加第五选项：既有「本项目」档自动升级参数级并在选项文案内联展示将保存的规则（`允许此类，本项目不再询问 · bash:npm install:*`，zcode 单键体验 + 范围可见）；③ wrapper 取舍修订：sudo/env/nohup/time 不剥壳而直接列入危险根——剥壳后建议的前缀与保留 sudo 的原始命令串永不匹配（规则无效），列危险根后 `sudo npm install` 只给整串精确） | 机制：模式串 `tool` 或 `tool:content`——content 三档匹配：`前缀:*`（词边界前缀：等于前缀或以 `前缀+空格` 开头）/ 含 `*` 通配（转正则全锚定）/ 整串精确。bash 的 content=命令串；复合命令（&&/;/|）判定：统一前缀才建议前缀规则，否则建议整串精确。ask 面板增第四选项「放行此类命令（本项目）」（仅 bash/edit/write；edit/write content=文件路径前缀）。落点：`packages/extensions/src/permissions/store.ts` patterns 升级为模式串（v1 工具名串读取兼容）+ `engine.ts` matchTool 扩展 + `session/composition.ts` ask 应答 + AskPanel 选项。zcode 参照：`contracts/src/interfaces/permission.port.ts:19-31`（{toolName, ruleContent?} 双字段）+ `core/src/permission/service.ts:307-320`（三档匹配引擎）+ `core/src/tool/handlers/bash-command-rule-evaluator.ts:13-50`（复合命令 allow=每个非只读 invocation 均被覆盖 every/some 语义）。取舍：**不移植 shell AST 解析与 BASH_COMMAND_REGISTRY**（zcode generated 注册表+解析器数千行）——kcode 朴素空格分词 + 首 1-2 token 前缀建议，解析可疑（含 $/引号嵌套/续行）只给整串精确选项；高危根命令（rm/sudo/chmod/del/format）不生成前缀规则（zcode `bash-command-permission-policy.ts:19-36` 同款黑名单，只给精确或拒绝） | 2–3 天 |
+| N3I-5 | 持久放行参数级粒度 v2（**✅ 已落地**；三处实施修订——① 存储形态弃"tool:content 模式串"改 JSON 对象条目 `{tool, content?}`：工具名模式可含冒号（plugin:…）、Windows 路径含盘符冒号，单字符分隔符先天歧义，v1 字符串条目兼容读取=整工具；② AskPanel 不加第五选项：既有「本项目」档自动升级参数级并在选项文案内联展示将保存的规则（`允许此类，本项目不再询问 · bash:npm install:*`，zcode 单键体验 + 范围可见）；③ wrapper 取舍修订：sudo/env/nohup/time 不剥壳而直接列入危险根——剥壳后建议的前缀与保留 sudo 的原始命令串永不匹配（规则无效），列危险根后 `sudo npm install` 只给整串精确） | 机制：模式串 `tool` 或 `tool:content`——content 三档匹配：`前缀:*`（词边界前缀：等于前缀或以 `前缀+空格` 开头）/ 含 `*` 通配（转正则全锚定）/ 整串精确。bash 的 content=命令串；复合命令（&&/;/|）判定：统一前缀才建议前缀规则，否则建议整串精确。ask 面板增第四选项「放行此类命令（本项目）」（仅 bash/edit/write；edit/write content=文件路径前缀）。落点：`packages/extensions/src/permissions/store.ts` patterns 升级为模式串（v1 工具名串读取兼容）+ `engine.ts` matchTool 扩展 + `session/composition.ts` ask 应答 + AskPanel 选项。zcode 参照：`contracts/src/interfaces/permission.port.ts:19-31`（{toolName, ruleContent?} 双字段）+ `core/src/permission/service.ts:307-320`（三档匹配引擎）+ `core/src/tool/handlers/bash-command-rule-evaluator.ts:13-50`（复合命令 allow=每个非只读 invocation 均被覆盖 every/some 语义）。取舍：**不移植 shell AST 解析与 BASH_COMMAND_REGISTRY**（zcode generated 注册表+解析器数千行）——kcode 朴素空格分词 + 首 1-2 token 前缀建议，解析可疑（含 $/引号嵌套/续行）只给整串精确选项；高危根命令（rm/sudo/chmod/del/format）不生成前缀规则（zcode `bash-command-permission-policy.ts:19-36` 同款黑名单，只给精确或拒绝） | 2–3 天 |
 
 **III 信息通道**
 
 | ID | 项 | 设计要点 | 量级 |
 |---|---|---|---|
-| N3I-6 | /export 会话导出（**已落地**：`tui/export.ts` 纯函数 blocksToMarkdown + 原子写落盘——复用 N3I-1 公共件） | 机制：`/export [path]`——会话 JSONL 事件流格式化 Markdown（`## 🧑 用户`/`## 🤖 助手`，工具调用折叠 `> 🔧 bash`+结果截断 200 字，info 块原样）；缺省 `./kcode-session-<id8>.md`。落点：新 `apps/cli/src/tui/export.ts`（纯函数 blocks→md 可单测）+ commands.ts 注册。zcode 参照：**zcode 无导出**（20 命令无 export/share，会话存 SQLite 非用户可读——`adapters/src/storage/session-store.ts`）——净新增无对标包袱；kcode JSONL 全文在盘反而占优 | 1 天 |
-| N3I-7 | /mcp 操作指引与工具清单（**已落地**：/mcp 状态尾增删指引行 + `/mcp tools <名称>` 列已连接服务器工具名（composition mcpToolNames 透传）；残留项 /hooks 查看一并落地——SourcedHookConfig 来源标（loader 加 source: user|project）+ session hooksInfo + `/hooks` 命令列用户/项目/事件/命令/fail-closed 与配置路径） | 机制：/mcp 状态尾加指引行（`增删：kcode mcp add/remove（退出后终端执行）`）+ 新 `/mcp tools <name>` 列单个已连接服务器的工具名清单。落点：commands.ts /mcp 分支 + session mcp 句柄扩展。zcode 参照：zcode /mcp 支持 list/connect/disconnect（`cli/src/command-center/handlers/mcp.ts:7-83`）但同样不 add/remove——共识：TUI 内做配置写入交互成本高；kcode 先指引+工具清单，connect/disconnect 观察 hooks 二期后再排 | 0.5 天 |
+| N3I-6 | /export 会话导出（**✅ 已落地**：`tui/export.ts` 纯函数 blocksToMarkdown + 原子写落盘——复用 N3I-1 公共件） | 机制：`/export [path]`——会话 JSONL 事件流格式化 Markdown（`## 🧑 用户`/`## 🤖 助手`，工具调用折叠 `> 🔧 bash`+结果截断 200 字，info 块原样）；缺省 `./kcode-session-<id8>.md`。落点：新 `apps/cli/src/tui/export.ts`（纯函数 blocks→md 可单测）+ commands.ts 注册。zcode 参照：**zcode 无导出**（20 命令无 export/share，会话存 SQLite 非用户可读——`adapters/src/storage/session-store.ts`）——净新增无对标包袱；kcode JSONL 全文在盘反而占优 | 1 天 |
+| N3I-7 | /mcp 操作指引与工具清单（**✅ 已落地**：/mcp 状态尾增删指引行 + `/mcp tools <名称>` 列已连接服务器工具名（composition mcpToolNames 透传）；残留项 /hooks 查看一并落地——SourcedHookConfig 来源标（loader 加 source: user|project）+ session hooksInfo + `/hooks` 命令列用户/项目/事件/命令/fail-closed 与配置路径） | 机制：/mcp 状态尾加指引行（`增删：kcode mcp add/remove（退出后终端执行）`）+ 新 `/mcp tools <name>` 列单个已连接服务器的工具名清单。落点：commands.ts /mcp 分支 + session mcp 句柄扩展。zcode 参照：zcode /mcp 支持 list/connect/disconnect（`cli/src/command-center/handlers/mcp.ts:7-83`）但同样不 add/remove——共识：TUI 内做配置写入交互成本高；kcode 先指引+工具清单，connect/disconnect 观察 hooks 二期后再排 | 0.5 天 |
 
 **IV 护栏与平台能力**
 
 | ID | 项 | 设计要点 | 量级 |
 |---|---|---|---|
-| N3I-8 | 会话 token 预算护栏（**已落地**；三处实施修订——① 项目层不开放预算：防投毒层只收 default 的既有原则不破例，配置面 = 用户级 `budget.maxSessionTokens` + env `KCODE_BUDGET_TOKENS` 白名单覆盖；② 不可交互（headless/无回调）按停止 **fail-closed**（同 ask 权限拒绝降级）；③ 拒轮形态复用 prompt-gate 模板 `status:"rejected" + session_end.detail` 说明文字——不新增 RunStatus 枚举值，零 contracts 涟漪。门在轮间：每轮 run() 入口检查累计 input+output，到顶经 onBudgetLimit（lifecycle 注入 askUser 问询"继续（本会话不再提醒）/停止"）问一次，选继续置 budgetAck 本会话不再问；不 kill 进行中的流） | 机制：配置 `budget.maxSessionTokens`（三层配置可设；0/缺省=关）；/status 与 /context 显示 `预算 45k/100k`；跨过阈值 → ask_user「本会话 token 已达预算上限，继续/停止」——选停止则本轮收尾后不再发新请求（不 kill 进行中的流）。落点：loop usage 累计处（已有 contextStats/usage）+ ask 通道 + /status、/context 输出。zcode 参照：**zcode 无会话预算**（全库无 budget/cost cap，仅 provider 错误码 `organization_spend_limit_exceeded` 兜底 + modelAnomalyGuard 软提醒 `runtime/helpers/model-anomaly.ts:23-91` + rapid-refill 熔断 `turn-loop-state.ts:21-22`）——kcode 已有 run_limit 与压缩失败熔断两道硬闸，本项补「用户可设的经济闸」；token 口径不做金额（BYOK 各厂价格未知，算钱是伪精确）。取舍：不移植 modelAnomalyGuard 重复调用软提醒（run_limit 已覆盖主要失控形态） | 1–2 天 |
+| N3I-8 | 会话 token 预算护栏（**✅ 已落地**；三处实施修订——① 项目层不开放预算：防投毒层只收 default 的既有原则不破例，配置面 = 用户级 `budget.maxSessionTokens` + env `KCODE_BUDGET_TOKENS` 白名单覆盖；② 不可交互（headless/无回调）按停止 **fail-closed**（同 ask 权限拒绝降级）；③ 拒轮形态复用 prompt-gate 模板 `status:"rejected" + session_end.detail` 说明文字——不新增 RunStatus 枚举值，零 contracts 涟漪。门在轮间：每轮 run() 入口检查累计 input+output，到顶经 onBudgetLimit（lifecycle 注入 askUser 问询"继续（本会话不再提醒）/停止"）问一次，选继续置 budgetAck 本会话不再问；不 kill 进行中的流） | 机制：配置 `budget.maxSessionTokens`（三层配置可设；0/缺省=关）；/status 与 /context 显示 `预算 45k/100k`；跨过阈值 → ask_user「本会话 token 已达预算上限，继续/停止」——选停止则本轮收尾后不再发新请求（不 kill 进行中的流）。落点：loop usage 累计处（已有 contextStats/usage）+ ask 通道 + /status、/context 输出。zcode 参照：**zcode 无会话预算**（全库无 budget/cost cap，仅 provider 错误码 `organization_spend_limit_exceeded` 兜底 + modelAnomalyGuard 软提醒 `runtime/helpers/model-anomaly.ts:23-91` + rapid-refill 熔断 `turn-loop-state.ts:21-22`）——kcode 已有 run_limit 与压缩失败熔断两道硬闸，本项补「用户可设的经济闸」；token 口径不做金额（BYOK 各厂价格未知，算钱是伪精确）。取舍：不移植 modelAnomalyGuard 重复调用软提醒（run_limit 已覆盖主要失控形态） | 1–2 天 |
 | N3I-9 | hooks 一期（用户级）（**自查更正（2026-10-08）：本项撤销——复查发现 hooks 已由 B5 批完整落地**：`~/.kcode/hooks.json` 用户级始终生效 + `.kcode/hooks.json` 项目级经 trusted-projects 门控（loader.ts 即本仓库实现）+ ProcessHookRunner 接入 executor/loop + 六事件（preToolUse/postToolUse/onUserPromptSubmit/onPreCompact/onSessionStart/onStop，比原设计还多 PreCompact）+ exit 码阻断 + fail-closed 可选——本批立项时"hooks 完全没有"的评估系漏查。残留可选项：`/hooks` 查看命令（并入 N3I-7 顺手做）） | 机制：`~/.kcode/hooks.json` 用户级先行（项目级需 /trust 门控+内容指纹，列二期）；事件 5 个：SessionStart / UserPromptSubmit / PreToolUse / PostToolUse / Stop；matcher 三档（`""`/`"*"` 全匹配、`\|` 分隔精确名单、正则）；阻断双通道：exit 2 = block（脚本友好）+ stdout JSON `{decision:"block"\|"approve", reason?, systemMessage?}`（deny>approve 合并）；超时 60s **fail-open**（hook 坏不挡主业）；hook 进程收 stdin JSON `{event, session_id, tool_name, tool_input, cwd}` + `KCODE_PROJECT_DIR` env；输出截断 32K。落点：新 `packages/core/src/hooks/`（runner+output 解析 ≈300 行）+ executor PreToolUse/PostToolUse 挂点 + loop UserPromptSubmit/Stop/SessionStart 挂点 + /hooks 查看。zcode 参照：契约 `contracts/src/hooks/index.ts:377-430`（7 事件取 5）+ 阻断语义 `core/src/hooks/configured-runner-callback.ts:123-146`（exit 2/JSON 双通道）+ 超时 fail-open `core/src/hooks/runner.ts:334-379` + matcher `core/src/hooks/output.ts:98-112`。取舍：**不做 updatedInput 改写**（zcode `call-runner.ts:269-288` 允许 hook 改工具入参再校验——攻击面大，一期只读判定）；**不做 PermissionRequest 竞速**（与用户审批窗并跑复杂度高，PreToolUse deny 已覆盖阻断需求）；项目级信任 zcode 是 sha256 声明指纹+三档策略状态机（`contracts/src/hooks/workspace-hook-trust.ts:31-130`），kcode 二期简化为 /trust 时记录 hooks 内容 hash、变更即告警重审 | 3–4 天 |
 
 **执行顺序与发版节点**（2026-10-08 修订：N3I-9 撤销后缩短为 8 项）：N3I-1+2（快赢对）→ N3I-3+4 → N3I-5（权限 v2）→ N3I-6+7 → N3I-8 → **0.2.0 发版**（本批 + 已积压 ~35 项，release.mjs 就绪）——**N3I 批 8/8 全部落地（2026-10-08），下一步即发版**→ **N3-4 Electron 开工**（多窗口=每窗口一 host、桌面 diff 视图、自动更新复用 latest.json）。N3H 维持 N3-4 之后不变。
@@ -600,7 +624,7 @@ export interface IPlatformService {
 | ID | 项 | 说明 |
 |---|---|---|
 | N4-1 | 插件市场/商店 | 5 类来源 + 完整生命周期（对标 ZCode CONTEXT.md 领域词汇） |
-| N4-2 | 账户 IdP + relay E2E + 远程对话 | E2E 层已落地，补 relay 消费者 |
+| N4-2 | 账户 IdP + relay E2E + 远程对话 | E2E 层 ✅ 已落地，补 relay 消费者 |
 | N4-3 | 用量计量 + 遥测（opt-in，BYOK 假名化） | |
 | N4-4 | registry + Sigstore keyless + 扫描门 + seed 锁定 + CRL | 供应链闭环 |
 | N4-5 | cron 调度器全语义 + automation 权限 | `scheduler/index.ts` 现仅接口 |
@@ -736,8 +760,8 @@ export interface IPlatformService {
 - **N3C-4③④ 落地（第三批快赢）**：③ 后台任务面板——`BackgroundTaskRegistry` 从 `createBashTool` 内部提升为 composition 创建并经 `BashToolOptions.registry` 注入（会话级单一事实，`ComposedSession/SessionHandle.backgroundTasks()` 透出）；`Ctrl+T` 覆层面板（打开期间 1s 轮询快照 + 展开时异步读日志尾部 40 行），与工具浏览器互斥、同一键位模式（↑↓/Enter/Esc，Ctrl+B/Ctrl+T 互为切换）；ui 层新增 `BgTaskView` 视图类型（不引 tools 包，守住分层）。④ Ctrl+G 外部编辑长输入（3-24 起；Ctrl+E 让位行尾）——`external-editor.ts`（$EDITOR 临时文件回填，未设时 notepad/vi 兜底，空文件=放弃保持原输入）；键位放 InputArea（需要输入值与回填通道），仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染——代码注释已注明约束）；失败路径保证 raw mode 恢复。测试 +8（bash 注册表注入 1；task-browser 7：slice 2/渲染 2/键位互斥 1/编辑器 2 含真实 Ctrl+G→假编辑器→回填链路）。
 - **N3C-4② + N3-5 落地（第二批快赢）**：① 工具卡片逐块展开——覆盖层浏览器形态（Static 架构下已完成的块不再重绘，原地展开不可行）；`packages/ui` transcript slice 增 `ToolBrowserState`（open/cursor/expandedCallId，clamp 与切换语义在 slice）；键位统一 `keybinds.ts`（Ctrl+B 开关、↑↓ 移动、Enter 展开、Esc 关闭并让行其余键位层）；面板 `ToolBrowser.tsx` 纯渲染（10 行窗口 + 40 行详情上限）；`InputArea.tsx` 抽离 App 的输入区三态装配（浏览器打开顶替输入框，方向键无第二消费者——App.tsx 反降至 494 行）；② 插件加载期 hash 校验——`hashDirectory` 支持排除项（seed 自身：安装是"先算哈希后写 seed"，计入则永假）、`verifyPluginSeed` 导出、`buildExtensionRoots` 校验失败拒绝装载 + onWarn（会话组装与 CLI 盘点同点收口）、`plugin list` 显示 ⚠。测试 +9（tool-browser 7：slice 4/渲染 2/键位链路 1；plugins 校验 2）。§2.3 仍开放缺陷收敛为 2 条；§7 B5 与已知边界同步（诚实注记：加载期校验防"装后被改"，不防"装时即恶"——后者属 N4-4 签名）。
 - **N3C 快赢批落地（N3C-1/2/3 + N3C-4①）**：① `apps/cli/src/args.ts` 纯函数解析器（-p/--mode/--json/--cwd/--attach/--disallowed-tools/-c/--，未知 flag 由静默并入提问收紧为报错）+ `headless.ts` 无 TUI 运行路径（NDJSON 复用 SessionEvent+jsonlLine，末行 CLI 级 result 记录，退出码 0/1/130）+ `doctor.ts` 八项自检（✗ 即 exit 1）+ `inspect.ts` 盘点（skills/commands list）+ plugin enable/disable（`state.json` 原子写，list 标注 [已停用]）；② 单一事实源——根构造提取为 `@kcode/extensions.buildExtensionRoots`，`packages/session` 组装与 CLI 盘点共用，停用过滤同点生效；③ `ComposeSessionOptions` 增 `initialMode`（与 /mode 同一 applyMode 路径）与 `disallowedTools`（全集 fail-fast + 子代理继承）；④ TUI 状态栏常驻（`packages/ui` run-status slice 增 `UsageStats`；`tui/state/status-data.ts` busy 收尾沿刷新 + git 分支 60s 采样；StatusBar 三段渲染 >85% 警示色）。测试 +38（args 10/doctor 4/inspect 3/headless 3/statusbar 5/plugins-state+roots 6/session-options 5 全绿，全套 76 文件 369 用例通过）；行数治理：composition.ts 497→473（`resume.ts` 外迁续接/信任工具），App.tsx 498/500 压线（status-data 模块化）。工具名澄清：kcode 工具名为小写（write/edit 非 Write/Edit）。
-- 对标复核与盲区补录：以 zcode CLI 0.16.9 安装版实测 surface（`--help`/`doctor`/官方插件缓存）+ Claude Code / OpenCode 公开文档复核；§1.4 新增补录口径；§9 重构为 9.1 能力对标（刷新 N2/N3 已落地行的过时状态，新增 CLI 入口层、doctor、管理子命令、官方插件内容、长期 Memory、定时调度六行）+ 9.2 TUI 交互对标（20 行全景，kcode 列经代码实测：思考流/Todo 面板/技能触发回显已达标；逐卡展开/外部编辑器/剪贴板粘贴/历史搜索等确认缺失）。
-- 状态修正：头部状态行 v2 滞留修正为 v5；§0 一页总结与路线图示意刷新至 N3 中期实况；§2.3 已知缺陷复核——`/compact` 落盘（compact-persistence.test.ts 锁定）、压缩按完整轮次切片（compact.ts 含 covered/taskAnchor）、检查点持久化（N0-4）、workspace 身份（N0-6/N1-3）、治理门禁（N2-5）、发行链（N2-4）均已收口移出，仍开放项收敛为 3 条（插件加载期 hash、技能来源策略、contracts 零消费者）。
+- 对标复核与盲区补录：以 zcode CLI 0.16.9 安装版实测 surface（`--help`/`doctor`/官方插件缓存）+ Claude Code / OpenCode 公开文档复核；§1.4 新增补录口径；§9 重构为 9.1 能力对标（刷新 N2/N3 ✅ 已落地行的过时状态，新增 CLI 入口层、doctor、管理子命令、官方插件内容、长期 Memory、定时调度六行）+ 9.2 TUI 交互对标（20 行全景，kcode 列经代码实测：思考流/Todo 面板/技能触发回显已达标；逐卡展开/外部编辑器/剪贴板粘贴/历史搜索等确认缺失）。
+- 状态修正：头部状态行 v2 滞留修正为 v5；§0 一页总结与路线图示意刷新至 N3 中期实况；§2.3 已知缺陷复核——`/compact` 落盘（compact-persistence.test.ts 锁定）、压缩按完整轮次切片（compact.ts 含 covered/taskAnchor）、检查点持久化（N0-4）、workspace 身份（N0-6/N1-3）、治理门禁（N2-5）、发行链（N2-4）均已收口移出，当时仍开放 3 条（插件加载期 hash、技能来源策略、contracts 零消费者）。**2026-10-20 对账**：插件 hash 由 N3-5 收口、技能来源策略由 3-18 收口；`contracts/{update,keyhierarchy}.ts` 由 knip 持续守护（3-31）。
 
 ### v4（2026-09-28）
 

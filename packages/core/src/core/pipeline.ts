@@ -3,6 +3,7 @@ import type {
   HookRunner,
   PermissionAsker,
   PermissionEngine,
+  PermissionMode,
   SessionEvent,
   Tool,
   ToolOutput,
@@ -18,6 +19,14 @@ export interface AuditRecord {
   /** ask 应答的放行范围（once/session/project；project 为持久放行命中或用户选择） */
   scope?: "once" | "session" | "project";
   detail?: string;
+  /** 3-29：工具执行耗时（毫秒；权限拒绝/否决记录不含） */
+  durationMs?: number;
+  /** 3-29：会话工作目录（审计"在哪个项目"） */
+  cwd?: string;
+  /** 3-29：裁决时权限档位 */
+  mode?: PermissionMode;
+  /** 3-29：子代理审计记录归属的父会话 */
+  parentSessionId?: string;
 }
 
 export type AuditSink = (record: AuditRecord) => void;
@@ -126,6 +135,7 @@ export class ToolPipeline {
 
   async run(tool: Tool, args: unknown, callId: string, signal?: AbortSignal): Promise<ToolOutput> {
     const name = tool.definition.name;
+    const startedAt = this.now();
     const cancelled = (): ToolOutput => {
       this.audit({ ts: this.now(), sessionId: this.sessionId, callId, tool: name,
         decision: "error", detail: "aborted before execution" });
@@ -219,6 +229,7 @@ export class ToolPipeline {
       tool: name,
       decision: result.ok ? "executed" : "error",
       detail: result.error,
+      durationMs: Math.max(0, this.now() - startedAt),
     });
     return result;
   }

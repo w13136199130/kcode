@@ -7,15 +7,53 @@ import type { Tool } from "@kcode/contracts";
  * MCP 配置装载 / AGENTS.md 记忆装载 / --disallowed-tools 归一化与过滤。
  */
 
-/** 读取用户级 MCP 配置；缺失或非法按空处理 */
-export async function loadMcpConfigs(kcodeHomeDir: string) {
-  try {
-    const { McpServersFile } = await import("@kcode/contracts");
-    const parsed = McpServersFile.safeParse(JSON.parse(await readFile(join(kcodeHomeDir, "mcp.json"), "utf8")));
-    return parsed.success ? parsed.data.servers : [];
-  } catch {
-    return [];
+/** 读取 MCP 配置：用户级始终生效；项目级 `.kcode/mcp.json` 需 trust（3-14），同名项目覆盖用户 */
+export async function loadMcpConfigs(
+  kcodeHomeDir: string,
+  opts: { projectDir?: string; trusted?: boolean; onWarn?: (message: string) => void } = {},
+) {
+  const { McpServersFile } = await import("@kcode/contracts");
+  const readServers = async (path: string, label: string) => {
+    let raw: string;
+    try {
+      raw = await readFile(path, "utf8");
+    } catch {
+      return [];
+    }
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch (err) {
+      opts.onWarn?.(`${label} MCP 配置不是合法 JSON（${path}）：${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+    const parsed = McpServersFile.safeParse(json);
+    if (!parsed.success) {
+      opts.onWarn?.(`${label} MCP 配置不合法（${path}）：${parsed.error.issues[0]?.message ?? "未知原因"}`);
+      return [];
+    }
+    return parsed.data.servers;
+  };
+  const user = await readServers(join(kcodeHomeDir, "mcp.json"), "用户级");
+  let project: typeof user = [];
+  if (opts.projectDir !== undefined) {
+    const path = join(opts.projectDir, ".kcode", "mcp.json");
+    if (opts.trusted === true) {
+      project = await readServers(path, "项目级");
+    } else {
+      // 未信任项目：项目级 MCP 会启动任意子进程——只提示不装载
+      const exists = await readFile(path, "utf8").then(() => true).catch(() => false);
+      if (exists) {
+        opts.onWarn?.("项目存在 .kcode/mcp.json 但项目未受信任，已忽略（/trust 可添加信任）");
+      }
+    }
   }
+  // 同名覆盖：项目 > 用户（与 skills/commands 的项目优先一致）
+  const byName = new Map(user.map((server) => [server.name, server]));
+  for (const server of project) {
+    byName.set(server.name, server);
+  }
+  return [...byName.values()];
 }
 
 /**

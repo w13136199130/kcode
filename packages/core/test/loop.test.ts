@@ -444,8 +444,9 @@ describe("AgentLoop（§5.1 状态机）", () => {
     );
     expect(loop.getUsage()).toEqual({ inputTokens: 50, outputTokens: 5, calls: 1 });
     await loop.run("第一轮");
-    // 种子 + 本轮两次 LLM 调用
-    expect(loop.getUsage()).toEqual({ inputTokens: 260, outputTokens: 33, calls: 3 });
+    // 种子 + 本轮两次 LLM 调用（3-21：byModel 分项同时累计）
+    expect(loop.getUsage()).toMatchObject({ inputTokens: 260, outputTokens: 33, calls: 3 });
+    expect(loop.getUsage().byModel?.["m"]).toMatchObject({ inputTokens: 210, outputTokens: 28, calls: 2 });
     const ends = sink.events.filter((e) => e.type === "session_end");
     expect(ends).toHaveLength(1);
     expect(ends[0]).toMatchObject({
@@ -454,7 +455,7 @@ describe("AgentLoop（§5.1 状态机）", () => {
     });
     // 第二轮：脚本耗尽（end stop 不带 usage），调用数仍累计
     await loop.run("第二轮");
-    expect(loop.getUsage()).toEqual({ inputTokens: 260, outputTokens: 33, calls: 4 });
+    expect(loop.getUsage()).toMatchObject({ inputTokens: 260, outputTokens: 33, calls: 4 });
     const ends2 = sink.events.filter((e) => e.type === "session_end");
     expect(ends2).toHaveLength(2);
     expect(ends2[1]).toMatchObject({ type: "session_end", usage: { inputTokens: 0, outputTokens: 0, calls: 1 } });

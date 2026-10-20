@@ -113,8 +113,8 @@ pnpm --filter @kcode/cli start --resume latest             # 续接最近会话�
 pnpm --filter @kcode/cli start --resume sess_xxx "接着说"   # 指定会话续接
 ```
 
-REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**，批准的计划成为压缩锚点）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/diff [文件]` 审查本会话的文件改动（changed files + hunks，不必切 git），在面板内按 `r` 二次确认后逐文件回退到本会话前（复用检查点前像）；`/compact` 手动压缩、`/context` 查看 token 占用（上下文三层治理：工具结果 micro 截断 → 超预算 60% 自动压缩【预算按模型窗口派生】→ 手动；已批准计划跨压缩保真）；`/cost` 查看本会话 token 用量；`/resume [latest|id]` 不重启续接历史会话；`/clear` 清屏开新会话、`/status` 状态一览；`# 内容` 或 `/remember 内容` 写入项目 AGENTS.md（下次会话生效，`#include` 等非 `# ` 开头按普通提问发送）；**Shift+Tab** 循环权限模式、**@** 补全文件路径、**!命令** 直执行 shell（`/Users/...` 等斜杠路径按普通提问发送，未知 `/命令` 保留原文）；**Ctrl+G** 外部编辑器、**Ctrl+A/E/U/K/W** 行编辑、**Alt/Ctrl+←→** 按词移动、**Ctrl+B** 工具浏览器（长输出分页/`/` 搜索/`c` 复制，失败默认末尾，给出 JSONL 路径）、**Ctrl+O** 展开/折叠思考与工具输出（清屏重放，已滚出的块也能展开）、**Ctrl+T** 后台任务面板（`s` 停止运行中任务）；状态栏 `⚙ N` 显示运行中后台任务，完成时响铃；`/tasks` 列清单、`/tasks stop <id>` 终止；多行输入用 **Ctrl+J** 换行；输入历史跨启动持久化；`exit` 退出。
-In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/diff [file]` reviews this session's changed files and hunks in-TUI, with per-file revert from checkpoints (confirmed); `/cost` shows token usage; `/resume [latest|id]` continues a past session; `# note` or `/remember note` appends to the project AGENTS.md (loaded next session); **Ctrl+G** opens `$EDITOR`, **Ctrl+A/E/U/K/W** edit lines/words, **Alt/Ctrl+←→** move by word, **Ctrl+B** browses tool output (paging, `/` search, `c` copy, failed output starts at the tail, JSONL path shown), **Ctrl+O** expands/collapses thoughts and tool output with a screen replay, **Ctrl+T** lists background tasks (`s` stops the selected running task); the status bar shows `⚙ N` and a bell rings when a background task finishes; `/tasks` lists them and `/tasks stop <id>` terminates; press **Ctrl+J** for a newline; `exit` quits.
+REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**，批准的计划成为压缩锚点）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/diff [文件]` 审查本会话的文件改动（changed files + hunks，不必切 git），在面板内按 `r` 二次确认后逐文件回退到本会话前（复用检查点前像）；`/compact` 手动压缩、`/context` 查看 token 占用（上下文三层治理：工具结果 micro 截断 → 超预算 60% 自动压缩【预算按模型窗口派生】→ 手动；已批准计划跨压缩保真）；`/cost` 查看本会话 token 用量（缓存命中/写入、推理 token、按模型与工具分项、子代理分项；厂商未回报时降级显示）；`/audit [N]` 查看工具裁决审计（独立 JSONL：`~/.kcode/cli/audit/<sessionId>.jsonl`，含工具/裁决/scope/耗时/cwd/权限档）；`/resume [latest|id]` 不重启续接历史会话；`/clear` 清屏开新会话、`/status` 状态一览；`# 内容` 或 `/remember 内容` 写入项目 AGENTS.md（下次会话生效，`#include` 等非 `# ` 开头按普通提问发送）；**Shift+Tab** 循环权限模式、**@** 补全文件路径、**!命令** 直执行 shell（`/Users/...` 等斜杠路径按普通提问发送，未知 `/命令` 保留原文）；**Ctrl+G** 外部编辑器、**Ctrl+A/E/U/K/W** 行编辑、**Alt/Ctrl+←→** 按词移动、**Ctrl+B** 工具浏览器（长输出分页/`/` 搜索/`c` 复制，失败默认末尾，给出 JSONL 路径）、**Ctrl+O** 展开/折叠思考与工具输出（清屏重放，已滚出的块也能展开）、**Ctrl+T** 后台任务面板（`s` 停止运行中任务）；状态栏 `⚙ N` 显示运行中后台任务，完成时响铃；`/tasks` 列清单、`/tasks stop <id>` 终止；多行输入用 **Ctrl+J** 换行；输入历史跨启动持久化；`exit` 退出。
+In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/diff [file]` reviews this session's changed files and hunks in-TUI, with per-file revert from checkpoints (confirmed); `/cost` shows token usage with cache hit/write, reasoning tokens, per-model/tool breakdown and subagent usage (graceful fallback when the provider reports no details); `/audit [N]` shows tool-decision audit records from the per-session JSONL (`~/.kcode/cli/audit/<sessionId>.jsonl`); `/resume [latest|id]` continues a past session; `# note` or `/remember note` appends to the project AGENTS.md (loaded next session); **Ctrl+G** opens `$EDITOR`, **Ctrl+A/E/U/K/W** edit lines/words, **Alt/Ctrl+←→** move by word, **Ctrl+B** browses tool output (paging, `/` search, `c` copy, failed output starts at the tail, JSONL path shown), **Ctrl+O** expands/collapses thoughts and tool output with a screen replay, **Ctrl+T** lists background tasks (`s` stops the selected running task); the status bar shows `⚙ N` and a bell rings when a background task finishes; `/tasks` lists them and `/tasks stop <id>` terminates; press **Ctrl+J** for a newline; `exit` quits.
 In the REPL: `/plan` toggles plan mode (read-only research → switch back after approval); `exit` to quit.
 
 **终端兼容与安全 | Terminal safety**：不可信文本（模型回复/工具输出/粘贴内容/文件名/审批命令）渲染前剥离 ESC/OSC/CSI 控制序列，恶意内容不能改窗口标题或写剪贴板；自家 OSC8 文件链接在剥离后重新生成。`NO_COLOR=1` 关闭颜色；`KCODE_PLAIN=1` 关闭颜色并把状态符换成 ASCII（CI/日志友好）；`KCODE_THEME=light` 切亮色主题（白底可读）；`KCODE_LINKS=0/1` 强制关/开文件链接。
@@ -141,6 +141,10 @@ Any prompt containing a trigger word auto-loads the skill body into the turn (sh
 
 **内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`task`（派生子代理 · spawn subagents: `general-purpose` 通用 / `explore` 只读搜索 / `.kcode/agents/*.md` 自定义 · custom agent files）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
 
+`todo` 清单每轮以 `<todo_state>` 回注模型（压缩/续接后仍可见）；后台控制面 `task_output` / `task_stop` / `task_list` / `task_wait` 对 bash 后台任务与后台子代理共用，长命令在途时看门狗放宽到 610s，避免被不活动判定误杀。
+
+**存储治理**：`kcode sessions vacuum [--dry-run] [--max-sessions N] [--max-age-days N] [--max-artifact-mb N] [--max-audit-mb N]` 按年龄/数量/总量清理会话与产物、孤儿检查点/审计、过期子代理会话；`kcode sessions rm <id>` 级联删除该会话的产物/检查点/审计。
+
 ## 扩展系统 | Extensions
 
 **钩子 Hooks**（`~/.kcode/hooks.json`；项目级 `.kcode/hooks.json` 需先 `/trust` 信任项目）：
@@ -165,11 +169,14 @@ Any prompt containing a trigger word auto-loads the skill body into the turn (sh
 - **`!` bash（3-17）**：正文行首 `!`command`` 或 `!command` 在展开时经用户直执行通道运行（30s 超时、输出 8k 截断），结果以 `<bash_command>` 回填；围栏代码块内的 `!` 行不执行。
 - 内置：`/plan` `/trust` `/help`。
 
-**MCP 服务器**（`~/.kcode/mcp.json`，stdio 独立进程，权限预设中走 ask 确认）：
+**子代理 Agents**（`.kcode/agents/<name>.md` 需 `/trust`；用户级 `~/.kcode/agents/`；插件 `agents/` 需在 `.kcode-plugin` 的 `agents` 声明）：
+frontmatter 支持 `description` / `tools` / `model` / `permissionMode`（`plan` 只读、`default`、`acceptEdits`）/ `disallowedTools` / `maxTurns`。`task` 工具按 `subagent_type` 派生隔离上下文的子代理；**plan 档只允许只读子代理**（`explore` 或声明 `permissionMode: plan`），`general-purpose` 会被拒绝，避免借子代理绕过只读姿态。
+
+**MCP 服务器**（用户级 `~/.kcode/mcp.json`；项目级 `.kcode/mcp.json` 需先 `/trust`，同名项目覆盖用户；stdio 独立进程）：
 ```json
 { "servers": [{ "name": "fs", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "."] }] }
 ```
-接入后工具命名为 `mcp__<服务器>__<工具>`，与内置工具同构——权限、钩子、审计对 MCP 工具同样生效。单个服务器失败不阻断会话。
+接入后工具命名为 `mcp__<服务器>__<工具>`，与内置工具同构——权限、钩子、审计对 MCP 工具同样生效。单个服务器失败不阻断会话。3-14 起：服务器声明 `annotations.readOnlyHint` 的工具在 plan 档放行；Esc 可立即取消进行中的 MCP 调用；图片内容落盘并交给视觉模型、`resource`/`structuredContent` 转为文本；传输断开自动重连重试一次；http/sse 支持 `headers`（远端 token），stdio 支持 `env`。
 
 ---
 
@@ -193,6 +200,7 @@ Windows 侧已实测 10/10（glm-5.3，约 8 分钟）；macOS 侧待跑（§9 �
 
 ```bash
 pnpm install          # 安装并链接 workspace / install & link workspace
+pnpm verify           # 全门禁一键：typecheck/test/lint/依赖边界/knip/文档门禁/build
 pnpm typecheck        # 逐包 tsc / per-package tsc
 pnpm test             # 单测 + 回放 + E2E + 验收自检 / unit + replay + E2E + acceptance
 pnpm lint             # oxlint
@@ -200,8 +208,15 @@ pnpm lint:deps        # dependency-cruiser 架构规则 / architecture rules (§
 pnpm build            # tsup 构建库包 / build lib packages
 ```
 
+手工验收清单见 [docs/testing-guide.md](./docs/testing-guide.md)（各优化项的启动方式、场景与观察点）。
+See [docs/testing-guide.md](./docs/testing-guide.md) for manual acceptance scenarios.
+
 包结构见 DESIGN.md §3.2 —— 包内一级目录 = 逻辑模块 = 后续拆包单元。
 See DESIGN.md §3.2 for the package layout — first-level directories are logical modules and future split candidates.
+
+CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）：Linux 门禁（typecheck/test/lint/依赖边界/knip/文档门禁/build）+ **Windows 全量测试**（Ink 交互渲染、真实路径/CRLF、DPAPI keychain、剪贴板、bash 进程树、host lease）+ desktop E2E；pnpm store 与 turbo `.turbo` 缓存，旧 run 自动取消。
+
+CI runs the full Linux gate plus the **complete test suite on Windows** (Ink interactive rendering, real paths/CRLF, DPAPI keychain, clipboard, process trees, host lease) and desktop E2E, with pnpm-store and turbo caches.
 
 ## 安全设计速览 | Security at a Glance
 

@@ -193,7 +193,7 @@ describe("3-16 插件 MCP 按 transport 分流", () => {
     const built = pluginMcpConfigs(
       manifest([
         { name: "s1", transport: "stdio", command: "node", args: ["a.js"], env: { A: "1" } },
-        { name: "s2", transport: "http", url: "https://example.com/mcp" },
+        { name: "s2", transport: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer x" } },
         { name: "s3", transport: "sse", url: "https://example.com/sse" },
         { name: "s4", transport: "stdio" },
       ]),
@@ -202,7 +202,11 @@ describe("3-16 插件 MCP 按 transport 分流", () => {
     expect(built.errors[0]).toContain("s4");
     expect(built.configs.map((c) => c.transport)).toEqual(["stdio", "http", "sse"]);
     expect(built.configs[0]).toMatchObject({ command: "node", args: ["a.js"], env: { A: "1" } });
-    expect(built.configs[1]).toMatchObject({ transport: "http", url: "https://example.com/mcp" });
+    expect(built.configs[1]).toMatchObject({
+      transport: "http",
+      url: "https://example.com/mcp",
+      headers: { Authorization: "Bearer x" },
+    });
   });
 });
 

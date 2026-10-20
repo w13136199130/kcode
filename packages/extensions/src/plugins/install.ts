@@ -126,6 +126,9 @@ export function buildConsentSummary(manifest: PluginManifestType): string {
   if (manifest.commands.length > 0) {
     lines.push(`命令：${manifest.commands.join("、")}`);
   }
+  if (manifest.agents.length > 0) {
+    lines.push(`子代理：${manifest.agents.join("、")}`);
+  }
   if (manifest.permissions.length > 0) {
     lines.push(`申请权限：${manifest.permissions.join("、")}`);
   }

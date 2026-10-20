@@ -9,10 +9,60 @@ import {
   type ToolCallPart,
   type ToolResultPart,
 } from "ai";
-import type { ChatMessage, LLMChunk, LLMProvider, LLMRequest } from "@kcode/contracts";
+import type { ChatMessage, LLMChunk, LLMProvider, LLMRequest, LLMUsage } from "@kcode/contracts";
 import { computeBackoffMs, isRetryableLlmError, sleepWithSignal, type LlmRetryOptions } from "./retry.js";
 
 export type FetchLike = typeof globalThis.fetch;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * 3-21：把各家 usage 归一化为 LLMUsage（未知厂商降级为仅输入/输出）。
+ * 兼容 AI SDK v4（promptTokens/completionTokens + *Details）、OpenAI 原始 snake_case、
+ * Anthropic 的 cache_read/creation_input_tokens；缺字段不影响主用量。
+ */
+export function normalizeUsage(raw: unknown): LLMUsage | undefined {
+  const usage = asRecord(raw);
+  if (usage === null) {
+    return undefined;
+  }
+  const prompt = count(usage["promptTokens"]) ?? count(usage["prompt_tokens"]) ?? count(usage["inputTokens"]) ?? count(usage["input_tokens"]);
+  const completion =
+    count(usage["completionTokens"]) ?? count(usage["completion_tokens"]) ?? count(usage["outputTokens"]) ?? count(usage["output_tokens"]);
+  if (prompt === undefined && completion === undefined) {
+    return undefined;
+  }
+  const promptDetails = asRecord(usage["promptTokensDetails"]) ?? asRecord(usage["prompt_tokens_details"]);
+  const completionDetails = asRecord(usage["completionTokensDetails"]) ?? asRecord(usage["completion_tokens_details"]);
+  const cacheRead =
+    count(promptDetails?.["cachedTokens"]) ??
+    count(promptDetails?.["cached_tokens"]) ??
+    count(usage["cachedInputTokens"]) ??
+    count(usage["cacheReadInputTokens"]) ??
+    count(usage["cache_read_input_tokens"]);
+  const cacheWrite =
+    count(usage["cacheWriteInputTokens"]) ??
+    count(usage["cache_creation_input_tokens"]) ??
+    count(usage["cacheWriteTokens"]);
+  const reasoning =
+    count(completionDetails?.["reasoningTokens"]) ??
+    count(completionDetails?.["reasoning_tokens"]) ??
+    count(usage["reasoningTokens"]) ??
+    count(usage["reasoning_tokens"]);
+  return {
+    inputTokens: prompt ?? 0,
+    outputTokens: completion ?? 0,
+    ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+    ...(cacheWrite !== undefined ? { cacheWriteTokens: cacheWrite } : {}),
+    ...(reasoning !== undefined ? { reasoningTokens: reasoning } : {}),
+  };
+}
 
 export interface OpenAICompatibleOptions {
   baseURL: string;
@@ -159,18 +209,11 @@ export class OpenAICompatibleProvider implements LLMProvider {
           } else if (part.type === "finish" && !ended) {
             ended = true;
             // SDK 已发 stream_options.include_usage：支持的端点在流末回报用量（v4 字段名 prompt/completionTokens）
-            const usage = part.usage;
+            const usage = normalizeUsage(part.usage);
             yield {
               type: "end",
               reason: part.finishReason === "tool-calls" ? "tool_use" : "stop",
-              ...(usage?.promptTokens !== undefined || usage?.completionTokens !== undefined
-                ? {
-                    usage: {
-                      inputTokens: usage?.promptTokens ?? 0,
-                      outputTokens: usage?.completionTokens ?? 0,
-                    },
-                  }
-                : {}),
+              ...(usage !== undefined ? { usage } : {}),
             };
           }
         }

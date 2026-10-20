@@ -25,10 +25,13 @@ export async function settleToolResults(dep: {
   sessionId: string;
   toolResultBudget: number;
   ts: () => number;
+  /** 3-21：按工具统计调用次数（/cost 分项） */
+  onToolCall?: (tool: string) => void;
 }): Promise<void> {
   const defByName = new Map(dep.tools.map((t) => [t.definition.name, t.definition] as const));
   for (let i = 0; i < dep.calls.length; i++) {
     const call = dep.calls[i]!;
+    dep.onToolCall?.(call.tool);
     const { result, durationMs } = dep.results[i]!;
     await dep.emit({
       v: 1,

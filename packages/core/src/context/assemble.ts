@@ -1,9 +1,11 @@
-import type { ChatMessage, SkillMeta, ToolDefinition } from "@kcode/contracts";
+import type { ChatMessage, SkillMeta, TodoItem, ToolDefinition } from "@kcode/contracts";
 
 export interface AssembleInput {
   systemPrompt: string;
   /** 项目/用户级 AGENTS.md（会话期不变 → 稳定区，§5.3 记忆） */
   agentsMd?: string;
+  /** 3-13：会话任务清单（每轮注入；压缩/续接后模型仍知道进度） */
+  todos?: TodoItem[];
   tools: ToolDefinition[];
   /** 技能元数据（渐进加载第一级：仅名称+描述进稳定区，§5.2） */
   skills?: SkillMeta[];
@@ -21,6 +23,15 @@ export function assembleMessages(input: AssembleInput): ChatMessage[] {
 
   if (input.agentsMd !== undefined && input.agentsMd.trim() !== "") {
     sections.push(`# 项目记忆（AGENTS.md）\n${input.agentsMd.trim()}`);
+  }
+
+  if (input.todos !== undefined && input.todos.length > 0) {
+    const lines = input.todos.map((todo) => {
+      const mark = todo.status === "completed" ? "[x]" : todo.status === "in_progress" ? "[~]" : "[ ]";
+      const priority = todo.priority === "high" ? "!" : todo.priority === "low" ? "·" : "";
+      return `- ${mark}${priority === "" ? "" : ` ${priority}`} ${todo.content}`;
+    });
+    sections.push(`<todo_state>\n${lines.join("\n")}\n</todo_state>`);
   }
 
   const toolLines = [...input.tools]

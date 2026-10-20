@@ -7,6 +7,8 @@ export interface TodoToolOptions {
   sessionId: string;
   /** 会话事件落盘（todo_update 进 JSONL，回放可见，§1.1 A 域 Todo） */
   sink?: SessionSink;
+  /** 3-13：把最新清单同步给 AgentLoop，供每轮 `<todo_state>` 注入（resume/压缩后仍在） */
+  onUpdate?: (todos: TodoItem[]) => void;
 }
 
 /** todo 工具：全量替换会话任务清单；同一时刻至多一个 in_progress */
@@ -54,6 +56,7 @@ export function createTodoTool(opts: TodoToolOptions): Tool {
         todos,
       };
       await opts.sink?.append(event);
+      opts.onUpdate?.(todos);
       const completed = todos.filter((t) => t.status === "completed").length;
       return { ok: true, output: `任务清单已更新（${todos.length} 项 / ${completed} 完成）` };
     },

@@ -10,6 +10,7 @@ import type {
   StructuredQuestion,
 } from "@kcode/contracts";
 import { buildAskPreview } from "@kcode/tools";
+import type { SessionUsage } from "@kcode/core";
 import {
   composeSession,
   resolveResumeHistory,
@@ -82,7 +83,9 @@ export interface SessionHandle {
   /** 清空本项目持久放行（/permissions）；成功返回 true */
   clearPersistentGrants(): Promise<boolean>;
   /** 会话累计用量（含 resume 续接历史；/cost） */
-  usage(): Promise<{ inputTokens: number; outputTokens: number; calls: number } | null>;
+  usage(): Promise<SessionUsage | null>;
+  /** 3-29：审计日志路径（/audit） */
+  auditPath(): string;
   /** /rewind 回退点清单（每个 user_message 一项） */
   rewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
   /** 回退到某提问之前（恢复文件快照 + 截断对话）；失败返回错误信息 */
@@ -238,6 +241,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     sessionId: resume?.sessionId ?? opts.sessionId,
     resumeFrom: resume?.messages,
     resumeUsage: resume?.usage,
+    resumeTodos: resume?.todos,
+    resumeSubagents: resume?.subagents,
     onEvent: opts.onEvent,
     onDelta: opts.onDelta,
     onReasoning: opts.onReasoning,
@@ -385,10 +390,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
       await composed.clearPersistentGrants();
       return true;
     },
-    usage: async () => {
-      const u = composed.usageSummary();
-      return { inputTokens: u.inputTokens, outputTokens: u.outputTokens, calls: u.calls };
-    },
+    usage: async () => composed.usageSummary(),
+    auditPath: () => composed.auditPath(),
     rewindPoints: () => composed.listRewindPoints(),
     rewind: async (eventIndex) => {
       try {

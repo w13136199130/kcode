@@ -16,6 +16,7 @@ export const McpServerDecl = z.object({
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   url: z.string().url().optional(),
 });
 
@@ -36,6 +37,8 @@ export const PluginManifest = z
     hooks: z.array(HookDecl).default([]),
     skills: z.array(z.string()).default([]),
     commands: z.array(z.string()).default([]),
+    /** 3-19：插件 agents/ 目录下的子代理定义（同意摘要与装载使用） */
+    agents: z.array(z.string()).default([]),
     mcp: z.array(McpServerDecl).default([]),
     permissions: z.array(z.string()).default([]),
   })

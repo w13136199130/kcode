@@ -107,6 +107,11 @@ export interface LLMRequest {
 export interface LLMUsage {
   inputTokens: number;
   outputTokens: number;
+  /** 3-21：缓存命中/写入（厂商回报才出现；OpenAI cached_tokens / Anthropic cache_*） */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** 3-21：推理 token（DeepSeek/OpenAI reasoning_tokens 等） */
+  reasoningTokens?: number;
 }
 
 /**

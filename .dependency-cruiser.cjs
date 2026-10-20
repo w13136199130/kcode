@@ -76,6 +76,9 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: "node_modules" },
+    // 构建产物（tsup/vite/electron 的 dist、Electron 打包 out）不参与架构分析：
+    // 否则构建后本地跑 lint:deps 会被生成 bundle 的假循环误报（CI 干净检出无此目录）
+    exclude: { path: "(^|/)(dist|out)/" },
     tsConfig: { fileName: "tsconfig.base.json" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

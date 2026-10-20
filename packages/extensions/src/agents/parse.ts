@@ -36,13 +36,21 @@ export function parseAgentMd(
     const match = /^([a-zA-Z][a-zA-Z0-9_-]*):\s?(.*)$/.exec(line);
     if (match === null || match[1] === undefined) continue;
     const key = match[1];
-    const value = match[2] ?? "";
+    const value = (match[2] ?? "").trim();
     if (value === "") {
       const list: string[] = [];
       fields[key] = list;
       currentList = list;
+    } else if (value.startsWith("[")) {
+      // 3-19：内联数组 `tools: [read, grep]`
+      fields[key] = value
+        .replace(/^\[/, "")
+        .replace(/\]$/, "")
+        .split(",")
+        .map((item) => unquote(item))
+        .filter((item) => item !== "");
     } else {
-      fields[key] = value.trim();
+      fields[key] = unquote(value);
     }
   }
 
@@ -52,12 +60,28 @@ export function parseAgentMd(
     : typeof rawTools === "string" && rawTools !== ""
       ? rawTools.split(/[,，]\s*/).filter((t) => t !== "")
       : [];
+  const rawDisallowed = fields["disallowedTools"] ?? fields["disallowed-tools"] ?? fields["disallowed_tools"];
+  const disallowedTools = Array.isArray(rawDisallowed)
+    ? rawDisallowed
+    : typeof rawDisallowed === "string" && rawDisallowed !== ""
+      ? rawDisallowed.split(/[,，]\s*/).filter((t) => t !== "")
+      : [];
+  const rawMaxTurns = fields["maxTurns"] ?? fields["max-turns"] ?? fields["max_turns"];
+  const maxTurns =
+    typeof rawMaxTurns === "string" && /^\d+$/.test(rawMaxTurns) ? Number(rawMaxTurns) : undefined;
+  const permissionMode =
+    typeof fields["permissionMode"] === "string" && ["plan", "default", "acceptEdits"].includes(fields["permissionMode"])
+      ? (fields["permissionMode"] as "plan" | "default" | "acceptEdits")
+      : undefined;
 
   const manifest = SubagentManifest.safeParse({
     name,
     description: fields["description"],
     tools,
+    disallowedTools,
     model: typeof fields["model"] === "string" && fields["model"] !== "" ? fields["model"] : undefined,
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(permissionMode !== undefined ? { permissionMode } : {}),
   });
   if (!manifest.success) {
     return { ok: false, error: `frontmatter 不合法: ${manifest.error.message}` };
@@ -66,4 +90,15 @@ export function parseAgentMd(
     return { ok: false, error: "正文为空（子代理需要提示正文）" };
   }
   return { ok: true, agent: { manifest: manifest.data, body } };
+}
+
+function unquote(value: string): string {
+  const text = value.trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2) ||
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2)
+  ) {
+    return text.slice(1, -1);
+  }
+  return text;
 }

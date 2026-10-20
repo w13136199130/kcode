@@ -11,6 +11,7 @@ import {
   type SessionSink,
   type SkillPort,
   type SummarizerPort,
+  type TodoItem,
   type ToolRegistry,
 } from "@kcode/contracts";
 import { estimateTokens, newId } from "@kcode/shared";
@@ -48,6 +49,8 @@ export interface AgentLoopPorts {
   onReasoning?: (delta: string) => void;
   /** 技能库（渐进加载/自动触发；core 零 IO，extensions 实现） */
   skills?: SkillPort;
+  /** 3-13：会话任务清单读取口（每轮注入 `<todo_state>`；压缩/续接后仍可见） */
+  todos?: () => TodoItem[];
   /** 历史摘要器：上下文超预算时生成结构化摘要；缺省时退化为占位压缩 */
   summarizer?: SummarizerPort;
   /** TurnPhase 观察缝（N3D-2）：迁移序列断言（测试）/未来 steer 判定用；机器对非法迁移抛错 */
@@ -81,12 +84,25 @@ export interface AgentLoopOptions {
   onBudgetLimit?: (used: SessionUsage, max: number) => Promise<boolean>;
 }
 
-/** 会话累计用量（/cost 数据源；initialUsage 种子 + 本进程各轮增量） */
-export interface SessionUsage {
+/** 用量桶（3-21：按模型分项；缓存/推理字段厂商未回报时缺省） */
+export interface UsageBucket {
   inputTokens: number;
   outputTokens: number;
   /** LLM 调用次数（含端点未回报用量的调用） */
   calls: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+}
+
+/** 会话累计用量（/cost 数据源；initialUsage 种子 + 本进程各轮增量） */
+export interface SessionUsage extends UsageBucket {
+  /** 按模型分项（模型在运行期可切换；键为模型 ref） */
+  byModel?: Record<string, UsageBucket>;
+  /** 按工具分项：调用次数（token 无法归因到单次工具） */
+  byTool?: Record<string, number>;
+  /** 3-13：子代理累计（来自 subagent_stopped 事件；与主会话分开显示） */
+  subagents?: { count: number; inputTokens: number; outputTokens: number };
 }
 
 export interface RunSummary {
@@ -188,7 +204,20 @@ export class AgentLoop {
 
   /** 会话累计用量（含 resume 种子）；/cost 经本地会话读取 */
   getUsage(): SessionUsage {
-    return { ...this.usage };
+    const byModel =
+      this.usage.byModel === undefined
+        ? undefined
+        : Object.fromEntries(Object.entries(this.usage.byModel).map(([model, bucket]) => [model, { ...bucket }]));
+    return {
+      ...this.usage,
+      ...(byModel !== undefined ? { byModel } : {}),
+      ...(this.usage.byTool !== undefined ? { byTool: { ...this.usage.byTool } } : {}),
+    };
+  }
+
+  /** 3-21：工具调用计数（token 无法精确归因，按工具统计调用次数） */
+  private recordToolCall(name: string): void {
+    this.usage.byTool = { ...this.usage.byTool, [name]: (this.usage.byTool?.[name] ?? 0) + 1 };
   }
 
   /** 运行期更换 system prompt（计划模式切换等，§1.1 A 域） */
@@ -490,6 +519,7 @@ export class AgentLoop {
           agentsMd: this.opts.agentsMd,
           tools: tools.map((t) => t.definition),
           skills: this.ports.skills?.meta(),
+          todos: this.ports.todos?.(),
           history: this.history,
         });
 
@@ -611,6 +641,7 @@ export class AgentLoop {
           sessionId: this.sessionId,
           toolResultBudget: this.budget.toolResult,
           ts,
+          onToolCall: (name) => this.recordToolCall(name),
         });
       }
     } catch (err) {
@@ -643,6 +674,30 @@ export class AgentLoop {
       this.usage.inputTokens += runUsage.inputTokens;
       this.usage.outputTokens += runUsage.outputTokens;
       this.usage.calls += runUsage.calls;
+      if (runUsage.cacheReadTokens !== undefined) {
+        this.usage.cacheReadTokens = (this.usage.cacheReadTokens ?? 0) + runUsage.cacheReadTokens;
+      }
+      if (runUsage.cacheWriteTokens !== undefined) {
+        this.usage.cacheWriteTokens = (this.usage.cacheWriteTokens ?? 0) + runUsage.cacheWriteTokens;
+      }
+      if (runUsage.reasoningTokens !== undefined) {
+        this.usage.reasoningTokens = (this.usage.reasoningTokens ?? 0) + runUsage.reasoningTokens;
+      }
+      // 3-21：按模型分项（模型在本轮内不变；/model 切换后进入新桶）
+      const bucket = this.usage.byModel?.[this.model] ?? { inputTokens: 0, outputTokens: 0, calls: 0 };
+      bucket.inputTokens += runUsage.inputTokens;
+      bucket.outputTokens += runUsage.outputTokens;
+      bucket.calls += runUsage.calls;
+      if (runUsage.cacheReadTokens !== undefined) {
+        bucket.cacheReadTokens = (bucket.cacheReadTokens ?? 0) + runUsage.cacheReadTokens;
+      }
+      if (runUsage.cacheWriteTokens !== undefined) {
+        bucket.cacheWriteTokens = (bucket.cacheWriteTokens ?? 0) + runUsage.cacheWriteTokens;
+      }
+      if (runUsage.reasoningTokens !== undefined) {
+        bucket.reasoningTokens = (bucket.reasoningTokens ?? 0) + runUsage.reasoningTokens;
+      }
+      this.usage.byModel = { ...this.usage.byModel, [this.model]: bucket };
       await this.fireLifecycleHook((h) => h.onStop?.({ sessionId: this.sessionId }));
     }
     return { sessionId: this.sessionId, turns, toolCalls, status };
