@@ -113,9 +113,11 @@ pnpm --filter @kcode/cli start --resume latest             # 续接最近会话�
 pnpm --filter @kcode/cli start --resume sess_xxx "接着说"   # 指定会话续接
 ```
 
-REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**，批准的计划成为压缩锚点）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/compact` 手动压缩、`/context` 查看 token 占用（上下文三层治理：工具结果 micro 截断 → 超预算 60% 自动压缩【预算按模型窗口派生】→ 手动；已批准计划跨压缩保真）；`/cost` 查看本会话 token 用量；`/resume [latest|id]` 不重启续接历史会话；`/clear` 清屏开新会话、`/status` 状态一览；**Shift+Tab** 循环权限模式、**@** 补全文件路径、**!命令** 直执行 shell；多行输入用 **Ctrl+J** 换行；输入历史跨启动持久化；`exit` 退出。
-In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/cost` shows token usage; `/resume [latest|id]` continues a past session; press **Ctrl+J** for a newline; `exit` quits.
+REPL 内：`/plan` 切换计划模式（模型只读研究 → 调用 plan_submit 提交计划 → **菜单批准后自动切回执行**，批准的计划成为压缩锚点）；`/rewind` 回退到之前任意一轮提问（文件快照 + 对话一起回滚，空闲双击 Esc 直达）；`/diff [文件]` 审查本会话的文件改动（changed files + hunks，不必切 git），在面板内按 `r` 二次确认后逐文件回退到本会话前（复用检查点前像）；`/compact` 手动压缩、`/context` 查看 token 占用（上下文三层治理：工具结果 micro 截断 → 超预算 60% 自动压缩【预算按模型窗口派生】→ 手动；已批准计划跨压缩保真）；`/cost` 查看本会话 token 用量；`/resume [latest|id]` 不重启续接历史会话；`/clear` 清屏开新会话、`/status` 状态一览；`# 内容` 或 `/remember 内容` 写入项目 AGENTS.md（下次会话生效，`#include` 等非 `# ` 开头按普通提问发送）；**Shift+Tab** 循环权限模式、**@** 补全文件路径、**!命令** 直执行 shell（`/Users/...` 等斜杠路径按普通提问发送，未知 `/命令` 保留原文）；**Ctrl+G** 外部编辑器、**Ctrl+A/E/U/K/W** 行编辑、**Alt/Ctrl+←→** 按词移动、**Ctrl+B** 工具浏览器（长输出分页/`/` 搜索/`c` 复制，失败默认末尾，给出 JSONL 路径）、**Ctrl+O** 展开/折叠思考与工具输出（清屏重放，已滚出的块也能展开）、**Ctrl+T** 后台任务面板（`s` 停止运行中任务）；状态栏 `⚙ N` 显示运行中后台任务，完成时响铃；`/tasks` 列清单、`/tasks stop <id>` 终止；多行输入用 **Ctrl+J** 换行；输入历史跨启动持久化；`exit` 退出。
+In the REPL: `/plan` toggles plan mode (read-only research → plan_submit → **approve to switch back and execute**); `/rewind` rolls code and conversation back to any earlier prompt (double-Esc when idle); `/diff [file]` reviews this session's changed files and hunks in-TUI, with per-file revert from checkpoints (confirmed); `/cost` shows token usage; `/resume [latest|id]` continues a past session; `# note` or `/remember note` appends to the project AGENTS.md (loaded next session); **Ctrl+G** opens `$EDITOR`, **Ctrl+A/E/U/K/W** edit lines/words, **Alt/Ctrl+←→** move by word, **Ctrl+B** browses tool output (paging, `/` search, `c` copy, failed output starts at the tail, JSONL path shown), **Ctrl+O** expands/collapses thoughts and tool output with a screen replay, **Ctrl+T** lists background tasks (`s` stops the selected running task); the status bar shows `⚙ N` and a bell rings when a background task finishes; `/tasks` lists them and `/tasks stop <id>` terminates; press **Ctrl+J** for a newline; `exit` quits.
 In the REPL: `/plan` toggles plan mode (read-only research → switch back after approval); `exit` to quit.
+
+**终端兼容与安全 | Terminal safety**：不可信文本（模型回复/工具输出/粘贴内容/文件名/审批命令）渲染前剥离 ESC/OSC/CSI 控制序列，恶意内容不能改窗口标题或写剪贴板；自家 OSC8 文件链接在剥离后重新生成。`NO_COLOR=1` 关闭颜色；`KCODE_PLAIN=1` 关闭颜色并把状态符换成 ASCII（CI/日志友好）；`KCODE_THEME=light` 切亮色主题（白底可读）；`KCODE_LINKS=0/1` 强制关/开文件链接。
 
 **试试技能自动触发 | Try skill auto-trigger** —— 建一个技能目录（项目级 `.kcode/skills/<name>/SKILL.md`）：
 Create a skill directory and mention a trigger word in your prompt:
@@ -141,9 +143,19 @@ Any prompt containing a trigger word auto-loads the skill body into the turn (sh
 
 **钩子 Hooks**（`~/.kcode/hooks.json`；项目级 `.kcode/hooks.json` 需先 `/trust` 信任项目）：
 ```json
-{ "hooks": [{ "event": "pre_tool_use", "command": "node ./guard.mjs", "timeoutMs": 10000 }] }
+{ "hooks": [{ "event": "pre_tool_use", "command": "node ./guard.mjs", "matcher": "^bash$", "timeoutMs": 10000 }] }
 ```
-事件：`session_start` / `pre_tool_use` / `post_tool_use` / `stop`。命令经 shell 执行，stdin 收到 JSON 载荷；裁决协议：退出码 0 放行、退出码 2 拦截（stdout 作为原因）、stdout JSON `{action, args, reason}` 支持改参与拦截；超时/失败放行并告警。
+事件：`session_start` / `pre_tool_use` / `post_tool_use` / `user_prompt_submit` / `pre_compact` / `stop`。命令经 shell 执行，stdin 收到 JSON 载荷；裁决协议：退出码 0 放行、退出码 2 拦截（stdout，缺省 stderr 作为原因）、stdout JSON `{action,args,reason,additionalContext}` 支持改参/拦截/上下文注入；超时/失败放行并告警（`failClosed:true` 则拦截，超时 1.5s 兜底结算不挂会话）。
+
+- `matcher`（3-15）：工具名或正则（大小写不敏感），只对 `pre_tool_use`/`post_tool_use` 生效；`^bash$` 只拦 bash。
+- `additionalContext`（3-15）：只回灌模型，不写工具事件/UI——`user_prompt_submit`/`session_start` 在本轮前注入，`pre/post_tool_use` 在工具结果后以 `<hook_context>` 追加。
+- CC 兼容（3-15）：可直接用 Claude Code 的 `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"...","timeout":10}]}]}}` 形态；`timeout` 按秒、未知键只告警不拒绝。
+
+**插件 Plugins**（`kcode plugin install <目录>`，清单 `.kcode-plugin`；项目级无需 trust，用户级缓存 `~/.kcode/cli/plugins`）：
+- `hooks` 进入同一 runner（`source=plugin`，**cwd 为插件安装目录**，支持 `matcher`/`timeoutMs`/`failClosed`）。
+- `mcp` 按 transport 分流：`stdio` 用 `command`/`args`/`env`；`http`/`sse` 用 `url`。
+- `permissions` 只允许 `<工具名>:ask` 或 `<工具名>:deny`——**只能收紧，不能提权**；`allow`/未知格式在安装期拒装、加载期拒载，多插件冲突 deny 优先。
+- 只装/只载**最新版本**：升级安装会清理旧版缓存，加载兜底只取同名最高版本。
 
 **斜杠命令 Slash commands**：`.kcode/commands/<name>.md`（项目级）或 `~/.kcode/commands/<name>.md`（用户级），同名项目覆盖用户。模板中 `$ARGUMENTS` 替换为命令后参数。内置：`/plan` `/trust` `/help`。
 

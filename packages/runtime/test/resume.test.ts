@@ -49,6 +49,25 @@ describe("rebuildHistory（事件流→历史，§5.3）", () => {
     expect(history[3]).toMatchObject({ role: "assistant", content: "结论" });
   });
 
+  it("3-02 user_message.images 在 rebuild 时保留", () => {
+    const history = rebuildHistory([
+      {
+        v: 1,
+        type: "user_message",
+        ts: 0,
+        sessionId: "s",
+        content: "看图",
+        images: ["C:/sessions/artifacts/images/s/abc.png"],
+      },
+      { v: 1, type: "assistant_message", ts: 0, sessionId: "s", content: "看到了" },
+    ]);
+    expect(history[0]).toMatchObject({
+      role: "user",
+      content: "看图",
+      images: ["C:/sessions/artifacts/images/s/abc.png"],
+    });
+  });
+
   it("compaction_summary 还原为占位消息；todo/skill 元事件跳过", () => {
     const history = rebuildHistory([
       { v: 1, type: "user_message", ts: 0, sessionId: "s", content: "a" },

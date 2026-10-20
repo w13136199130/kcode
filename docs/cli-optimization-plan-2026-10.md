@@ -3,7 +3,7 @@
 > 配套参考：[竞品基线](./cli-agent-benchmark-2026.md) · [ZCode 架构对标](./zcode-benchmark.md) · [威胁模型](./threat-model.md)
 > 范围：本文是**唯一执行文档**（CLI 主线 + 共享层 + 桌面冻结边界）。`apps/cli` 与 `apps/desktop` 共享 `packages/*` 与同一会话语义；CLI 是主产品，桌面 D3 冻结。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；3-03 会话切换/退出清理已落地。最近一次全量：**120 files / 609 passed / 1 skipped**；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
+> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）。最近一次全量：**142 files / 733 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
 
 > **产品化优先令（2026-10-20）**：CLI 是主产品，桌面 D3 冻结，只保留共享层类型兼容；先完成 CLI 阶段二尾巴与阶段三 P0，再恢复桌面。阶段三内部按“生命周期可靠性 → 编码闭环 → TUI 摩擦 → 扩展深水区”排序，不再按原表从 3-01 顺序平铺。详见下方「阶段三产品化重排」。
 
@@ -12,13 +12,13 @@
 | 顺序 | 批次 | 状态 | 出口 |
 |---|---|---|---|
 | 1 | **P0-0 尾巴**：`AGENTS.md` trust、Windows CI 首跑、`kcode login`、`-v` | **部分**：trust/login/verbose 完成；Windows CI 未推 | 陌生仓库不注入；Windows CI 有绿记录 |
-| 2 | **P0-A 生命周期**：3-03 → 3-01 → 3-04 → 3-20 → 3-05/3-06/3-02 | **3-03 完成**；下一步 3-01 | 不空白、无孤儿、断网可恢复 |
-| 3 | **P0-B 编码闭环**：3-09 → 3-07 → 3-08 → 3-10 → 3-11 → 3-23 | 未开始 | 改得准、看得见、退得回 |
-| 4 | **P1-C TUI**：3-28 → 3-24 → 3-22 → 3-25 → 3-26 → 3-27 | 未开始 | 不需要第二个终端 |
-| 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | 未开始 | 扩展边界与 `/trust` 一致 |
+| 2 | **P0-A 生命周期**：3-03 → 3-01 → 3-04 → 3-20 → 3-05/3-06/3-02 | **P0-A 全部完成**（含 3-02 图片持久化） | 不空白、无孤儿、断网可恢复 |
+| 3 | **P0-B 编码闭环**：3-09 → 3-07 → 3-08 → 3-10 → 3-11 → 3-23 | **P0-B 全部完成**（含 3-23 `/diff` 审查/回退）；下一步 P1-C 3-28 | 改得准、看得见、退得回 |
+| 4 | **P1-C TUI**：3-28 → 3-24 → 3-22 → 3-25 → 3-26 → 3-27 | **P1-C 全部完成**；下一步 P1-D 3-15 hooks matcher | 不需要第二个终端 |
+| 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | **进行中**：3-15 / 3-16 完成；下一步 3-17 命令 frontmatter | 扩展边界与 `/trust` 一致 |
 | 6 | **P2-E 治理**：3-29、3-30、3-32、3-31 | 未开始 | 文档/审计有证据 |
 
-**立即下一步**：P0-0 的 trust/login/verbose 与 3-03 已完成；现在做 **3-01 resume 转写**，然后 3-04/3-20。Windows CI 需推送仓库后首跑。不要在 P0-A 完成前开始 `apply_patch`、TUI 美化或桌面 D3。
+**立即下一步**：P1-D 进行中——3-15 hooks、3-16 插件接线完成；下一步 **3-17 命令 frontmatter** → 3-18 skills 策略 → 3-19 subagent → 3-21 费用分项 → 3-13 todo/task → 3-14 MCP。Windows CI 需推送仓库后首跑。P1-D 完成前不要开始桌面 D3。
 
 **桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。
 
@@ -210,8 +210,8 @@
 
 | ID | 动作 | 落点 | 验收 | 人日 |
 |---|---|---|---|---|
-| 3-15 | **hooks matcher + 上下文注入 + 协议兼容**：`matcher`（工具名/正则）、`additionalContext`、兼容 CC JSON、条目未知键只告警 | `contracts/hooks.ts`、`hooks/runner.ts` | 只对目标工具跑 hook；支持上下文注入 | 2 |
-| 3-16 | **插件接线**：manifest.hooks 进 hook runner（source=plugin）、permissions 转规则或拒装、MCP 按 transport 分流、只装最新版 | `composition.ts`、`plugins/install.ts` | 同意摘要里写的内容真的生效 | 2 |
+| 3-15 | **hooks matcher + 上下文注入 + 协议兼容**（✅）：工具名/正则 matcher 只跑目标 hook；`additionalContext` 经 pre/post/session_start/prompt 注入模型上下文（不污染工具事件）；兼容 CC `hooks{PreToolUse:[{matcher,hooks:[{type,command,timeout}]}]}` 与 decision/hookSpecificOutput/continue:false；未知键只告警 | `contracts/hooks.ts`、`hooks/loader.ts`、`hooks/runner.ts`、`core/loop.ts`、`core/pipeline.ts` | 只对目标工具跑 hook；支持上下文注入 | 2 |
+| 3-16 | **插件接线**（✅）：manifest.hooks 进同一 runner（source=plugin，cwd=插件安装目录）；permissions 转 ask/deny 规则（allow/未知格式安装期拒装，加载期拒载，deny 冲突优先）；MCP 按 transport 分流（stdio command/args/env、http/sse url）；同名只装/只载最新版 | `plugins/install.ts`、`plugins/permissions.ts`、`plugins/mcp.ts`、`roots.ts`、`composition.ts` | 同意摘要里写的内容真的生效 | 2 |
 | 3-17 | **命令 frontmatter / `!bash` / 命名空间**：description/argument-hint/allowed-tools/model；递归目录生成 `ns:cmd`；不再把 `---` 发模型 | `extensions/src/commands/` | CC 风格命令可直接用 | 2 |
 | 3-18 | **skills 两字段 + 来源策略**：`allowed-tools`、`disable-model-invocation`；第三方技能默认手动；解析器支持多行/引号 | `contracts/skill.ts`、`skills/` | 项目/插件技能不会静默自动注入 | 1.5 |
 | 3-19 | **subagent 扩展**：`permissionMode`、`disallowedTools`、`maxTurns`、插件来源；`explore` 在 plan 档可用 | `contracts/agent.ts`、`session/src/subagent.ts` | 只读子代理可声明只读；plan 能派 research | 1.5 |
@@ -222,13 +222,13 @@
 
 | ID | 动作 | 落点 | 验收 | 人日 |
 |---|---|---|---|---|
-| 3-22 | **长输出可查看**：工具详情分页/搜索/复制；错误默认显示尾部；给出 JSONL/artifact 路径 | `Transcript.tsx`、`ToolBrowser.tsx`、`events.ts` | 1000 行测试失败能在 TUI 里看完 | 2 |
-| 3-23 | **diff 审查**：`/diff [文件]` 列出 changed files + hunks；逐文件 revert（复用 checkpoint） | `commands.ts`、新面板 | 改完能在 CLI 内 review，不必切 git | 3 |
-| 3-24 | **输入编辑键**：Ctrl+A/E/U/K/W、Alt/Ctrl+左右词移动；外部编辑器改 Ctrl+G；Ctrl+J 写进帮助/ghost | `InputBox.tsx`、`InputArea.tsx` | 长提示词可正常编辑 | 1.5 |
-| 3-25 | **Static 修复**：活区维护"所有 running 工具"而非只看尾部；终态独立 live 卡；Ctrl+O 强制重放/分页 | `TranscriptView.tsx`、`store.ts` | 排队提示/子代理事件不再冻结工具卡；Ctrl+O 真能展开 | 1.5 |
-| 3-26 | **终端安全与降级**：剥离 ESC/OSC（保留自家 OSC8）；`NO_COLOR`/`KCODE_PLAIN=1`；亮色主题/ASCII glyph | `Transcript.tsx`、`markdown.tsx`、`design/terminal.ts` | 恶意输出不能改标题/写剪贴板；白底可读 | 2 |
-| 3-27 | **后台任务可见**：状态栏 `⚙ N`、完成铃声、`/tasks` + stop；审批/提问通知 | `StatusLine.tsx`、`notify.ts`、`tasks/` | 切走知道完成；能停 | 1.5 |
-| 3-28 | **`#` / `/` 输入边界**：`#` 改为 `# ` 或 `/remember`；未知 `/` 命令保留原文；`/Users/...` 可发送 | `InputArea.tsx`、`commands.ts` | 不再误写 AGENTS.md / 丢输入 | 1 |
+| 3-22 | **长输出可查看**（✅）：工具详情分页（PgUp/PgDn）、`/` 搜索命中行、`c` 复制全文、失败默认显示末尾；块内 2k 预览不够时按 callId 从 JSONL 读全文，并显示 JSONL 路径 | `ToolBrowser.tsx`、`Transcript.tsx`、`session.ts`、`terminal/clipboard-text.ts` | 1000 行测试失败能在 TUI 里看完 | 2 |
+| 3-23 | **diff 审查**（✅）：`/diff [文件]` 列出 changed files + hunks（按上下文折叠）；面板内逐文件 revert（复用 checkpoint 前像，二次确认）；运行中拒绝 | `commands.ts`、`dialogs/DiffBrowser.tsx`、`dialogs/diff-model.ts`、`session/src/checkpoints.ts` | 改完能在 CLI 内 review，不必切 git | 3 |
+| 3-24 | **输入编辑键**（✅）：Ctrl+A/E 行首/行尾、Ctrl+U/K 删到行首/行尾、Ctrl+W 删前一词、Alt/Ctrl+←→ 按词移动；外部编辑器迁 Ctrl+G；Ctrl+J 写进 /help 与 ghost | `InputBox.tsx`、`input/editing.ts`、`InputArea.tsx` | 长提示词可正常编辑 | 1.5 |
+| 3-25 | **Static 修复**（✅）：Static 只收"首个 running 工具之前"的块——其后 info/assistant/已完成工具全留活区，排队/子代理事件不再冻结工具卡；终态卡完成后自然并入静态前缀；Ctrl+O 清屏 + `renderEpoch` 重挂 Static 重放（真能展开），`/clear` 同步复位下标 | `TranscriptView.tsx`、`packages/ui/src/state/transcript.ts` | 排队提示/子代理事件不再冻结工具卡；Ctrl+O 真能展开 | 1.5 |
+| 3-26 | **终端安全与降级**（✅）：所有不可信文本（模型/工具/用户粘贴/文件名/审批命令/标题）渲染前剥离 ESC/OSC/CSI，自家 OSC8 在剥离后重新生成；`NO_COLOR`/`KCODE_PLAIN=1` 关闭颜色，`KCODE_PLAIN` 状态符退 ASCII，`KCODE_THEME=light` 用白底可读深色盘 | `terminal/sanitize.ts`、`Transcript.tsx`、`markdown.tsx`、`design/terminal.ts` | 恶意输出不能改标题/写剪贴板；白底可读 | 2 |
+| 3-27 | **后台任务可见**（✅）：App 每秒读注册表快照（指纹不变不写 store，空闲零重绘）；状态栏 `⚙ N`；running→终态响完成铃；Ctrl+T 面板 `s` 停止；`/tasks` 清单与 `/tasks stop <id>` | `status-data.ts`、`StatusLine.tsx`、`keybinds.ts`、`TaskBrowser.tsx`、`commands.ts` | 切走知道完成；能停 | 1.5 |
+| 3-28 | **`#` / `/` 输入边界**（✅）：`# `（带空格）才写 AGENTS.md，`#include`/裸 `#` 按提问；`/Users/...` 等斜杠路径按普通提问；未知 `/命令` 回填原文不丢输入；新增 `/remember` 显式入口 | `InputArea.tsx`、`commands.ts`、`contracts/commands.ts` | 不再误写 AGENTS.md / 丢输入 | 1 |
 
 ### 3.5 工程与治理
 
@@ -311,6 +311,16 @@
 | `hook-mutate-permission` | 改参后重新判权 | 二 |
 | `approval-full-view` | 完整命令/diff 可查看；Enter 不误放行 | 二 |
 | `resume-transcript` | 恢复后能看到历史 | 三 |
+| `diff-review` | `/diff` changed files + hunks；逐文件回退检查点；运行中拒绝 | 三 |
+| `input-boundary` | `# ` 才写记忆；斜杠路径按提问；未知 `/命令` 保留原文 | 三 |
+| `input-editing` | Ctrl+A/E/U/K/W、Alt/Ctrl+←→、Ctrl+G 编辑、Ctrl+J 换行 | 三 |
+| `tool-output` | 工具详情分页/搜索/复制；失败默认末尾；2k 截断后从 JSONL 取全文 | 三 |
+| `static-boundary` | running 工具后有 info 仍可重绘；Ctrl+O 重放展开；/clear 复位 Static | 三 |
+| `terminal-safety` | OSC 0/52、CSI、未终止 OSC 被剥离；标题写入体内无注入 | 三 |
+| `terminal-degrade` | NO_COLOR/KCODE_PLAIN 关闭颜色；light 主题深色盘（含字面量 ANSI 色）；ASCII 状态符 | 三 |
+| `tasks-visible` | 快照指纹不变不重绘；完成沿响铃一次；`/tasks` 清单与 stop；面板 s 停止 | 三 |
+| `hook-matcher` | matcher 只跑目标工具；CC 配置/裁决兼容；additionalContext 注入模型 | 三 |
+| `plugin-wiring` | 插件 hook 以安装目录执行；permissions 收紧引擎；MCP transport 分流；只装最新版 | 三 |
 | `static-running-tool` | 排队提示不冻结工具卡 | 三 |
 | `terminal-escape` | OSC/ESC 被剥离 | 三 |
 | `sandbox-windows` | 沙箱内写边界/网络 | 四 |
@@ -379,18 +389,19 @@
 
 - CLI 阶段一 1-01~1-11；阶段二 2-01~2-24（脚本化契约 + 安全最小集 + 审批闭环 + 通知/模式同步 + 生成式 /help）。
 - 桌面 D0/D1/D2：onboarding、host config RPC、队列、时间线、会话标题/删除、单实例/窗口状态、Composer slash/@、审批键盘/真实 diff/changed files/任务面板。
-- 验证基线：120 test files / 609 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿。
+- 验证基线：142 test files / 733 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿。
 
 ### 当前 P0（按序）
 
 1. **P0-0 尾巴**：`AGENTS.md` trust ✅；顶层 `kcode login` ✅；`--verbose` ✅；Windows CI 首跑 ⏳（待推送）。
-2. **P0-A 生命周期**：3-03 退出清理 ✅ → 下一步 3-01 resume 转写 → 3-04 `/resume` 过滤/命名/删除 → 3-20 超时/溢出恢复 → 3-05/3-06/3-02。
-3. **P0-B 编码闭环**：3-09 读后校验 → 3-07 `apply_patch` → 3-08 `replaceAll` → 3-10 bash → 3-11 grep/glob → 3-23 `/diff`。
+2. **P0-A 生命周期**：3-03 退出清理 ✅ → 3-01 resume 转写 ✅ → 3-04 `/resume` 过滤/命名/删除 ✅ → 3-20 超时/溢出恢复 ✅ → 3-05 检查点配额/子代理范围 ✅ → 3-06 `/export` ✅ → 3-02 图片持久化 ✅ → **P0-A 完成** → 3-09 读后过期校验 ✅ → 3-07 `apply_patch` ✅ → 3-08 `edit.replaceAll`/多编辑 ✅ → 3-10 bash 超时/进程树/流式进度 ✅ → 3-11 grep/glob 参数与边界 ✅ → 3-23 `/diff` 审查/逐文件回退 ✅ → **P0-B 完成**。
+3. **P1-C TUI 摩擦**：3-28 `#`/`/` 输入边界 ✅ → 3-24 编辑键 ✅ → 3-22 长输出 ✅ → 3-25 Static 边界 ✅ → 3-26 终端安全/降级 ✅ → 3-27 后台任务可见 ✅ → **P1-C 完成**。
+4. **P1-D 扩展深水区**：3-15 hooks matcher ✅ → 3-16 插件接线 ✅ → 3-17 命令 frontmatter → 3-18 skills 策略 → 3-19 subagent → 3-21 费用分项 → 3-13 todo/task → 3-14 MCP。
 
 ### 后续
 
-- **P1-C TUI**：3-28 → 3-24 → 3-22 → 3-25 → 3-26 → 3-27。
-- **P1-D 扩展**：3-15 → 3-16 → 3-17 → 3-18 → 3-19 → 3-21 → 3-13 → 3-14。
+- **P1-C TUI**：✅ 全部完成（3-28/3-24/3-22/3-25/3-26/3-27）。
+- **P1-D 扩展**：3-17 → 3-18 → 3-19 → 3-21 → 3-13 → 3-14（3-15/3-16 已完成，从这里继续）。
 - **P2-E 治理**：3-29、3-30、3-32、3-31。
 - **阶段四**：Windows 沙箱、策略文件、LSP、fork/命名/搜索、auto memory（看 0.4 数据再定）。
 

@@ -10,7 +10,9 @@ export const KEYBIND_HELP: readonly string[] = [
   "Esc 中断本轮；空闲双击 Esc 打开回退点菜单",
   "Ctrl+C 中断本轮（审批中 = 拒绝整轮）",
   "Ctrl+T 任务浏览器 · Ctrl+B 工具浏览器 · Ctrl+R 历史搜索",
-  "Ctrl+E 外部编辑器 · Ctrl+J 输入换行",
+  "Ctrl+G 外部编辑器 · Ctrl+J 输入换行",
+  "Ctrl+A/E 行首/行尾 · Ctrl+U/K 删至行首/行尾 · Ctrl+W 删前一词",
+  "Alt/Ctrl+←→ 按词移动 · Ctrl+Z/Y 撤销/重做",
   "/ 命令补全 · @ 文件路径补全",
 ];
 

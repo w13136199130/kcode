@@ -40,6 +40,14 @@ export const ToolDefinition = z.object({
 });
 export type ToolDefinition = z.infer<typeof ToolDefinition>;
 
+/** 3-09：read 记录，写/编辑前据此判断文件是否被外部改过 */
+export interface FileReadRecord {
+  /** 读取时完整内容的 SHA-256 */
+  hash: string;
+  mtimeMs: number;
+  size: number;
+}
+
 export interface ToolContext {
   sessionId: string;
   /** 本次工具调用的 callId（与 tool_call 事件对应；检查点/审计关联用） */
@@ -50,12 +58,21 @@ export interface ToolContext {
   workspaceKey?: string;
   /** 用户中断信号（Esc/Ctrl+C）：长任务工具（bash 等）应监听并终止子进程 */
   signal?: AbortSignal;
+  /** 3-09：本会话已读文件表（组合层注入；缺省不启用读后校验，兼容独立工具测试） */
+  reads?: Map<string, FileReadRecord>;
+  /** 3-10：长任务进度（bash 节流推送输出尾部；仅前端展示，不落 JSONL） */
+  onProgress?: (tail: string, totalChars: number) => void;
 }
 
 export interface ToolOutput {
   ok: boolean;
   output: string;
   error?: string;
+  /**
+   * 3-15：hook additionalContext（只回灌模型，不写进 UI/JSONL 的工具输出）；
+   * settle 阶段以 `<hook_context>` 包裹追加到工具结果末尾。
+   */
+  hookContext?: string;
   /**
    * 工具产出的图片文件路径（extract 图片提取用）：
    * loop 会以带图 user 消息注入后续请求，供视觉模型查看；
@@ -93,18 +110,25 @@ export interface HookPreOutcome {
   veto: boolean;
   args?: unknown;
   reason?: string;
+  /** 3-15：additionalContext——追加到模型上下文（工具事件在结果后回灌；prompt 事件在本轮输入前注入） */
+  context?: string;
+}
+
+/** 3-15：不可否决事件的上下文输出（post_tool_use / session_start） */
+export interface HookContextOutcome {
+  context?: string;
 }
 
 /** hooks 端口（stdin JSON、退出码/JSON 决定放行或拦截；进程执行由 extensions 实现） */
 export interface HookRunner {
   preToolUse(call: ToolCallRef): Promise<HookPreOutcome>;
-  postToolUse(call: ToolCallRef, result: ToolOutput): Promise<void>;
+  postToolUse(call: ToolCallRef, result: ToolOutput): Promise<HookContextOutcome | void>;
   /** 用户输入提交钩子（B5）：退出码 2 = 拦截该输入（原因回显） */
   onUserPromptSubmit?(payload: { sessionId: string; prompt: string }): Promise<HookPreOutcome>;
   /** 压缩前钩子（B5）：退出码 2 = 跳过本次压缩 */
   onPreCompact?(payload: { sessionId: string; dropped: number }): Promise<HookPreOutcome>;
-  /** 会话开始钩子（可选实现；失败不阻断会话） */
-  onSessionStart?(payload: { sessionId: string }): Promise<void>;
+  /** 会话开始钩子（可选实现；失败不阻断会话）；可返回 additionalContext 注入历史 */
+  onSessionStart?(payload: { sessionId: string }): Promise<HookContextOutcome | void>;
   /** 会话结束钩子（可选实现；失败不阻断会话） */
   onStop?(payload: { sessionId: string }): Promise<void>;
 }

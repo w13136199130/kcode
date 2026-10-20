@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import { listInstalledPlugins, verifyPluginSeed, type InstalledPlugin } from "./plugins/install.js";
+import {
+  latestInstalledPlugins,
+  listInstalledPlugins,
+  verifyPluginSeed,
+  type InstalledPlugin,
+} from "./plugins/install.js";
+import { parsePluginPermissions } from "./plugins/permissions.js";
 import { filterEnabledPlugins, readDisabledPlugins } from "./plugins/state.js";
 import type { SkillSource } from "./skills/discover.js";
 import type { CommandSource } from "./commands/index.js";
@@ -38,9 +44,21 @@ export async function buildExtensionRoots(opts: {
   const projectCommand: CommandSource = { dir: join(opts.cwd, ".kcode", "commands"), source: "project" };
   const pluginsDir = join(opts.kcodeHomeDir, "cli", "plugins");
   const disabled = await readDisabledPlugins(pluginsDir);
-  const enabled = filterEnabledPlugins(await listInstalledPlugins(join(pluginsDir, "cache")), disabled);
+  // 3-16：同名插件只装载最高版本（安装期已清理旧版，这里兜底历史缓存）
+  const enabled = filterEnabledPlugins(
+    latestInstalledPlugins(await listInstalledPlugins(join(pluginsDir, "cache"))),
+    disabled,
+  );
   const plugins: InstalledPlugin[] = [];
   for (const p of enabled) {
+    // 3-16：权限声明不合法/请求提权的插件拒绝装载（同意摘要不能写得比实际能力弱）
+    const permissionErrors = parsePluginPermissions(p.manifest.permissions).errors;
+    if (permissionErrors.length > 0) {
+      opts.onWarn?.(
+        `插件 ${p.manifest.name}@${p.manifest.version} 权限声明不合法，已拒绝装载：${permissionErrors.join("；")}`,
+      );
+      continue;
+    }
     // 每次组装都重算哈希：插件体量小（技能/命令文件），换缓存反而引入失效复杂度
     if (await verifyPluginSeed(p.installPath, p.seed.hash)) {
       plugins.push(p);

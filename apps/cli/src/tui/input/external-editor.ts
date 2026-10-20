@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
- * 外部编辑器（N3C-4④）：Ctrl+E 把当前输入放进 $EDITOR 编辑，保存退出后回填输入框。
+ * 外部编辑器（N3C-4④，3-24 起绑 Ctrl+G）：把当前输入放进 $EDITOR 编辑，保存退出后回填输入框。
  * spawnSync 会阻塞事件循环——调用方必须确保仅在空闲（非 busy）时进入，
  * 否则流式渲染与计时器全部冻结；编辑期间由调用方关闭 raw mode，终端交还编辑器。
  * EDITOR 形态支持 "code -w" / "vim"（首段命令 + 参数）；未设置时按平台给 notepad/vi 兜底。

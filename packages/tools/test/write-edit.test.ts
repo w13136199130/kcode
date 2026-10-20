@@ -52,6 +52,53 @@ describe("edit 工具", () => {
     expect(await readFile(file, "utf8")).toBe("alpha\nB$&E\ngamma\n");
   });
 
+  it("3-08 replaceAll 替换全部精确匹配；默认仍拒绝歧义", async () => {
+    const file = join(root, "all.txt");
+    await writeFile(file, "x\nx\nx\n", "utf8");
+    const denied = await editTool.execute({ path: "all.txt", oldString: "x", newString: "y" }, ctx());
+    expect(denied.ok).toBe(false);
+    expect(denied.error).toContain("不唯一");
+
+    const all = await editTool.execute(
+      { path: "all.txt", oldString: "x", newString: "y", replaceAll: true },
+      ctx(),
+    );
+    expect(all.ok).toBe(true);
+    expect(all.output).toContain("替换全部");
+    expect(await readFile(file, "utf8")).toBe("y\ny\ny\n");
+  });
+
+  it("3-08 edits[] 多编辑按序应用；任一处失败整体不写", async () => {
+    const file = join(root, "multi.txt");
+    await writeFile(file, "a\nb\nc\n", "utf8");
+    const ok = await editTool.execute(
+      {
+        path: "multi.txt",
+        edits: [
+          { oldString: "a", newString: "A" },
+          { oldString: "c", newString: "C" },
+        ],
+      },
+      ctx(),
+    );
+    expect(ok.ok).toBe(true);
+    expect(await readFile(file, "utf8")).toBe("A\nb\nC\n");
+
+    const failed = await editTool.execute(
+      {
+        path: "multi.txt",
+        edits: [
+          { oldString: "A", newString: "X" },
+          { oldString: "missing", newString: "Y", replaceAll: true },
+        ],
+      },
+      ctx(),
+    );
+    expect(failed.ok).toBe(false);
+    expect(failed.error).toContain("第 2 处");
+    expect(await readFile(file, "utf8")).toBe("A\nb\nC\n"); // 第一处也不落盘
+  });
+
   it("CRLF 文件用 LF oldString 仍走精确匹配（不落到模糊）", async () => {
     const file = join(root, "crlf-exact.txt");
     await writeFile(file, "alpha\r\nbeta\r\ngamma\r\n", "utf8");

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { stripEscapes } from "./sanitize.js";
 
 /**
  * 终端标题栏进度（N3F-2，对标 CC）：OSC 0 写标题，busy/活动标签变化时更新，
@@ -24,7 +25,7 @@ export function writeTerminalTitle(
   if (sink.isTTY !== true) {
     return;
   }
-  sink.write(`\x1b]0;${text}\x07`);
+  sink.write(`\x1b]0;${stripEscapes(text)}\x07`);
 }
 
 /** 标题文本（纯函数便于单测）：确认等待优先 ❗，其次 busy ⏳，空闲复位 */

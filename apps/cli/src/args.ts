@@ -9,9 +9,9 @@ import type { PermissionMode } from "@kcode/contracts";
  */
 
 /** 子命令种类：首 token 命中即短路，后续 token 原样透传给对应处理函数 */
-type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "update" | "mcp" | "init";
+type SubcommandKind = "key" | "plugin" | "doctor" | "skills" | "commands" | "sessions" | "export" | "update" | "mcp" | "init";
 
-const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "update", "mcp", "init"];
+const SUBCOMMANDS: readonly SubcommandKind[] = ["key", "plugin", "doctor", "skills", "commands", "sessions", "export", "update", "mcp", "init"];
 
 const MODES: readonly PermissionMode[] = ["plan", "default", "acceptEdits", "fullAccess"];
 
@@ -89,7 +89,7 @@ export function usageText(): string {
     "      --settings <路径>         用户级配置文件覆盖（缺省 ~/.kcode/config.json）",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
     "      --verbose                 启动时打印诊断上下文（不改变日志级别）",
-    "子命令：kcode init · kcode key add <ref> <audience...> [--key-file <path>]｜list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
+    "子命令：kcode init · kcode login · kcode key add <ref> <audience...> [--key-file <path>]｜list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list · kcode sessions list|rename <id> <标题>|rm <id> · kcode export [id|latest] [路径.md|.jsonl]",
   ].join("\n");
 }
 

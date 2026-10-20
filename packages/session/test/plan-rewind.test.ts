@@ -123,8 +123,13 @@ describe("/rewind（检查点回退）", () => {
     // 父会话是同一个 LLM 实例：三次 run 按序消费同一条脚本
     const h = await compose([
       [
-        // 第 1 轮：改 keep.txt
-        { toolCalls: [{ callId: "w1", tool: "edit", args: { path: "keep.txt", oldString: "原始内容", newString: "第一轮改动" } }] },
+        // 第 1 轮：先 read 再改 keep.txt（3-09 读后校验）
+        {
+          toolCalls: [
+            { callId: "r1", tool: "read", args: { path: "keep.txt" } },
+            { callId: "w1", tool: "edit", args: { path: "keep.txt", oldString: "原始内容", newString: "第一轮改动" } },
+          ],
+        },
         { text: "第一轮完成" },
         // 第 2 轮：新建 new.txt
         { toolCalls: [{ callId: "w2", tool: "write", args: { path: "new.txt", content: "第二轮新建" } }] },

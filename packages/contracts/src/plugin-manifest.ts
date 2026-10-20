@@ -12,14 +12,20 @@ export type PluginName = z.infer<typeof PluginName>;
 
 export const McpServerDecl = z.object({
   name: PluginName,
-  transport: z.enum(["stdio", "http"]),
+  transport: z.enum(["stdio", "http", "sse"]),
   command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   url: z.string().url().optional(),
 });
 
 export const HookDecl = z.object({
-  event: z.enum(["session_start", "pre_tool_use", "post_tool_use", "stop"]),
+  event: z.enum(["session_start", "pre_tool_use", "post_tool_use", "user_prompt_submit", "pre_compact", "stop"]),
   command: z.string().min(1),
+  /** 3-16：与 hooks.json 同语义（matcher/timeout/fail-closed 直接进 runner） */
+  matcher: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  failClosed: z.boolean().optional(),
 });
 
 export const PluginManifest = z

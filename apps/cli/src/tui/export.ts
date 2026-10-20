@@ -1,3 +1,4 @@
+import type { SessionEvent } from "@kcode/contracts";
 import type { Block } from "@kcode/ui";
 
 /**
@@ -45,4 +46,58 @@ export function blocksToMarkdown(blocks: Block[]): string {
 
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+/** 3-06：JSONL 事件流原样序列化（工具输出不截断） */
+export function serializeEvents(events: readonly SessionEvent[]): string {
+  return `${events.map((e) => JSON.stringify(e)).join("\n")}\n`;
+}
+
+/**
+ * 3-06：事件流 → Markdown。以 JSONL 为事实源，工具结果全文入 fenced block；
+ * 不再从 TUI 转写块反推（块里工具输出本来就截断过）。
+ */
+export function eventsToMarkdown(events: readonly SessionEvent[]): string {
+  const lines: string[] = ["# kcode 会话导出", ""];
+  const toolCalls = new Map<string, { tool: string; args: unknown }>();
+  for (const event of events) {
+    switch (event.type) {
+      case "session_start":
+        lines.push(`> 会话 ${event.sessionId} · 模型 ${event.model}${event.cwd !== undefined ? ` · ${event.cwd}` : ""}`, "");
+        break;
+      case "user_message":
+        lines.push("## 🧑 用户", "", event.content, "");
+        break;
+      case "assistant_message":
+        if (event.reasoning !== undefined && event.reasoning !== "") {
+          lines.push("<details><summary>💭 思考过程</summary>", "", event.reasoning, "", "</details>", "");
+        }
+        lines.push("## 🤖 助手", "", event.content, "");
+        break;
+      case "tool_call":
+        toolCalls.set(event.callId, { tool: event.tool, args: event.args });
+        lines.push(`### 🔧 ${event.tool}`, "", "```json", JSON.stringify(event.args, null, 2), "```", "");
+        break;
+      case "tool_result": {
+        const call = toolCalls.get(event.callId);
+        lines.push(`> ${event.ok ? "✓" : "✗"} ${call?.tool ?? event.callId}${event.error !== undefined ? `：${event.error}` : ""}`, "");
+        if (event.output !== "") {
+          lines.push("```text", event.output, "```", "");
+        }
+        break;
+      }
+      case "compaction_summary":
+        lines.push(`> ⑂ 上下文压缩（${event.dropped} 条）：${event.summary}`, "");
+        break;
+      case "session_end":
+        lines.push(`> 本轮结束：${event.reason}${event.detail !== undefined ? `（${event.detail}）` : ""}`, "");
+        break;
+      case "llm_error":
+        lines.push(`> ⚠ 模型错误：${event.error}`, "");
+        break;
+      default:
+        break;
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }

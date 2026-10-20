@@ -3,12 +3,23 @@ import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
 import { displayPath, isWithinWorkspace, resolveInCtx } from "./paths.js";
 import { atomicWriteText } from "./atomic-write.js";
+import { recordRead, verifyReadBeforeWrite } from "./read-state.js";
+
+const OneEdit = z.object({
+  oldString: z.string().min(1),
+  newString: z.string(),
+  /** 3-08：替换该 hunk 的全部精确匹配（默认要求唯一） */
+  replaceAll: z.boolean().optional(),
+});
 
 const EditArgs = z.object({
   path: z.string().min(1),
-  oldString: z.string().min(1),
-  newString: z.string(),
+  oldString: z.string().min(1).optional(),
+  newString: z.string().optional(),
   fuzzy: z.boolean().optional(), // 默认 true：精确失败后行级模糊匹配（aider 思路，§11.B）
+  replaceAll: z.boolean().optional(),
+  /** 3-08：同文件多编辑，按顺序应用；任一处失败整体不写 */
+  edits: z.array(OneEdit).min(1).max(50).optional(),
 });
 
 const FUZZY_THRESHOLD = 0.8;
@@ -21,7 +32,7 @@ export const editTool: Tool = {
   definition: {
     name: "edit",
     description:
-      "替换文件中的文本片段：oldString 须在文件中唯一；精确匹配失败后自动按行模糊匹配（容忍空白差异）；执行前需用户确认",
+      "替换文件中的文本片段：默认 oldString 须唯一；replaceAll=true 替换全部；可用 edits[] 一次提交同文件多处修改（全成或全败）；执行前需用户确认",
     parameters: {
       type: "object",
       properties: {
@@ -29,8 +40,22 @@ export const editTool: Tool = {
         oldString: { type: "string", description: "待替换文本（带足上下文以保证唯一）" },
         newString: { type: "string", description: "替换后文本" },
         fuzzy: { type: "boolean", description: "默认 true，精确失败后启用模糊匹配" },
+        replaceAll: { type: "boolean", description: "替换全部精确匹配（默认 false，必须唯一）" },
+        edits: {
+          type: "array",
+          description: "同文件多编辑（按顺序应用，失败整体不写）；提供后忽略顶层 oldString/newString",
+          items: {
+            type: "object",
+            properties: {
+              oldString: { type: "string" },
+              newString: { type: "string" },
+              replaceAll: { type: "boolean" },
+            },
+            required: ["oldString", "newString"],
+          },
+        },
       },
-      required: ["path", "oldString", "newString"],
+      required: ["path"],
     },
     readOnly: false,
     permission: { default: "ask", acceptEdits: "allow" },
@@ -41,7 +66,16 @@ export const editTool: Tool = {
     if (!parsed.success) {
       return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
     }
-    const { path, oldString, newString, fuzzy } = parsed.data;
+    const { path, fuzzy } = parsed.data;
+    const edits =
+      parsed.data.edits !== undefined
+        ? parsed.data.edits
+        : parsed.data.oldString !== undefined && parsed.data.newString !== undefined
+          ? [{ oldString: parsed.data.oldString, newString: parsed.data.newString, replaceAll: parsed.data.replaceAll }]
+          : null;
+    if (edits === null) {
+      return { ok: false, output: "", error: "参数不合法：需要 oldString/newString 或 edits[]" };
+    }
     const abs = resolveInCtx(path, ctx);
 
     // 工作区边界检查：工作区外返回错误（工具层硬边界；后续上移到权限引擎改为 ask）
@@ -55,36 +89,98 @@ export const editTool: Tool = {
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }
-
-    // 精确匹配前先对齐 EOL：read 工具返回的文本按 \n 拼接，模型拿到的 oldString
-    // 永远不含 \r；CRLF 文件直接对拍原始 content 会恒为 0，全部落到同步模糊匹配。
-    const exact = replaceExact(content, oldString, newString);
-    if (exact.updated !== undefined) {
-      await atomicWriteText(abs, exact.updated);
-      return { ok: true, output: `已替换 ${displayPath(abs, ctx)}（精确匹配，1 处）` };
-    }
-    if (exact.count > 1) {
-      return {
-        ok: false,
-        output: "",
-        error: `oldString 出现 ${exact.count} 次，不唯一——请在 oldString 中附带更多上下文`,
-      };
-    }
-    if (fuzzy === false) {
-      return { ok: false, output: "", error: "未找到 oldString（精确匹配失败，fuzzy=false）" };
+    // 3-09：防止 read 后文件被外部修改，模型按旧内容盲覆盖
+    const stale = verifyReadBeforeWrite(ctx, abs, content);
+    if (stale !== undefined) {
+      return { ok: false, output: "", error: stale };
     }
 
-    const result = fuzzyReplace(content, oldString, newString);
-    if (!result.ok) {
-      return { ok: false, output: "", error: result.reason };
+    let current = content;
+    let total = 0;
+    let fuzzyScore: number | null = null;
+    let all = false;
+    for (const [index, edit] of edits.entries()) {
+      const result = applyOneEdit(current, edit.oldString, edit.newString, edit.replaceAll === true, fuzzy);
+      if (typeof result === "string") {
+        const prefix = edits.length > 1 ? `第 ${index + 1} 处：` : "";
+        return { ok: false, output: "", error: `${prefix}${result}` };
+      }
+      current = result.content;
+      total += result.count;
+      if (result.kind === "fuzzy") fuzzyScore = result.score;
+      if (result.kind === "all") all = true;
     }
-    await atomicWriteText(abs, result.content);
-    return {
-      ok: true,
-      output: `已替换 ${displayPath(abs, ctx)}（模糊匹配，平均相似度 ${result.score.toFixed(2)}）`,
-    };
+    await atomicWriteText(abs, current);
+    await recordRead(ctx, abs, current);
+    const suffix =
+      edits.length > 1
+        ? `多编辑，共 ${total} 处`
+        : all
+          ? `替换全部，${total} 处`
+          : fuzzyScore !== null
+            ? `模糊匹配，平均相似度 ${fuzzyScore.toFixed(2)}`
+            : "精确匹配，1 处";
+    return { ok: true, output: `已替换 ${displayPath(abs, ctx)}（${suffix}）` };
   },
 };
+
+type OneEditResult =
+  | { kind: "exact" | "all" | "fuzzy"; content: string; count: number; score: number }
+  | string;
+
+/** 单处编辑（多编辑复用）；返回字符串即错误原因 */
+function applyOneEdit(
+  content: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+  fuzzy: boolean | undefined,
+): OneEditResult {
+  if (replaceAll) {
+    const all = replaceAllExact(content, oldString, newString);
+    if (all.count === 0) return "未找到 oldString（replaceAll 精确匹配失败）";
+    return { kind: "all", content: all.updated, count: all.count, score: 1 };
+  }
+  const exact = replaceExact(content, oldString, newString);
+  if (exact.updated !== undefined) {
+    return { kind: "exact", content: exact.updated, count: 1, score: 1 };
+  }
+  if (exact.count > 1) {
+    return `oldString 出现 ${exact.count} 次，不唯一——请在 oldString 中附带更多上下文，或使用 replaceAll=true`;
+  }
+  if (fuzzy === false) {
+    return "未找到 oldString（精确匹配失败，fuzzy=false）";
+  }
+  const result = fuzzyReplace(content, oldString, newString);
+  if (!result.ok) return result.reason ?? "模糊匹配失败";
+  return { kind: "fuzzy", content: result.content, count: 1, score: result.score };
+}
+
+interface AllOutcome {
+  updated: string;
+  count: number;
+}
+
+/** 3-08：EOL 感知的全量替换；选择第一个有命中的变体，不混用不同 EOL */
+function replaceAllExact(content: string, oldString: string, newString: string): AllOutcome {
+  const variants: Array<[string, string]> = [[oldString, newString]];
+  const add = (oldText: string, newText: string): void => {
+    if (!variants.some(([o]) => o === oldText)) variants.push([oldText, newText]);
+  };
+  if (content.includes("\r\n")) {
+    add(oldString.replace(/\r?\n/g, "\r\n"), newString.replace(/\r?\n/g, "\r\n"));
+    add(oldString.replace(/\r\n/g, "\n"), newString.replace(/\r\n/g, "\n"));
+  } else {
+    add(oldString.replace(/\r\n/g, "\n"), newString.replace(/\r\n/g, "\n"));
+  }
+  for (const [oldText, newText] of variants) {
+    const count = countOccurrences(content, oldText);
+    if (count > 0) {
+      return { updated: content.split(oldText).join(newText), count };
+    }
+  }
+  return { updated: content, count: 0 };
+}
 
 interface FuzzyOutcome {
   ok: boolean;

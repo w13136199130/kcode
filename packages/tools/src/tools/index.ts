@@ -4,6 +4,7 @@ import { globTool } from "./glob.js";
 import { grepTool } from "./grep.js";
 import { writeTool } from "./write.js";
 import { editTool } from "./edit.js";
+import { applyPatchTool } from "./apply-patch.js";
 import { createBashTool, type BashToolOptions } from "./bash.js";
 import { createTaskTools } from "./task-tools.js";
 import { createTodoTool } from "./todo.js";
@@ -16,6 +17,7 @@ export { globTool } from "./glob.js";
 export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
+export { applyPatchTool, parseApplyPatch } from "./apply-patch.js";
 export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, extractShellSnapshot, msysPathToWin32, sanitizeBashEnv } from "./bash.js";
 export { detectWindowsBash, pickBashCandidates } from "./shell-detect.js";
 export { OutputCollector, DEFAULT_OUTPUT_LIMITS, type OutputLimits } from "./output-collector.js";
@@ -32,8 +34,8 @@ export { rgPath } from "@vscode/ripgrep";
 /** P1 只读三件套（§9）：read / glob / grep（捆绑 ripgrep），全部 readOnly → 循环内自动并发 */
 export const readOnlyTools: Tool[] = [readTool, globTool, grepTool, extractTool];
 
-/** P1-4 写入两件套（默认预设下走 ask 确认） */
-export const writableTools: Tool[] = [writeTool, editTool];
+/** P1-4 写入三件套（默认预设下走 ask 确认） */
+export const writableTools: Tool[] = [writeTool, editTool, applyPatchTool];
 
 /** 内置工具全集（不含需要会话态的 bash/todo/ask_user） */
 export const builtinTools: Tool[] = [...readOnlyTools, ...writableTools];

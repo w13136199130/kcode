@@ -24,6 +24,8 @@ export const UserMessageEvent = z.object({
   ts,
   sessionId,
   content: z.string(),
+  /** 3-02：本轮附图绝对路径（JSONL 持久化；resume/rewind 重建请求时带回） */
+  images: z.array(z.string()).optional(),
 });
 
 export const AssistantMessageEvent = z.object({
@@ -218,6 +220,19 @@ export const SubagentStoppedEvent = z.object({
   usage: z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() }),
 });
 
+/** 3-10：长任务进度（仅前端展示，不写 JSONL；避免把流式 chunk 变成会话事实） */
+export const ToolProgressEvent = z.object({
+  v: v1,
+  type: z.literal("tool_progress"),
+  ts,
+  sessionId,
+  callId: z.string().min(1),
+  tool: z.string().min(1),
+  /** 最近输出尾部（节流后的窗口） */
+  tail: z.string(),
+  totalChars: z.number().int().nonnegative(),
+});
+
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionStartEvent,
   UserMessageEvent,
@@ -235,6 +250,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   HostLeaseEvent,
   SubagentSpawnedEvent,
   SubagentStoppedEvent,
+  ToolProgressEvent,
 ]);
 
 export type SessionEvent = z.infer<typeof SessionEvent>;

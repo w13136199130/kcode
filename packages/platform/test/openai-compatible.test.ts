@@ -54,6 +54,25 @@ describe("OpenAICompatibleProvider（mock fetch SSE）", () => {
     expect(chunks.at(-1)).toMatchObject({ type: "end", reason: "stop" });
   });
 
+  it("3-20 请求超时：中止并给出可操作错误（不无限挂起）", async () => {
+    const hanging: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted by timeout")), { once: true });
+      });
+    const provider = new OpenAICompatibleProvider("test:hang", {
+      baseURL: "https://api.example.com/v1",
+      apiKey: "sk-test",
+      model: "chat",
+      fetch: hanging,
+      retry: { maxRetries: 0 },
+      requestTimeoutMs: 30,
+      idleTimeoutMs: 30,
+    });
+    await expect(
+      collect(provider.stream({ model: "chat", messages: [{ role: "user", content: "hi" }] })),
+    ).rejects.toThrow(/超时/);
+  });
+
   it("工具调用流映射为 tool_call chunk（含分段 arguments 拼接）", async () => {
     const provider = makeProvider([
       {

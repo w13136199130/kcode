@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import { useStore } from "zustand";
 import type { UiStore } from "@kcode/ui";
 import { truncateVisual } from "../terminal/width.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 import { c } from "../theme/theme.js";
 
 /**
@@ -51,7 +52,8 @@ export function HistorySearch(props: {
         const picked = matches[cursor];
         if (picked !== undefined) {
           props.ui.getState().closeHistorySearch();
-          props.onPick(picked);
+          // 3-26：旧历史文件可能含控制序列，回填前剥离
+          props.onPick(stripEscapes(picked));
         }
         return;
       }
@@ -85,7 +87,7 @@ export function HistorySearch(props: {
         matches.map((h, i) => (
           <Text key={`${i}-${h}`} color={i === cursor ? c("brand") : undefined} bold={i === cursor}>
             {i === cursor ? "❯ " : "  "}
-            {truncateVisual(h, 80)}
+            {truncateVisual(stripEscapes(h), 80)}
           </Text>
         ))
       )}

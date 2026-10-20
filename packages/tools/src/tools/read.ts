@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
+import { recordRead } from "./read-state.js";
 
 const DEFAULT_LIMIT = 2000;
 
@@ -53,6 +54,7 @@ export const readTool: Tool = {
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }
+    await recordRead(ctx, abs, content);
     if (content.includes("\0")) {
       return { ok: true, output: "[二进制文件，内容省略]" };
     }

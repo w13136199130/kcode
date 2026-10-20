@@ -1,8 +1,11 @@
 import { join } from "node:path";
 import type {
   ChatMessage,
+  FileReadRecord,
   LLMProvider,
+  McpServerConfig,
   PermissionAsker,
+  PermissionEngine,
   PermissionMode,
   SessionEvent,
   SessionSink,
@@ -20,6 +23,10 @@ import {
   MutablePermissionEngine,
   SensitivePathPermissionEngine,
   ProcessHookRunner,
+  PluginPermissionEngine,
+  parsePluginPermissions,
+  pluginMcpConfigs as pluginMcpServerConfigs,
+  type SourcedHookConfig,
   ProjectGrantStore,
   grantSubject,
   suggestGrant,
@@ -85,7 +92,14 @@ export interface ComposedSession {
   /** 单个已连接 MCP 服务器的工具名清单（N3I-7 /mcp tools；未连接返回 null） */
   mcpToolNames(name: string): string[] | null;
   /** 已装载 hooks（N3I-7 /hooks；带用户/项目来源标） */
-  hooksInfo(): { source: "user" | "project"; event: string; command: string; failClosed?: boolean }[];
+  hooksInfo(): {
+    source: "user" | "project" | "plugin";
+    event: string;
+    command: string;
+    matcher?: string;
+    plugin?: string;
+    failClosed?: boolean;
+  }[];
   /** 后台任务清单（N3C-4③）：bash 工具注册表的会话级视图（任务面板轮询源） */
   backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number; notified?: boolean }[];
   /** D2-07：终止运行中的后台任务；返回是否真的发出终止信号 */
@@ -172,7 +186,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   // 2-14：敏感路径保护在会话级放行之外——grant 不能把 .env/.ssh 放行打穿
   let sessionMode: PermissionMode = "default";
   const mutablePermissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
-  const permissions = new SensitivePathPermissionEngine(mutablePermissions, () => sessionMode);
+  const basePermissions = new SensitivePathPermissionEngine(mutablePermissions, () => sessionMode);
   // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
   const grantStore = ProjectGrantStore.open(join(opts.kcodeHomeDir, "permissions.json"), opts.cwd);
   const persistentGrants = await grantStore.list();
@@ -253,27 +267,56 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   }
   const plugins = extensionRoots.plugins;
 
+  // 3-16：插件权限只允许收紧（ask/deny），多插件冲突 deny 优先；包在既有引擎外
+  const pluginPermissionRules = new Map<string, "ask" | "deny">();
+  for (const plugin of plugins) {
+    for (const [tool, rule] of parsePluginPermissions(plugin.manifest.permissions).rules) {
+      pluginPermissionRules.set(
+        tool,
+        pluginPermissionRules.get(tool) === "deny" || rule === "deny" ? "deny" : "ask",
+      );
+    }
+  }
+  const withPluginRules = (engine: PermissionEngine): PermissionEngine =>
+    pluginPermissionRules.size > 0 ? new PluginPermissionEngine(engine, pluginPermissionRules) : engine;
+  const permissions = withPluginRules(basePermissions);
+
   const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
-  const hookConfigs = await loadHookConfigs({
+  const baseHookConfigs = await loadHookConfigs({
     userDir: opts.kcodeHomeDir,
     projectDir: opts.cwd,
     trustFile: join(opts.kcodeHomeDir, "trusted-projects.json"),
     onWarn: opts.onNotice,
   });
+  // 3-16：插件 manifest.hooks 进同一 runner（source=plugin；cwd 固定为插件安装目录）
+  const pluginHookConfigs: SourcedHookConfig[] = plugins.flatMap((plugin) =>
+    plugin.manifest.hooks.map((hook) => ({
+      event: hook.event,
+      command: hook.command,
+      cwd: plugin.installPath,
+      source: "plugin" as const,
+      plugin: plugin.manifest.name,
+      ...(hook.matcher !== undefined ? { matcher: hook.matcher } : {}),
+      ...(hook.timeoutMs !== undefined ? { timeoutMs: hook.timeoutMs } : {}),
+      ...(hook.failClosed !== undefined ? { failClosed: hook.failClosed } : {}),
+    })),
+  );
+  const hookConfigs = [...baseHookConfigs, ...pluginHookConfigs];
   const hooks = new ProcessHookRunner(hookConfigs, { sessionId, onWarn: opts.onNotice });
   const commands = await CommandLibrary.open(extensionRoots.commandRoots, opts.onNotice);
   const mcpConfigs = await loadMcpConfigs(opts.kcodeHomeDir);
   const mcpSessions = await connectMcpServers(mcpConfigs, {
     onWarn: opts.onNotice,
   });
-  const pluginMcpConfigs = plugins.flatMap((p) =>
-    p.manifest.mcp.map((m) => ({
-      name: m.name,
-      transport: "stdio" as const,
-      command: m.command ?? "node",
-      args: m.url !== undefined ? [m.url] : [],
-    })),
-  );
+  // 3-16：按 transport 分流（stdio 用 command/args/env；http/sse 用 url），不再一律强转 stdio
+  const pluginMcpConfigs: McpServerConfig[] = [];
+  for (const plugin of plugins) {
+    const built = pluginMcpServerConfigs(plugin.manifest);
+    for (const error of built.errors) {
+      opts.onNotice?.(`插件 ${plugin.manifest.name} 的 MCP 声明被跳过：${error}`);
+    }
+    pluginMcpConfigs.push(...built.configs);
+  }
   const pluginMcpSessions = await connectMcpServers(pluginMcpConfigs, { onWarn: opts.onNotice });
   if (plugins.length > 0) {
     opts.onNotice?.(`已装载 ${plugins.length} 个插件：${plugins.map((p) => `${p.manifest.name}@${p.manifest.version}`).join("、")}`);
@@ -307,6 +350,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   ];
   // B2 /rewind：写类工具执行前快照目标文件（bash 造成的改动无法快照——与 CC 检查点同边界）
   const checkpoints = await CheckpointStore.open(join(opts.kcodeHomeDir, "cli", "artifacts", "checkpoints", sessionId));
+  // 3-09：会话级已读文件表（read 记录，write/edit 与子代理共享校验）
+  const readFiles = new Map<string, FileReadRecord>();
   const guardedTools = baseTools.map((t) => withFileCheckpoints(t, checkpoints, resolveInCtx));
   // 子代理句柄注册表（N3D-2）：SendMessage 寻址——只进父工具集，不进 baseTools
   //（子代理之间不可互发，对齐 zcode 的 includeAgent 门控）
@@ -322,11 +367,12 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     cwd: opts.cwd,
     kcodeHomeDir: opts.kcodeHomeDir,
     baseTools: subagentBaseTools,
+    readFiles,
     hooks,
     // 只读子代理走 plan 档语义（声明驱动的只读放行面）；其余同默认档
     permissionFor: (kind) => {
       const mode = kind === "readonly" ? "plan" : "default";
-      return new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode);
+      return withPluginRules(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode));
     },
     asker,
     agents,
@@ -390,6 +436,8 @@ ${plan}`);
       systemPrompt: basePrompt,
       cwd: opts.cwd,
       workspaceKey: workspaceKey(opts.cwd),
+      readFiles,
+      onToolProgress: (event) => opts.onEvent?.(event),
       agentsMd,
       initialHistory: opts.resumeFrom,
       initialUsage: opts.resumeUsage,
@@ -477,6 +525,10 @@ ${plan}`);
     usageSummary: () => loop.getUsage(),
     listChanges: () => listCheckpointChanges(checkpoints),
     revertChanges: async (paths) => {
+      // 运行中回退会与写类工具竞态（半回滚 / 把正在写的内容覆盖掉）——与 host 侧同一守卫
+      if (runner.busy) {
+        throw new Error("运行中不能回退文件（等本轮完成或 Esc 中断）");
+      }
       const selected = paths === undefined ? undefined : new Set(paths);
       const callIds = checkpoints
         .list()
@@ -540,7 +592,14 @@ ${plan}`);
       return session === undefined ? null : session.tools.map((t) => t.definition.name);
     },
     hooksInfo: () =>
-      hookConfigs.map((h) => ({ source: h.source, event: h.event, command: h.command, failClosed: h.failClosed })),
+      hookConfigs.map((h) => ({
+        source: h.source,
+        event: h.event,
+        command: h.command,
+        ...(h.matcher !== undefined ? { matcher: h.matcher } : {}),
+        ...(h.plugin !== undefined ? { plugin: h.plugin } : {}),
+        failClosed: h.failClosed,
+      })),
     runBash: (command, timeoutMs) =>
       runUserBash(command, timeoutMs, {
         sessionId,

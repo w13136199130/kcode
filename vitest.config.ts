@@ -15,6 +15,9 @@ export default defineConfig({
     ],
   },
   test: {
+    // Windows 并发负载下 extract/DPAPI/host 子进程会超过默认 5s；
+    // 20s 给真实慢路径留余量，真正挂死仍会失败。
+    testTimeout: 20_000,
     include: [
       "packages/*/test/**/*.test.ts",
       "apps/*/test/**/*.test.ts",

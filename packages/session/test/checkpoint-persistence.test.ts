@@ -45,6 +45,29 @@ describe("检查点持久化", () => {
     expect(fresh.list()).toHaveLength(0);
   });
 
+  it("3-05 内容 hash 去重 + 配额 + 二进制 copy 恢复", async () => {
+    const d = join(root, "checkpoints", "sess_dedupe");
+    const target = join(root, "dedupe.txt");
+    await writeFile(target, "same-content", "utf8");
+    const store = await CheckpointStore.open(d, { maxTotalBytes: 64 });
+    expect(await store.snapshot("d1", target)).toBe(true);
+    expect(await store.snapshot("d2", target)).toBe(true);
+    expect(new Set(store.list().map((e) => e.snapshotPath)).size).toBe(1);
+
+    const huge = join(root, "huge.bin");
+    await writeFile(huge, Buffer.alloc(128, 1));
+    expect(await store.snapshot("d3", huge)).toBe(false);
+
+    const binary = join(root, "binary.bin");
+    const original = Buffer.from([0, 1, 2, 255]);
+    await writeFile(binary, original);
+    const bstore = await CheckpointStore.open(join(root, "checkpoints", "sess_bin"));
+    expect(await bstore.snapshot("b1", binary)).toBe(true);
+    await writeFile(binary, "changed", "utf8");
+    await bstore.restore(["b1"]);
+    expect(await readFile(binary)).toEqual(original);
+  });
+
   it("D2-05 changed files：基线 diff、回退后 diff 消失、新建文件", async () => {
     const d = join(root, "checkpoints", "sess_changes");
     const target = join(root, "changes.txt");
@@ -67,7 +90,7 @@ describe("检查点持久化", () => {
     expect(await listCheckpointChanges(store)).toEqual([]);
   });
 
-  it("重开后继续快照不会与既有前像重名", async () => {
+  it("重开后相同内容复用同一前像（hash 去重）", async () => {
     const d = join(root, "checkpoints", "sess_append");
     const target = join(root, "second.txt");
     await writeFile(target, "v1", "utf8");
@@ -79,7 +102,7 @@ describe("检查点持久化", () => {
     const reopened = await CheckpointStore.open(d);
     await reopened.snapshot("call_3", target);
     expect(reopened.list()).toHaveLength(3);
-    // 第三条前像的落盘文件名基于重载后的条目数（2），不与 0/1 重名
-    expect(reopened.get("call_3")?.snapshotPath).toContain("2-");
+    // 内容未变：三条条目共享同一前像，不再重复复制/重名
+    expect(new Set(reopened.list().map((e) => e.snapshotPath)).size).toBe(1);
   });
 });

@@ -29,6 +29,22 @@ export interface RewindPoint {
   fileChanges: number;
 }
 
+/** 3-23：单个改动文件（检查点基线 → 当前磁盘），与 @kcode/session 的 FileChange 同形 */
+export interface DiffChange {
+  path: string;
+  diff: string;
+  callIds: string[];
+  existed: boolean;
+}
+
+/** /diff 面板状态：改动清单 + 打开时的筛选词（回退后按同词刷新） */
+export interface DiffBrowserState {
+  changes: DiffChange[];
+  query?: string;
+  /** `/diff <文件>` 唯一命中时直接进入该文件的 hunk 视图 */
+  focusPath?: string;
+}
+
 /** 计划批准面板载荷（plan_submit 工具推送） */
 export interface PlanApprovalState {
   plan: string;

@@ -4,5 +4,5 @@
  * 的菜单/状态行在视觉上打架，发现性由 banner 一行指路与 /help 承载。）
  */
 
-/** 输入框空时的一行 dim 提示（光标块之后，输入即消失） */
-export const GHOST_HINT = "  # 记住偏好 · / 命令 · @ 引用文件";
+/** 输入框空时的一行 dim 提示（光标块之后，输入即消失；3-24 补 Ctrl+J/Ctrl+G 发现性） */
+export const GHOST_HINT = "  # 记住偏好 · / 命令 · @ 文件 · Ctrl+J 换行 · Ctrl+G 编辑";

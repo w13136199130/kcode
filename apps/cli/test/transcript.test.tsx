@@ -100,4 +100,37 @@ describe("BlockView 版式（对标主流 CLI）", () => {
       expect(visualWidth(l)).toBeLessThanOrEqual(6);
     }
   });
+
+  it("3-22 失败工具的 verbose 输出默认显示末尾（错误集中在尾部）", () => {
+    const output = ["HEAD", ...Array.from({ length: 20 }, (_, i) => `middle${i + 1}`), "TAIL"].join("\n");
+    const { lastFrame } = render(
+      <Transcript
+        blocks={[{ kind: "tool", callId: "c1", tool: "bash", argsPreview: "npm test", status: "failed", output }]}
+        streamText=""
+        verbose
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("TAIL");
+    expect(frame).not.toContain("HEAD");
+    expect(frame).toContain("仅显示末尾 12 行 · Ctrl+B 查看全部");
+  });
+
+  it("3-26：工具/助手/用户文本里的 OSC/CSI 不会出现在渲染帧", () => {
+    const evil = "开始\u001b]0;pwned\u0007中\u001b[2J结束";
+    const { lastFrame } = render(
+      <Transcript
+        blocks={[
+          { kind: "user", text: evil },
+          { kind: "tool", callId: "c1", tool: "bash", argsPreview: evil, status: "done", summary: evil, output: evil },
+          { kind: "assistant", text: evil },
+        ]}
+        streamText=""
+        verbose
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("结束");
+    expect(frame).not.toContain("pwned");
+  });
 });

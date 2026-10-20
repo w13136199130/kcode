@@ -50,7 +50,11 @@ export function makeEventHandler(deps: {
           suppressNextUserBlock.current = false;
           break;
         }
-        pushBlock({ kind: "user", text: event.content });
+        pushBlock({
+          kind: "user",
+          text: event.content,
+          ...(event.images !== undefined && event.images.length > 0 ? { images: event.images } : {}),
+        });
         break;
       case "tool_call":
         ui.getState().setPendingTool(event.callId, event.tool);
@@ -64,6 +68,9 @@ export function makeEventHandler(deps: {
           status: "running",
           startedAt: Date.now(),
         });
+        break;
+      case "tool_progress":
+        ui.getState().updateToolProgress(event.callId, event.tail);
         break;
       case "tool_result":
         ui.getState().clearPendingTool(event.callId);

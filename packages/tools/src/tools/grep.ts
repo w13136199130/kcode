@@ -15,14 +15,19 @@ const GrepArgs = z.object({
   path: z.string().min(1).optional(),
   glob: z.string().min(1).optional(),
   ignoreCase: z.boolean().optional(),
-  maxResults: z.number().int().positive().optional(),
+  /** 3-11：上下文行数（rg -C，0-20） */
+  context: z.number().int().min(0).max(20).optional(),
+  /** 3-11：rg --type（如 ts/js/py） */
+  fileType: z.string().min(1).optional(),
+  /** 3-11：总匹配上限（rg 的 --max-count 是每文件，工具层再按总匹配截断） */
+  maxResults: z.number().int().positive().max(1000).optional(),
 });
 
 /** grep 工具：内容正则搜索，捆绑 ripgrep（§3 搜索性能底线），输出 file:line:text */
 export const grepTool: Tool = {
   definition: {
     name: "grep",
-    description: "在文件内容中搜索正则（捆绑 ripgrep），返回 file:line:text 匹配行",
+    description: "在文件内容中搜索正则（捆绑 ripgrep），返回 file:line:text；支持上下文、文件类型、总匹配上限",
     parameters: {
       type: "object",
       properties: {
@@ -30,7 +35,9 @@ export const grepTool: Tool = {
         path: { type: "string", description: "搜索根目录或单个文件，默认会话 cwd" },
         glob: { type: "string", description: '限定文件模式，如 "*.ts"' },
         ignoreCase: { type: "boolean", description: "忽略大小写" },
-        maxResults: { type: "integer", description: "最大匹配数，默认 200" },
+        context: { type: "integer", description: "上下文行数 0-20（rg -C）" },
+        fileType: { type: "string", description: "文件类型，如 ts/js/py（rg --type）" },
+        maxResults: { type: "integer", description: "总匹配上限，默认 200（最大 1000）" },
       },
       required: ["pattern"],
     },
@@ -44,20 +51,30 @@ export const grepTool: Tool = {
     if (!parsed.success) {
       return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
     }
-    const { pattern, path, glob, ignoreCase, maxResults } = parsed.data;
+    const { pattern, path, glob, ignoreCase, context, fileType, maxResults } = parsed.data;
     const base = ctx.cwd ?? process.cwd();
     const root = path === undefined ? base : isAbsolute(path) ? path : resolve(base, path);
+    const totalLimit = maxResults ?? DEFAULT_MAX_RESULTS;
 
     const args = [
       "--line-number",
       "--no-heading",
       "--color",
       "never",
+      // 3-11：跳过超大文件/二进制，避免一个日志文件撑爆结果；总匹配由工具层再截
+      "--max-filesize",
+      "2M",
       "--max-count",
-      String(maxResults ?? DEFAULT_MAX_RESULTS),
+      String(totalLimit),
     ];
     if (ignoreCase === true) {
       args.push("-i");
+    }
+    if (context !== undefined && context > 0) {
+      args.push("-C", String(context));
+    }
+    if (fileType !== undefined) {
+      args.push("--type", fileType);
     }
     if (glob !== undefined) {
       args.push("-g", glob);
@@ -91,6 +108,8 @@ export const grepTool: Tool = {
       if (out === "") {
         return { ok: true, output: "（无匹配）" };
       }
+      // 3-11：rg --max-count 是单文件上限，这里按总匹配行再截一次
+      out = truncateTotalMatches(out, totalLimit);
       if (out.length > MAX_OUTPUT_CHARS) {
         out = `${out.slice(0, MAX_OUTPUT_CHARS)}\n（截断：输出超过 ${MAX_OUTPUT_CHARS} 字符）`;
       }
@@ -100,6 +119,20 @@ export const grepTool: Tool = {
     }
   },
 };
+
+/** rg 匹配行是 `path:line:text`；上下文行是 `path-line-text`，只数前者 */
+function truncateTotalMatches(output: string, max: number): string {
+  const lines = output.split("\n");
+  let matches = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^.*?:\d+:/.test(lines[i] ?? "")) continue;
+    matches += 1;
+    if (matches > max) {
+      return `${lines.slice(0, i).join("\n")}\n（截断：仅显示前 ${max} 个匹配；请缩小 path/glob/pattern 范围）`;
+    }
+  }
+  return output;
+}
 
 function runRg(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolvePromise, reject) => {

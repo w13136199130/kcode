@@ -23,10 +23,12 @@ import { StatusLine, StatusBar } from "./status/StatusLine.js";
 import { TranscriptView } from "./transcript/TranscriptView.js";
 import { createStreamController } from "./state/stream.js";
 import { makeEventHandler } from "./state/events.js";
-import { useStatusStats } from "./state/status-data.js";
-import { makeInteractions, type AskState, type QuestionState, type PlanApprovalState } from "./state/interactions.js";
+import { useStatusStats, useBackgroundTasks } from "./state/status-data.js";
+import { makeInteractions, type AskState, type DiffBrowserState, type QuestionState, type PlanApprovalState } from "./state/interactions.js";
 import { BUILTIN_COMMANDS, type CommandInfo } from "./input/builtin-commands.js";
 import type { MenuOption } from "./dialogs/OptionsMenu.js";
+import { filterChanges } from "./dialogs/diff-model.js";
+import { stripEscapes } from "./terminal/sanitize.js";
 
 export interface KcodeAppProps {
   /** 运行时（配置/keychain/providers 路由）：引擎内嵌本进程组装（C 级单进程化） */
@@ -100,6 +102,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const [resumePicker, setResumePicker] = useState<{ options: MenuOption[]; ids: string[] } | null>(null);
   /** /rewind 回退点选择菜单（/rewind 命令或空闲双击 Esc 打开） */
   const [rewindPicker, setRewindPicker] = useState<RewindPoint[] | null>(null);
+  /** 3-23 /diff 审查面板（改动清单 + 单文件 hunk + 逐文件回退） */
+  const [diffBrowser, setDiffBrowser] = useState<DiffBrowserState | null>(null);
   /** 计划批准面板（plan_submit 工具推送）：渲染计划全文 + 批准菜单 */
   const [planApproval, setPlanApproval] = useState<PlanApprovalState | null>(null);
   const [input, setInput] = useState("");
@@ -145,6 +149,10 @@ export function KcodeApp(props: KcodeAppProps) {
   const stream = useRef(createStreamController(ui)).current;
   // 状态栏常驻数据（N3C-4①）：用量订阅 + busy 收尾沿刷新 + git 分支低频采样
   const { usage, branch } = useStatusStats(ui, sessionRef, busy, ready, props.cwd);
+  // 3-27：后台任务快照（状态栏 ⚙ N / Ctrl+T 面板共用）；完成沿响铃
+  const backgroundTasks = ui((s) => s.backgroundTasks);
+  useBackgroundTasks(ui, sessionRef, ready);
+  const runningTasks = backgroundTasks.filter((t) => t.status === "running").length;
 
   // 时钟只在有动态内容时运行（busy/运行中工具/流式文本）——
   // 空闲时持续重渲染会在部分终端（conhost/管道输出）造成帧堆积刷屏
@@ -165,11 +173,15 @@ export function KcodeApp(props: KcodeAppProps) {
     return () => clearInterval(timer);
   }, [active]);
 
-  // Ctrl+O：折叠 ⇄ 展开转写（对标 Claude Code 的 transcript 切换）
+  // Ctrl+O：折叠 ⇄ 展开转写（对标 Claude Code 的 transcript 切换）。
+  // 3-25：Static 里的旧块不会自动重绘——清屏/清 scrollback 后递增 renderEpoch，
+  // 由 TranscriptView 以新展开度重放全部定稿块（否则 Ctrl+O 对已滚出屏幕的块毫无效果）。
   useInput(
     (ch, key) => {
-      if (key.ctrl && ch.toLowerCase() === "o") {
+      if (key.ctrl && ch.toLowerCase() === "o" && fatal === null) {
+        process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
         setVerbose((v) => !v);
+        ui.getState().replayTranscript();
       }
     },
     { isActive: interactive },
@@ -241,6 +253,7 @@ export function KcodeApp(props: KcodeAppProps) {
     permissionsPanel !== null ||
     resumePicker !== null ||
     rewindPicker !== null ||
+    diffBrowser !== null ||
     planApproval !== null;
 
   /** /rewind：取回退点并打开选择菜单（空闲时才可用） */
@@ -263,6 +276,64 @@ export function KcodeApp(props: KcodeAppProps) {
       }
       setRewindPicker(points.slice(-10).reverse());
     })();
+  };
+
+  /**
+   * 3-23 `/diff`：读检查点改动清单并打开审查面板。
+   * 运行中拒绝——回退与写类工具并发会半回滚；筛选词保留在面板状态里，回退后按同词刷新。
+   */
+  const openDiffBrowser = (query?: string): void => {
+    if (ui.getState().busy) {
+      pushBlock({ kind: "info", tone: "warn", text: "运行中不能审查/回退文件改动（等本轮完成或 Esc 中断）" });
+      return;
+    }
+    const session = sessionRef.current;
+    if (session === null) return;
+    void (async () => {
+      const changes = await session.listChanges().catch(() => null);
+      if (changes === null) {
+        pushBlock({ kind: "info", tone: "warn", text: "改动清单获取失败（会话操作异常）" });
+        return;
+      }
+      const filtered = filterChanges(changes, query ?? "", props.cwd);
+      if (filtered.length === 0) {
+        pushBlock({
+          kind: "info",
+          text:
+            query !== undefined
+              ? `（没有匹配「${query}」的改动文件；/diff 查看全部改动）`
+              : "（本会话没有可审查的文件改动——write/edit/apply_patch 会留检查点；bash 直接改文件不追踪）",
+        });
+        return;
+      }
+      setDiffBrowser({
+        changes: filtered,
+        ...(query !== undefined ? { query } : {}),
+        // 精确筛选到唯一文件时直奔 hunk 视图，少一次回车
+        ...(query !== undefined && filtered.length === 1 ? { focusPath: filtered[0]!.path } : {}),
+      });
+    })();
+  };
+
+  /** 3-23：回退单个文件（复用检查点前像），再按当前筛选词刷新 /diff 清单 */
+  const revertFile = async (path: string): Promise<{ remaining: number } | string> => {
+    const session = sessionRef.current;
+    if (session === null) return "会话未就绪";
+    if (ui.getState().busy) return "运行中不能回退文件（等本轮完成或 Esc 中断）";
+    try {
+      await session.revertChanges([path]);
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    const query = diffBrowser?.query;
+    const changes = await session.listChanges().catch(() => null);
+    if (changes === null) {
+      setDiffBrowser(null);
+      return "回退已完成，但改动清单刷新失败（会话操作异常）";
+    }
+    const filtered = filterChanges(changes, query ?? "", props.cwd);
+    setDiffBrowser(filtered.length === 0 ? null : { changes: filtered, ...(query !== undefined ? { query } : {}) });
+    return { remaining: filtered.length };
   };
 
   const pushBlock = (block: Block): void => {
@@ -337,6 +408,14 @@ export function KcodeApp(props: KcodeAppProps) {
     openRewindPicker,
     applyMode,
     exit: shutdown,
+    stopTask: (id: string) => {
+      const ok = sessionRef.current?.stopBackgroundTask(id) ?? false;
+      pushBlock({
+        kind: "info",
+        tone: ok ? "ok" : "warn",
+        text: ok ? `■ 已停止后台任务 ${id}` : `✗ 任务 ${id} 未在运行或已结束`,
+      });
+    },
     pushBlock: (block) => ui.getState().pushBlock(block),
     fatal,
     retryFatal,
@@ -448,6 +527,7 @@ export function KcodeApp(props: KcodeAppProps) {
         setPermissionsPanel,
         switchSession,
         openRewindPicker,
+        openDiffBrowser,
         runOccupied,
         saveHistory,
         beginWork,
@@ -524,6 +604,8 @@ export function KcodeApp(props: KcodeAppProps) {
           switchSession,
           rewind: (eventIndex: number) =>
             sessionRef.current?.rewind(eventIndex) ?? Promise.resolve("会话未就绪"),
+          // 3-23 /diff：逐文件回退（复用检查点前像），失败以字符串返回给面板展示
+          revertFile,
           setModel: async (ref: string) => {
             try {
               await sessionRef.current?.setModel(ref);
@@ -543,6 +625,7 @@ export function KcodeApp(props: KcodeAppProps) {
           setQuestion,
           setPlanApproval,
           setRewindPicker,
+          setDiffBrowser,
           setResumePicker,
           setPermissionsPanel,
           setFullAccessConfirm,
@@ -555,7 +638,7 @@ export function KcodeApp(props: KcodeAppProps) {
         <TranscriptView ui={ui} verbose={verbose} tick={tick} />
         {notice !== null && (
           <Text color={c("warning")} wrap="truncate-end">
-            {notice}
+            {stripEscapes(notice)}
           </Text>
         )}
         {busy && (
@@ -572,6 +655,8 @@ export function KcodeApp(props: KcodeAppProps) {
           question={question}
           planApproval={planApproval}
           rewindPicker={rewindPicker}
+          diffBrowser={diffBrowser}
+          cwd={props.cwd}
           resumePicker={resumePicker}
           permissionsPanel={permissionsPanel}
           fullAccessConfirm={fullAccessConfirm}
@@ -589,6 +674,8 @@ export function KcodeApp(props: KcodeAppProps) {
             history={inputHistory.current}
             commands={commands}
             cwd={props.cwd}
+            {...(sessionRef.current?.jsonlPath !== undefined ? { jsonlPath: sessionRef.current.jsonlPath } : {})}
+            loadToolOutput={(callId) => sessionRef.current?.toolResultOutput?.(callId) ?? Promise.resolve(null)}
             onCjkCommit={pingRepaint}
           />
         </DialogLayer>
@@ -600,6 +687,7 @@ export function KcodeApp(props: KcodeAppProps) {
           busy={busy}
           usage={usage}
           branch={branch}
+          runningTasks={runningTasks}
         />
       </Box>
     </ServicesProvider>

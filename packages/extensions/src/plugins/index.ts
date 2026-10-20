@@ -5,6 +5,8 @@ export {
   uninstallPlugin,
   listInstalledPlugins,
   verifyPluginSeed,
+  compareVersions,
+  latestInstalledPlugins,
   type PluginInstallResult,
   type InstalledPlugin,
 } from "./install.js";
@@ -13,3 +15,5 @@ export {
   setPluginEnabled,
   filterEnabledPlugins,
 } from "./state.js";
+export { parsePluginPermissions, PluginPermissionEngine, type ParsedPluginPermissions } from "./permissions.js";
+export { pluginMcpConfigs } from "./mcp.js";

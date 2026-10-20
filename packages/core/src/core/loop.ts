@@ -1,5 +1,6 @@
 import {
   type ChatMessage,
+  type FileReadRecord,
   type RunStatus,
   type HookPreOutcome,
   type HookRunner,
@@ -30,6 +31,7 @@ import { TurnExecutor } from "./executor.js";
 import { TurnMachine, TurnPhase } from "./turn-state.js";
 import { consumeStream } from "./consume-stream.js";
 import { settleToolResults } from "./settle-results.js";
+import { isContextOverflowError } from "./errors.js";
 
 export interface AgentLoopPorts {
   llm: LLMProvider;
@@ -60,6 +62,10 @@ export interface AgentLoopOptions {
   cwd?: string;
   /** 工作区身份键：落盘到 session_start，供会话分组/续接作用域使用 */
   workspaceKey?: string;
+  /** 3-09：本会话已读文件表（read 写、write/edit 校验；缺省不启用） */
+  readFiles?: Map<string, FileReadRecord>;
+  /** 3-10：工具进度（bash 节流尾部；不落盘，仅前端） */
+  onToolProgress?: (event: Extract<SessionEvent, { type: "tool_progress" }>) => void;
   /** AGENTS.md 项目记忆（会话期不变，进稳定区，§5.3） */
   agentsMd?: string;
   /** 续接历史（resume/分支：由会话 JSONL 重建，§5.3） */
@@ -144,6 +150,20 @@ export class AgentLoop {
       opts.cwd,
       ports.asker,
       opts.workspaceKey,
+      Date.now,
+      opts.readFiles,
+      (callId, tool, tail, totalChars) => {
+        opts.onToolProgress?.({
+          v: 1,
+          type: "tool_progress",
+          ts: Date.now(),
+          sessionId: this.sessionId,
+          callId,
+          tool,
+          tail,
+          totalChars,
+        });
+      },
     );
     this.executor = new TurnExecutor(this.pipeline, this.now);
     this.machine = new TurnMachine(ports.onPhase);
@@ -325,7 +345,17 @@ export class AgentLoop {
         model: this.model,
         ...(this.opts.workspaceKey !== undefined ? { workspaceKey: this.opts.workspaceKey } : {}),
       });
-      await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId }));
+      await this.fireLifecycleHook((h) => h.onSessionStart?.({ sessionId: this.sessionId })).then((started) => {
+        // 3-15：session_start 的 additionalContext 注入历史（模型上下文，非 UI 转写）
+        const context =
+          started !== undefined && typeof started === "object" && "context" in started ? started.context : undefined;
+        if (typeof context === "string" && context.trim() !== "") {
+          this.history.push({
+            role: "user",
+            content: `<hook_context event="session_start">\n${context.trim()}\n</hook_context>`,
+          });
+        }
+      });
     }
     this.machine.transition(TurnPhase.ProcessingInput);
     // N3I-8 会话 token 预算护栏：每轮开始前检查累计（input+output）；到顶问询一次，
@@ -371,12 +401,20 @@ export class AgentLoop {
       this.machine.transition(TurnPhase.Idle);
       return { sessionId: this.sessionId, turns: 0, toolCalls: 0, status };
     }
+    // 3-15：user_prompt_submit 的 additionalContext 在本轮输入之前注入模型历史
+    if (promptGate.context !== undefined && promptGate.context.trim() !== "") {
+      this.history.push({
+        role: "user",
+        content: `<hook_context event="user_prompt_submit">\n${promptGate.context.trim()}\n</hook_context>`,
+      });
+    }
     await this.emit({
       v: 1,
       type: "user_message",
       ts: ts(),
       sessionId: this.sessionId,
       content: userInput,
+      ...(runOpts.images !== undefined && runOpts.images.length > 0 ? { images: runOpts.images } : {}),
     });
     // 技能自动触发（§5.2）：命中关键词 → 渐进加载正文注入动态区（本轮用户输入之前）
     const triggered = this.ports.skills?.match(userInput) ?? [];
@@ -410,6 +448,8 @@ export class AgentLoop {
     // 本轮 run 的用量增量：session_end 落盘，resume 侧对全部 session_end 求和
     const runUsage: SessionUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
     const signal = runOpts.signal;
+    // 3-20：上下文溢出只自动恢复一次；第二次仍溢出就如实报错，防压缩/重试风暴。
+    let overflowRetried = false;
     try {
       while (turns < maxTurns) {
         if (signal?.aborted) {
@@ -492,6 +532,23 @@ export class AgentLoop {
           break;
         }
         if (streamError !== undefined) {
+          if (!overflowRetried && isContextOverflowError(streamError)) {
+            overflowRetried = true;
+            const compacted = await this.compactNow().catch(() => null);
+            if (compacted !== null) {
+              await this.emit({
+                v: 1,
+                type: "compaction_summary",
+                ts: ts(),
+                sessionId: this.sessionId,
+                summary: compacted.summary,
+                dropped: compacted.dropped,
+                covered: compacted.covered,
+              });
+              // 回到 while：重新组装请求（历史已被摘要替换），不把本轮错误结算给用户
+              continue;
+            }
+          }
           this.machine.transition(TurnPhase.Error);
           status = "failed";
           if (text !== "" || reasoning !== "") {
@@ -512,7 +569,9 @@ export class AgentLoop {
             type: "llm_error",
             ts: ts(),
             sessionId: this.sessionId,
-            error: streamError,
+            error: isContextOverflowError(streamError)
+              ? `${streamError}（上下文可能超限；可 /compact 后重试）`
+              : streamError,
           });
           break;
         }
@@ -589,12 +648,13 @@ export class AgentLoop {
     return { sessionId: this.sessionId, turns, toolCalls, status };
   }
 
-  /** 会话级钩子：失败只记录不抛出——钩子故障不应中断会话主流程 */
-  private async fireLifecycleHook(invoke: (hooks: HookRunner) => Promise<void> | void): Promise<void> {
+  /** 会话级钩子：失败只记录不抛出——钩子故障不应中断会话主流程；返回值供上下文注入 */
+  private async fireLifecycleHook<T>(invoke: (hooks: HookRunner) => Promise<T> | T): Promise<T | undefined> {
     try {
-      await invoke(this.ports.hooks);
+      return await invoke(this.ports.hooks);
     } catch {
       // 生命周期钩子异常静默降级；工具级钩子的错误处理在管线内完成
+      return undefined;
     }
   }
 

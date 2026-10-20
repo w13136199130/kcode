@@ -22,6 +22,17 @@ export interface OpenAICompatibleOptions {
   fetch?: FetchLike;
   /** 瞬态失败重试（429/网络抖动；清洁重试——仅未吐内容时重放）；maxRetries=0 关闭 */
   retry?: LlmRetryOptions;
+  /** 单次请求总超时（默认 120s；KCODE_LLM_TIMEOUT_MS） */
+  requestTimeoutMs?: number;
+  /** 流式空闲超时：连续多久没有新 chunk 即中止（默认 60s；KCODE_LLM_IDLE_TIMEOUT_MS） */
+  idleTimeoutMs?: number;
+}
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 /**
@@ -68,7 +79,33 @@ export class OpenAICompatibleProvider implements LLMProvider {
   async *stream(req: LLMRequest): AsyncIterable<LLMChunk> {
     // 每次尝试新客户端（连接不复用失败状态）；tools 与消息在循环内重建，避免复用已被消费的流
     const maxRetries = this.#options.retry?.maxRetries ?? 3;
+    const requestTimeoutMs = this.#options.requestTimeoutMs ?? envMs("KCODE_LLM_TIMEOUT_MS", 120_000);
+    const idleTimeoutMs = this.#options.idleTimeoutMs ?? envMs("KCODE_LLM_IDLE_TIMEOUT_MS", 60_000);
     for (let attempt = 0; ; attempt++) {
+      // 超时用独立 controller：用户 abort 与超时 abort 必须区分，后者要给出可操作错误
+      const timeoutController = new AbortController();
+      let timeoutReason: string | null = null;
+      let idleTimer: NodeJS.Timeout | null = null;
+      const requestTimer = setTimeout(() => {
+        timeoutReason = `请求超时（${Math.round(requestTimeoutMs / 1000)}s）`;
+        timeoutController.abort();
+      }, requestTimeoutMs);
+      const resetIdle = (): void => {
+        if (idleTimer !== null) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          timeoutReason = `空闲超时（${Math.round(idleTimeoutMs / 1000)}s 无新数据）`;
+          timeoutController.abort();
+        }, idleTimeoutMs);
+      };
+      const clearTimers = (): void => {
+        clearTimeout(requestTimer);
+        if (idleTimer !== null) clearTimeout(idleTimer);
+        idleTimer = null;
+      };
+      resetIdle();
+      const combinedSignal = req.signal
+        ? AbortSignal.any([req.signal, timeoutController.signal])
+        : timeoutController.signal;
       const client = createOpenAICompatible({
         name: "kcode-openai-compatible",
         baseURL: this.#options.baseURL,
@@ -91,7 +128,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         model: client(this.#options.model),
         messages: toCoreMessages(req.messages),
         tools,
-        abortSignal: req.signal,
+        abortSignal: combinedSignal,
         // 关闭 SDK 内置重试（默认 2 次带自身退避）：重试策略统一由外层 retry.ts 持有，
         // 避免两层重试相乘与不可观测的等待
         maxRetries: 0,
@@ -103,6 +140,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       let failed: unknown;
       try {
         for await (const part of result.fullStream) {
+          resetIdle();
           if (part.type === "reasoning") {
             yielded = true;
             yield { type: "reasoning", text: part.textDelta };
@@ -137,6 +175,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
           }
         }
       } catch (err) {
+        clearTimers();
+        if (timeoutReason !== null && req.signal?.aborted !== true) {
+          throw new Error(`LLM ${timeoutReason}，已中止本次请求`);
+        }
         if (!yielded && attempt < maxRetries && !req.signal?.aborted && isRetryableLlmError(err)) {
           const delayMs = computeBackoffMs(attempt, err, this.#options.retry);
           this.#options.retry?.onRetry?.({ attempt: attempt + 1, delayMs, reason: err instanceof Error ? err.message : String(err) });
@@ -144,6 +186,10 @@ export class OpenAICompatibleProvider implements LLMProvider {
           continue;
         }
         throw err;
+      }
+      clearTimers();
+      if (timeoutReason !== null && req.signal?.aborted !== true) {
+        throw new Error(`LLM ${timeoutReason}，已中止本次请求`);
       }
       if (failed === undefined) {
         if (!ended) {

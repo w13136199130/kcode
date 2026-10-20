@@ -11,7 +11,7 @@ import type { TodoItem } from "@kcode/contracts";
 /** 转写块（视图模型，纯数据；渲染器各自实现，格式两端共享） */
 export type Block =
   | { kind: "banner"; model: string; cwd: string }
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; images?: string[] }
   | { kind: "assistant"; text: string }
   | { kind: "reasoning"; text: string; ms?: number }
   | {
@@ -67,6 +67,8 @@ export interface TaskBrowserState {
 
 export interface TranscriptSlice {
   blocks: Block[];
+  /** 3-25：Static 重放代次——Ctrl+O 展开/收起或 /clear 时递增，宿主以 key 重挂 Static 重印 */
+  renderEpoch: number;
   /** 流式正文缓冲（渲染为活区一行；flushAssistant 定格为 assistant 块） */
   streamText: string;
   /** 思考摘要的合帧显示（宿主 ref 缓冲的批量搬运结果） */
@@ -81,6 +83,8 @@ export interface TranscriptSlice {
   historySearchOpen: boolean;
 
   pushBlock(block: Block): void;
+  /** 3-25：请求把全部已定稿块重新推入 Static（Ctrl+O 切换展开度后重放） */
+  replayTranscript(): void;
   appendStream(delta: string): void;
   /** 流式正文定格为 assistant 块（空缓冲无操作） */
   flushAssistant(): void;
@@ -89,6 +93,8 @@ export interface TranscriptSlice {
   setTodos(todos: TodoItem[]): void;
   /** 定格某个工具块终态（tool_result 到达时补 summary/output/耗时） */
   settleTool(callId: string, patch: { status: "done" | "failed"; summary?: string; output?: string; durationMs?: number }): void;
+  /** 3-10：运行中工具的输出尾部（bash 每 500ms 推一次；不落盘） */
+  updateToolProgress(callId: string, tail: string): void;
   /** 打开工具浏览器：光标落在最近一个工具块（没有工具块也开——空态提示入口存在）；互斥关闭任务浏览器 */
   openToolBrowser(): void;
   closeToolBrowser(): void;
@@ -127,6 +133,7 @@ function closeBothBrowser(state: TranscriptSlice): { toolBrowser: ToolBrowserSta
 
 export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], TranscriptSlice> = (set, get) => ({
   blocks: [],
+  renderEpoch: 0,
   streamText: "",
   reasoningText: "",
   todos: [],
@@ -136,6 +143,7 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   pendingImages: [],
   historySearchOpen: false,
   pushBlock: (block) => set((state) => ({ blocks: [...state.blocks, block] })),
+  replayTranscript: () => set((state) => ({ renderEpoch: state.renderEpoch + 1 })),
   appendStream: (delta) => set((state) => ({ streamText: state.streamText + delta })),
   flushAssistant: () => {
     const text = get().streamText;
@@ -147,6 +155,14 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   settleTool: (callId, patch) =>
     set((state) => ({
       blocks: state.blocks.map((b) => (b.kind === "tool" && b.callId === callId ? { ...b, ...patch } : b)),
+    })),
+  updateToolProgress: (callId, tail) =>
+    set((state) => ({
+      blocks: state.blocks.map((b) =>
+        b.kind === "tool" && b.callId === callId
+          ? { ...b, output: tail, summary: tail.split("\n").at(-1)?.slice(0, 120) ?? b.summary }
+          : b,
+      ),
     })),
   openToolBrowser: () =>
     set((state) => ({
@@ -196,8 +212,10 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   openHistorySearch: () => set({ historySearchOpen: true }),
   closeHistorySearch: () => set({ historySearchOpen: false }),
   resetTranscript: () =>
-    set({
+    set((state) => ({
       blocks: [],
+      // 3-25：/clear 后 Static 的已打印下标必须复位，否则新会话前几条会被跳过
+      renderEpoch: state.renderEpoch + 1,
       streamText: "",
       reasoningText: "",
       todos: [],
@@ -206,5 +224,5 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       taskBrowser: { open: false, cursor: 0, expandedId: null },
       pendingImages: [],
       historySearchOpen: false,
-    }),
+    })),
 });

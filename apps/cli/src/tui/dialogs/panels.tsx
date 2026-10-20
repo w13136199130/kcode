@@ -7,6 +7,7 @@ import { markdownToLines } from "../transcript/markdown.js";
 import { OptionsMenu, type MenuOption } from "./OptionsMenu.js";
 import { formatGrantPattern, suggestGrant } from "@kcode/extensions";
 import { DiffPreview } from "./DiffPreview.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 import type { CliServices } from "../state/services.js";
 import type { AskState, QuestionState, PlanApprovalState, RewindPoint } from "../state/interactions.js";
 
@@ -41,12 +42,12 @@ export function AskPanel(props: { ask: AskState }) {
     <Box flexDirection="column">
       <Text color={c("accent")}>⚠ 允许 {ask.call.tool}？</Text>
       {command !== null ? (
-        <Text wrap="wrap">{`  ${command}`}</Text>
+        <Text wrap="wrap">{`  ${stripEscapes(command)}`}</Text>
       ) : previewPath !== null ? (
         // write/edit 的正文由下方完整 diff 展示，避免参数区再重复一遍
-        <Text color={c("brand")}>{`  ${previewPath}`}</Text>
+        <Text color={c("brand")}>{`  ${stripEscapes(previewPath)}`}</Text>
       ) : (
-        <Text wrap="wrap">{`  ${JSON.stringify(ask.call.args, null, 2)}`}</Text>
+        <Text wrap="wrap">{`  ${stripEscapes(JSON.stringify(ask.call.args, null, 2))}`}</Text>
       )}
       {ask.call.preview !== undefined && <DiffPreview preview={ask.call.preview} />}
       <OptionsMenu
@@ -346,7 +347,7 @@ export function QuestionPanel(props: { question: QuestionState }) {
             <Box flexDirection="column" marginTop={1}>
               <Text dimColor>预览：</Text>
               {preview.split("\n").slice(0, 12).map((line, j) => (
-                <Text key={j}>{truncateVisual(line, 120)}</Text>
+                <Text key={j}>{truncateVisual(stripEscapes(line), 120)}</Text>
               ))}
             </Box>
           );

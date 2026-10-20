@@ -22,6 +22,8 @@ export function useKeybinds(deps: {
   openRewindPicker(): void;
   applyMode(next: PermissionMode): void;
   exit(): void;
+  /** 3-27：停止运行中的后台任务（App 注入，含结果提示） */
+  stopTask?(id: string): void;
   pushBlock(block: Block): void;
   /** 2-05：fatal 驻留时 r 重试 / q 退出 */
   fatal?: string | null;
@@ -59,6 +61,8 @@ export function useKeybinds(deps: {
       if (!key.escape) return;
       const state = deps.ui.getState();
       if (state.toolBrowser.open) {
+        // 3-22：详情展开时 Esc 归 ToolBrowser（先取消搜索，再收起详情），避免一键直接关面板
+        if (state.toolBrowser.expandedCallId !== null) return;
         state.closeToolBrowser();
         return;
       }
@@ -139,32 +143,46 @@ export function useKeybinds(deps: {
   useInput(
     (ch, key) => {
       const state = deps.ui.getState();
-      if (state.toolBrowser.open || state.taskBrowser.open) {
-        const target = state.toolBrowser.open ? "tool" : "task";
-        if (key.upArrow) {
-          if (target === "tool") state.moveToolCursor(-1);
-          else state.moveTaskCursor(-1);
-          return;
-        }
-        if (key.downArrow) {
-          if (target === "tool") state.moveToolCursor(1);
-          else state.moveTaskCursor(1);
-          return;
-        }
-        if (key.return) {
-          if (target === "tool") state.toggleToolDetail();
-          else state.toggleTaskDetail();
-          return;
-        }
+      if (state.toolBrowser.open) {
+        // 3-22：工具详情的 ↑↓/Enter/翻页/搜索/复制由 ToolBrowser 消费（它持有全文与窗口），
+        // 这里只保留全局开关与浏览器互切，避免同一按键双消费者。
         if (key.ctrl && ch === "b") {
-          // 切换语义：工具浏览器已开则收起；从任务浏览器切过来（互斥由 slice 收口）
-          if (state.toolBrowser.open) state.closeToolBrowser();
-          else state.openToolBrowser();
+          state.closeToolBrowser();
           return;
         }
         if (key.ctrl && ch === "t") {
-          if (state.taskBrowser.open) state.closeTaskBrowser();
-          else state.openTaskBrowser();
+          state.openTaskBrowser();
+        }
+        return;
+      }
+      if (state.taskBrowser.open) {
+        if (key.upArrow) {
+          state.moveTaskCursor(-1);
+          return;
+        }
+        if (key.downArrow) {
+          state.moveTaskCursor(1);
+          return;
+        }
+        if (key.return) {
+          state.toggleTaskDetail();
+          return;
+        }
+        if (ch === "s") {
+          // 3-27：停止选中的运行中任务（已完成/失败任务忽略）
+          const task = state.backgroundTasks[state.taskBrowser.cursor];
+          if (task !== undefined && task.status === "running") {
+            deps.stopTask?.(task.id);
+          }
+          return;
+        }
+        if (key.ctrl && ch === "t") {
+          state.closeTaskBrowser();
+          return;
+        }
+        if (key.ctrl && ch === "b") {
+          // 切换语义：从任务浏览器切到工具浏览器（互斥由 slice 收口）
+          state.openToolBrowser();
           return;
         }
         return; // 其余键位归浏览器（不透传到输入语义）

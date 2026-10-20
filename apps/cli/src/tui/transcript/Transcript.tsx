@@ -4,7 +4,8 @@ import { markdownToLines, type MdLine } from "./markdown.js";
 // 实现移至 width.ts（避免与 markdown 循环导入）；re-export 保持既有导入路径（App 等）
 import { visualWidth, wrapVisual, truncateVisual } from "../terminal/width.js";
 import { clipVisual, formatFileLink, linkifyStructuredPaths } from "../terminal/links.js";
-import { c } from "../theme/theme.js";
+import { stripEscapes } from "../terminal/sanitize.js";
+import { c, glyph, rawColor } from "../theme/theme.js";
 
 export { visualWidth, wrapVisual };
 
@@ -40,9 +41,9 @@ function formatMs(ms: number): string {
  */
 export function formatToolPreview(tool: string, args: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
-  const s = (v: unknown): string => (typeof v === "string" ? v : "");
+  const s = (v: unknown): string => (typeof v === "string" ? stripEscapes(v) : "");
   const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const clip = (t: string, max = 60): string => clipVisual(t, max);
+  const clip = (t: string, max = 60): string => stripEscapes(clipVisual(t, max));
   const pathLink = (p: string, line?: number): string => formatFileLink(p, p, { line });
   switch (tool) {
     case "bash":
@@ -72,7 +73,6 @@ export function formatToolPreview(tool: string, args: unknown): string {
       return clip(JSON.stringify(args));
   }
 }
-
 /** verbose 态工具输出最多渲染行数 */
 const VERBOSE_TOOL_LINES = 12;
 /** 思考块展开态最多渲染行数 */
@@ -91,11 +91,11 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     return (
       <Box flexDirection="column" marginBottom={1}>
         <Text>
-          <Text color={c("brand")} bold>● kcode</Text>
+          <Text color={c("brand")} bold>{`${glyph("●", "*")} kcode`}</Text>
           <Text dimColor> — 本地优先代码助手</Text>
         </Text>
         <Text dimColor wrap="truncate-end">
-          {`${block.model} · ${block.cwd}`}
+          {`${stripEscapes(block.model)} · ${stripEscapes(block.cwd)}`}
         </Text>
         {/* 键位教学收敛为一行指路（截屏反馈：banner 太密）。Ctrl 系键位由 ghost 提示
             与 /help 承载，菜单内操作由菜单 footer 提示——不再三处重复 */}
@@ -108,7 +108,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
   if (block.kind === "user") {
     // 用户消息：> 前缀，CC 同款纯白不染色。marginTop 不加——上一块的 marginBottom 已留单空行
     void stdout;
-    const lines = wrapVisual(block.text, (stdout.columns ?? 80) - 4);
+    const lines = wrapVisual(stripEscapes(block.text), (stdout.columns ?? 80) - 4);
     return (
       <Box flexDirection="column" marginBottom={1}>
         {lines.map((l, j) => (
@@ -117,6 +117,9 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             {l}
           </Text>
         ))}
+        {block.images !== undefined && block.images.length > 0 ? (
+          <Text dimColor>{`  📎 ${block.images.length} 张附图`}</Text>
+        ) : null}
       </Box>
     );
   }
@@ -126,7 +129,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     // 空正文块（思考模型直发工具调用）不渲染。
     const lines: MdLine[] =
       process.env["KCODE_NO_MD"] === "1"
-        ? block.text.split("\n").map((l) => ({ segments: [{ text: l }] }))
+        ? stripEscapes(block.text).split("\n").map((l) => ({ segments: [{ text: l }] }))
         : markdownToLines(block.text);
     const firstContentIdx = lines.findIndex((l) => l.segments.map((s) => s.text).join("").trim() !== "");
     if (firstContentIdx === -1) {
@@ -136,17 +139,17 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     const listStart = /^(•|☐|☑|\d+\.)\s/.test(firstText);
     return (
       <Box flexDirection="column" marginBottom={1}>
-        {listStart ? <Text>{"●"}</Text> : null}
+        {listStart ? <Text>{glyph("●", "*")}</Text> : null}
         {lines.map((line, j) => {
           const isFirst = j === firstContentIdx;
           return (
             <Box key={j}>
-              {isFirst && !listStart ? <Text>{"● "}</Text> : isFirst ? null : <Text>{"  "}</Text>}
+              {isFirst && !listStart ? <Text>{`${glyph("●", "*")} `}</Text> : isFirst ? null : <Text>{"  "}</Text>}
               <Text>
                 {line.segments.map((s, k) => (
                   <Text
                     key={k}
-                    color={s.color}
+                    color={rawColor(s.color)}
                     bold={s.bold}
                     italic={s.italic}
                     dimColor={s.dimColor}
@@ -166,7 +169,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     // 思考行 CC 同款：过去式 + 展开提示（Thought for 1s (ctrl+o to expand)），muted 灰
     const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
     if (props.verbose === true) {
-      const lines = block.text.split("\n").slice(0, VERBOSE_REASONING_LINES);
+      const lines = stripEscapes(block.text).split("\n").slice(0, VERBOSE_REASONING_LINES);
       return (
         <Box flexDirection="column" marginBottom={1}>
           <Text color={c("foregroundSubtle")}>{`  Thought for${timing} (ctrl+o to collapse)`}</Text>
@@ -196,13 +199,14 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
             : c("foregroundSubtle");
     return (
       <Box marginLeft={2} marginBottom={1}>
-        <Text color={color}>{block.text}</Text>
+        <Text color={color}>{stripEscapes(block.text)}</Text>
       </Box>
     );
   }
   // 工具卡（CC 配色模型）：图标+工具名承载状态色（柔和 hex——完成绿/失败红/运行天蓝，
   // zcode statusColor 同款），参数与耗时 muted 灰；done 不再整行染饱和蓝（截图反馈"太深"根因）
-  const icon = block.status === "running" ? "⚡" : block.status === "done" ? "✓" : "✗";
+  const icon =
+    block.status === "running" ? glyph("⚡", "*") : block.status === "done" ? glyph("✓", "+") : glyph("✗", "x");
   const color = block.status === "failed" ? c("destructive") : block.status === "running" ? c("info") : c("success");
   const timing =
     block.status === "running" && block.startedAt !== undefined && props.now !== undefined
@@ -214,30 +218,47 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     <Box flexDirection="column" marginLeft={2} marginBottom={1}>
       <Text>
         <Text color={color}>
-          {icon} {block.tool}{" "}
+          {icon} {stripEscapes(block.tool)}{" "}
         </Text>
         <Text color={c("foregroundSubtle")}>
-          {block.argsPreview}
+          {stripEscapes(block.argsPreview)}
           {timing}
         </Text>
       </Text>
       {props.verbose === true && block.output !== undefined && block.output !== "" ? (
         <Box flexDirection="column" marginLeft={2}>
-          {block.output
-            .split("\n")
-            .slice(0, VERBOSE_TOOL_LINES)
-            .map((line, j) => (
-              <Text key={j} color={c("foregroundSubtle")} wrap="truncate-end">
-                {"  "}
-                {truncateVisual(linkifyStructuredPaths(line), 120)}
-              </Text>
-            ))}
+          {(() => {
+            const lines = block.output.split("\n");
+            // 3-22：失败输出默认显示末尾——构建/测试错误集中在尾部，头部往往只是启动噪音
+            const tailMode = block.status === "failed";
+            const shown = tailMode ? lines.slice(-VERBOSE_TOOL_LINES) : lines.slice(0, VERBOSE_TOOL_LINES);
+            const hidden = lines.length - shown.length;
+            return (
+              <>
+                {shown.map((line, j) => (
+                  <Text key={j} color={c("foregroundSubtle")} wrap="truncate-end">
+                    {"  "}
+                    {truncateVisual(linkifyStructuredPaths(stripEscapes(line)), 120)}
+                  </Text>
+                ))}
+                {hidden > 0 ? (
+                  <Text color={c("foregroundSubtle")}>
+                    {tailMode
+                      ? `  …（仅显示末尾 ${VERBOSE_TOOL_LINES} 行 · Ctrl+B 查看全部）`
+                      : `  …（共 ${lines.length} 行 · Ctrl+B 查看全部）`}
+                  </Text>
+                ) : null}
+              </>
+            );
+          })()}
         </Box>
       ) : (
         block.summary !== undefined &&
         block.summary !== "" && (
           <Box marginLeft={2}>
-            <Text color={c("foregroundSubtle")}>⎿ {linkifyStructuredPaths(block.summary)}</Text>
+            <Text color={c("foregroundSubtle")}>
+              {glyph("⎿", "\\")} {linkifyStructuredPaths(stripEscapes(block.summary))}
+            </Text>
           </Box>
         )
       )}

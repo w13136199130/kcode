@@ -3,6 +3,14 @@ import { formatToolResultForModel } from "@kcode/shared";
 import { capToolResult } from "../context/budget.js";
 import type { PendingCall } from "./executor.js";
 
+/** 3-15：hook 上下文包裹（只进入模型副本，避免工具输出被污染） */
+function withHookContext(content: string, context: string | undefined): string {
+  if (context === undefined || context.trim() === "") {
+    return content;
+  }
+  return `${content}\n\n<hook_context>\n${context.trim()}\n</hook_context>`;
+}
+
 /**
  * 工具结果回填（自 loop.ts 抽出为独立模块，N3D-2 行数治理）：
  * tool_result 事件落盘 + 历史副本（B3 micro 截断——发给模型的副本超预算截头尾保留，
@@ -37,8 +45,9 @@ export async function settleToolResults(dep: {
       role: "tool",
       // B3 micro：发给模型的副本超预算截断（头尾保留）；JSONL 事件仍为全文。
       // 失败原因前置：output 非空时也不能丢 exit code/权限拒绝（P0-3）。
+      // 3-15：hook additionalContext 只进模型副本——不进工具事件/UI。
       content: capToolResult(
-        formatToolResultForModel(result),
+        withHookContext(formatToolResultForModel(result), result.hookContext),
         defByName.get(call.tool)?.resultBudget ?? dep.toolResultBudget,
       ),
       toolCallId: call.callId,

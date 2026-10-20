@@ -1,4 +1,5 @@
 import type {
+  FileReadRecord,
   HookRunner,
   PermissionAsker,
   PermissionEngine,
@@ -63,6 +64,8 @@ export class ToolPipeline {
     private readonly asker?: PermissionAsker,
     private readonly workspaceKey?: string,
     private readonly now: () => number = Date.now,
+    private readonly readFiles?: Map<string, FileReadRecord>,
+    private readonly onProgress?: (callId: string, tool: string, tail: string, totalChars: number) => void,
   ) {}
 
   /**
@@ -174,6 +177,10 @@ export class ToolPipeline {
         cwd: this.cwd,
         ...(this.workspaceKey !== undefined ? { workspaceKey: this.workspaceKey } : {}),
         ...(signal !== undefined ? { signal } : {}),
+        ...(this.readFiles !== undefined ? { reads: this.readFiles } : {}),
+        ...(this.onProgress !== undefined
+          ? { onProgress: (tail: string, total: number) => this.onProgress!(callId, name, tail, total) }
+          : {}),
       });
       // N2-3 ToolEntry：timeoutMs 结算护栏——超时按失败返回，不保证强杀
       // （工具内部的更细超时通常先到；后台进程由其自身超时收敛）。
@@ -197,7 +204,14 @@ export class ToolPipeline {
     } catch (err) {
       result = { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }
-    await this.hooks.postToolUse({ callId, tool: name, args: effectiveArgs }, result);
+    const post = await this.hooks.postToolUse({ callId, tool: name, args: effectiveArgs }, result);
+    // 3-15：pre/post 的 additionalContext 只回灌模型（settle 时包裹追加），不污染 UI/JSONL 的工具输出
+    const hookContext = [pre.context, post !== undefined ? post.context : undefined]
+      .filter((text): text is string => typeof text === "string" && text.trim() !== "")
+      .join("\n\n");
+    if (hookContext !== "") {
+      result = { ...result, hookContext };
+    }
     this.audit({
       ts: this.now(),
       sessionId: this.sessionId,

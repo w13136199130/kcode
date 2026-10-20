@@ -37,6 +37,14 @@ describe("N3F-1 宽度回归（POC 结论固化）", () => {
     const s = `${wrap("ab", "file:///x")}cdefgh`;
     expect(truncateVisual(s, 4)).toBe(`${wrap("ab", "file:///x")}cd`);
   });
+
+  it("3-26：链接化前剥离不可信控制序列（OSC52 不残留）", () => {
+    const evil = "x\u001b]52;c;QUFBQQ==\u0007y";
+    expect(linkifyStructuredPaths(evil, OFF)).toBe("xy");
+    const linked = formatFileLink("a\u001b]0;t\u0007b", "/tmp/x", { env: ON });
+    expect(linked).not.toContain("\u001b]0;t");
+    expect(linked).toContain("ab");
+  });
 });
 
 describe("N3F-1 发射开关（支持面诚实化）", () => {

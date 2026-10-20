@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import type { MenuOption } from "./OptionsMenu.js";
 import type { LoginWizard } from "./wizard-state.js";
-import type { AskState, QuestionState, PlanApprovalState } from "../state/interactions.js";
+import type { AskState, DiffBrowserState, QuestionState, PlanApprovalState } from "../state/interactions.js";
 import { LoginWizardPanel } from "./LoginWizardPanel.js";
+import { DiffBrowserPanel } from "./DiffBrowser.js";
 import {
   AskPanel,
   FullAccessConfirmPanel,
@@ -25,6 +26,9 @@ export function DialogLayer(props: {
   question: QuestionState | null;
   planApproval: PlanApprovalState | null;
   rewindPicker: RewindPoint[] | null;
+  diffBrowser: DiffBrowserState | null;
+  /** 工作目录（/diff 面板展示相对路径） */
+  cwd: string;
   resumePicker: { options: MenuOption[]; ids: string[] } | null;
   permissionsPanel: string[] | null;
   fullAccessConfirm: boolean;
@@ -37,6 +41,9 @@ export function DialogLayer(props: {
   }
   if (props.planApproval !== null) {
     return <PlanApprovalPanel planApproval={props.planApproval} />;
+  }
+  if (props.diffBrowser !== null) {
+    return <DiffBrowserPanel state={props.diffBrowser} cwd={props.cwd} />;
   }
   if (props.rewindPicker !== null) {
     return <RewindPickerPanel points={props.rewindPicker} />;

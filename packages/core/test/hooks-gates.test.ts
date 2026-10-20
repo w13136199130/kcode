@@ -84,3 +84,57 @@ describe("B5 门型钩子", () => {
     expect(await loop.compactNow()).toBeNull();
   });
 });
+
+describe("3-15 additionalContext 注入", () => {
+  const makeLoop = (hooks: HookRunner, llm: ScriptedLLM): AgentLoop =>
+    new AgentLoop(
+      { llm, tools: new InMemoryToolRegistry([echo]), permissions: allowAll, hooks, sink: new MemorySink(), audit: new MemoryAudit().sink },
+      { sessionId: "s_ctx", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+
+  it("user_prompt_submit：上下文在本轮输入前进入模型历史", async () => {
+    const hooks: HookRunner = {
+      ...noHooks,
+      onUserPromptSubmit: async () => ({ veto: false, context: "项目约定：构建统一用 pnpm" }),
+    };
+    const llm = new ScriptedLLM([{ text: "ok" }]);
+    await makeLoop(hooks, llm).run("hi");
+    const request = JSON.stringify(llm.requests[0]?.messages);
+    expect(request).toContain('<hook_context event=\\"user_prompt_submit\\">');
+    expect(request).toContain("构建统一用 pnpm");
+  });
+
+  it("session_start：上下文注入会话历史", async () => {
+    const hooks: HookRunner = {
+      ...noHooks,
+      onSessionStart: async () => ({ context: "会话启动记忆：默认中文回复" }),
+    };
+    const llm = new ScriptedLLM([{ text: "ok" }]);
+    await makeLoop(hooks, llm).run("hi");
+    const request = JSON.stringify(llm.requests[0]?.messages);
+    expect(request).toContain('<hook_context event=\\"session_start\\">');
+    expect(request).toContain("默认中文回复");
+  });
+
+  it("pre/post tool 上下文：只回灌模型，不写工具事件 output", async () => {
+    const hooks: HookRunner = {
+      ...noHooks,
+      preToolUse: async () => ({ veto: false, context: "pre 上下文" }),
+      postToolUse: async () => ({ context: "post 上下文" }),
+    };
+    const sink = new MemorySink();
+    const llm = new ScriptedLLM([{ toolCalls: [{ callId: "c1", tool: "echo", args: {} }] }, { text: "done" }]);
+    const loop = new AgentLoop(
+      { llm, tools: new InMemoryToolRegistry([echo]), permissions: allowAll, hooks, sink, audit: new MemoryAudit().sink },
+      { sessionId: "s_ctx2", model: "m", systemPrompt: "t", now: () => 0 },
+    );
+    await loop.run("run tool");
+    const second = JSON.stringify(llm.requests[1]?.messages);
+    expect(second).toContain("pre 上下文");
+    expect(second).toContain("post 上下文");
+    expect(second).toContain("<hook_context>");
+    // 工具事件仍是纯输出（UI 不显示 hook 上下文）
+    const result = sink.events.find((e) => e.type === "tool_result");
+    expect(result && "output" in result ? result.output : "").toBe("ok");
+  });
+});

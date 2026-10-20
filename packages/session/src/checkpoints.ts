@@ -1,6 +1,8 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
+import { parseApplyPatch } from "@kcode/tools";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
 import { renderDiff } from "@kcode/tools";
 
@@ -23,6 +25,17 @@ export interface CheckpointEntry {
   /** 前像文件绝对路径（existed=false 时无前像文件，回退语义为删除） */
   snapshotPath?: string;
   existed: boolean;
+  /** 3-05：内容 hash（相同内容复用同一前像文件） */
+  hash?: string;
+  /** 3-05：前像字节数（配额统计） */
+  bytes?: number;
+}
+
+export interface CheckpointOptions {
+  /** 单会话最多检查点条目（默认 2000） */
+  maxEntries?: number;
+  /** 单会话前像总字节上限（默认 64 MiB） */
+  maxTotalBytes?: number;
 }
 
 /** 落盘清单形状：与内存条目一一对应 */
@@ -33,12 +46,23 @@ interface Manifest {
 export class CheckpointStore {
   readonly #entries: CheckpointEntry[] = [];
   readonly #byCallId = new Map<string, CheckpointEntry>();
+  /** hash → 前像路径：同内容只落一份盘（3-05） */
+  readonly #byHash = new Map<string, string>();
+  #totalBytes = 0;
+  readonly #maxEntries: number;
+  readonly #maxTotalBytes: number;
 
-  private constructor(private readonly dir: string) {}
+  private constructor(
+    private readonly dir: string,
+    options: CheckpointOptions = {},
+  ) {
+    this.#maxEntries = options.maxEntries ?? 2_000;
+    this.#maxTotalBytes = options.maxTotalBytes ?? 64 * 1024 * 1024;
+  }
 
   /** 打开（或新建）检查点目录；目录已带清单时装载既有条目，供重启后回退 */
-  static async open(dir: string): Promise<CheckpointStore> {
-    const store = new CheckpointStore(dir);
+  static async open(dir: string, options: CheckpointOptions = {}): Promise<CheckpointStore> {
+    const store = new CheckpointStore(dir, options);
     await store.#load();
     return store;
   }
@@ -51,6 +75,10 @@ export class CheckpointStore {
       for (const entry of manifest.entries ?? []) {
         this.#entries.push(entry);
         this.#byCallId.set(entry.callId, entry);
+        if (entry.hash !== undefined && entry.snapshotPath !== undefined) {
+          this.#byHash.set(entry.hash, entry.snapshotPath);
+        }
+        if (entry.bytes !== undefined) this.#totalBytes += entry.bytes;
       }
     } catch {
       // 无清单或损坏：视为空目录
@@ -64,23 +92,48 @@ export class CheckpointStore {
     await writeFile(join(this.dir, MANIFEST), JSON.stringify(manifest), "utf8");
   }
 
-  /** 写前快照：记录目标文件当前内容（不存在也记录——回退时删除） */
-  async snapshot(callId: string, path: string): Promise<void> {
+  /**
+   * 写前快照：记录目标文件当前内容（不存在也记录——回退时删除）。
+   * 返回 false = 条目/字节配额已满，本次未留前像（工具仍执行，rewind 不包含该次改动）。
+   */
+  async snapshot(callId: string, path: string): Promise<boolean> {
+    if (this.#entries.length >= this.#maxEntries) return false;
     const existed = existsSync(path);
     const entry: CheckpointEntry = { callId, path, existed };
     if (existed) {
-      await mkdir(this.dir, { recursive: true });
-      const snapshotPath = join(this.dir, `${this.#entries.length}-${basename(path)}`);
-      await copyFile(path, snapshotPath);
-      entry.snapshotPath = snapshotPath;
+      const bytes = await readFile(path);
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      const size = bytes.length;
+      const reused = this.#byHash.get(hash);
+      if (reused !== undefined && existsSync(reused)) {
+        entry.snapshotPath = reused;
+        entry.hash = hash;
+        entry.bytes = 0; // 复用不新增字节
+      } else {
+        if (this.#totalBytes + size > this.#maxTotalBytes) return false;
+        await mkdir(this.dir, { recursive: true });
+        const snapshotPath = join(this.dir, `${this.#entries.length}-${basename(path)}`);
+        await copyFile(path, snapshotPath);
+        entry.snapshotPath = snapshotPath;
+        entry.hash = hash;
+        entry.bytes = size;
+        this.#byHash.set(hash, snapshotPath);
+        this.#totalBytes += size;
+      }
     }
     this.#entries.push(entry);
     this.#byCallId.set(callId, entry);
     await this.#persist();
+    return true;
   }
 
   get(callId: string): CheckpointEntry | undefined {
     return this.#byCallId.get(callId);
+  }
+
+  /** 3-07：一个 apply_patch 调用会为多文件写 `<callId>:<i>` 条目 */
+  byCall(callId: string): CheckpointEntry[] {
+    return this.#entries.filter((e) => e.callId === callId || e.callId.startsWith(`${callId}:`));
   }
 
   /** 全部检查点条目（按记录顺序） */
@@ -97,7 +150,8 @@ export class CheckpointStore {
       if (!targets.has(entry.callId)) continue;
       if (entry.existed && entry.snapshotPath !== undefined) {
         try {
-          await writeFile(entry.path, await readFile(entry.snapshotPath, "utf8"), "utf8");
+          // 3-05：copy 而非 read/write（不把大文件读进内存，也保留原始字节）
+          await copyFile(entry.snapshotPath, entry.path);
         } catch {
           // 前像文件缺失：跳过该项，避免把目标文件写空
           continue;
@@ -174,16 +228,27 @@ export function withFileCheckpoints(
   store: CheckpointStore,
   resolvePath: (path: string, ctx: ToolContext) => string,
 ): Tool {
-  if (tool.definition.name !== "write" && tool.definition.name !== "edit") {
+  const name = tool.definition.name;
+  if (name !== "write" && name !== "edit" && name !== "apply_patch") {
     return tool;
   }
   return {
     definition: tool.definition,
     async execute(input, ctx): Promise<ToolOutput> {
-      const args = (input ?? {}) as { path?: unknown };
-      if (typeof args.path === "string" && args.path !== "") {
+      const args = (input ?? {}) as { path?: unknown; patch?: unknown };
+      const callId = ctx.callId ?? `snap_${Date.now()}`;
+      const paths: string[] = [];
+      if (typeof args.path === "string" && args.path !== "") paths.push(args.path);
+      if (name === "apply_patch" && typeof args.patch === "string") {
         try {
-          await store.snapshot(ctx.callId ?? `snap_${Date.now()}`, resolvePath(args.path, ctx));
+          paths.push(...parseApplyPatch(args.patch).map((f) => f.path));
+        } catch {
+          // 补丁本身非法：交给工具返回解析错误，不为它留前像
+        }
+      }
+      for (const [i, path] of paths.entries()) {
+        try {
+          await store.snapshot(name === "apply_patch" ? `${callId}:${i}` : callId, resolvePath(path, ctx));
         } catch {
           // 快照失败不阻断执行
         }

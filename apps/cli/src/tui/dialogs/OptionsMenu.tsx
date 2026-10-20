@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { c } from "../theme/theme.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 
 export interface MenuOption {
   /** 快捷键（单选时按下即选中并确认；多选时忽略） */
@@ -85,7 +86,7 @@ export function OptionsMenu(props: {
           props.multi === true ? (checked.has(idx) ? "☒" : "☐") : highlighted ? "❯" : " ";
         return (
           <Text key={o.key + String(idx)} color={highlighted ? c("brand") : undefined} bold={highlighted}>
-            {marker} {idx + 1}. {o.label}
+            {marker} {idx + 1}. {stripEscapes(o.label)}
           </Text>
         );
       })}

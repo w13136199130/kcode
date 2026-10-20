@@ -4,6 +4,8 @@ import { previousBoundary, nextBoundary, visualWidth } from "../terminal/width.j
 import { onHomeEnd, patchStdinReadForKeys } from "../terminal/home-end-tee.js";
 import { appendInputLog } from "../terminal/input-log.js";
 import { completePath, filterFileCandidates, listProjectFiles } from "./file-complete.js";
+import { lineEnd, lineStart, wordLeft, wordRight } from "./editing.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 import { UndoStack } from "./undo.js";
 import { GHOST_HINT } from "./suggestions.js";
 import { c } from "../theme/theme.js";
@@ -112,7 +114,8 @@ export function InputBox(props: {
 
   // 终端没有可靠的 DOM composition 事件：保留收到的文字，不猜拼音，不丢数字。
   const insertText = (str: string): void => {
-    const text = str.replace(/\r\n?/g, "\n");
+    // 3-26：粘贴内容可能带 OSC/CSI（剪贴板劫持/标题注入），入库前剥离控制序列
+    const text = stripEscapes(str.replace(/\r\n?/g, "\n"));
     // 多字符一次到位 = 粘贴或 IME 上屏：各自成撤销单元（IME 组合过程终端不上报）
     if (text.length > 1) {
       boundary.current = true;
@@ -240,6 +243,50 @@ export function InputBox(props: {
         } catch {}
       }
 
+      // 3-24：Emacs 风格行编辑（Ctrl+A/E 行首/行尾、Ctrl+U/K 删到行首/行尾、
+      // Ctrl+W 删前一词）与按词移动（Alt/Ctrl+←→）。Ctrl+E 让位给行尾后，
+      // 外部编辑器迁到 Ctrl+G（InputArea 处理，本组件不拦截）。
+      if (key.ctrl && ch === "a") {
+        setCursor({ for: props.value, at: lineStart(props.value, pos) });
+        return;
+      }
+      if (key.ctrl && ch === "e") {
+        setCursor({ for: props.value, at: lineEnd(props.value, pos) });
+        return;
+      }
+      if (key.ctrl && ch === "u") {
+        const start = lineStart(props.value, pos);
+        if (start < pos) {
+          boundary.current = true;
+          setValue(`${props.value.slice(0, start)}${props.value.slice(pos)}`, start);
+        }
+        return;
+      }
+      if (key.ctrl && ch === "k") {
+        const end = lineEnd(props.value, pos);
+        // 已在行尾：删掉换行符（接上下一行），与 Emacs 的 kill-line 一致
+        const killTo = end === pos && props.value[pos] === "\n" ? pos + 1 : end;
+        if (killTo > pos) {
+          boundary.current = true;
+          setValue(`${props.value.slice(0, pos)}${props.value.slice(killTo)}`, pos);
+        }
+        return;
+      }
+      if (key.ctrl && ch === "w") {
+        const start = wordLeft(props.value, pos);
+        if (start < pos) {
+          boundary.current = true;
+          setValue(`${props.value.slice(0, start)}${props.value.slice(pos)}`, start);
+        }
+        return;
+      }
+      if ((key.ctrl || key.meta) && (key.leftArrow || key.rightArrow)) {
+        setCursor({
+          for: props.value,
+          at: key.leftArrow ? wordLeft(props.value, pos) : wordRight(props.value, pos),
+        });
+        return;
+      }
       // N3G-2：Ctrl+Z 撤销 / Ctrl+Y 与 Ctrl+Shift+Z（能区分的终端）重做——
       // 必须在通用 ctrl 早退之前；全局 keybinds 未占用这三个组合
       if (key.ctrl && (ch === "z" || ch === "Z" || ch === "y")) {

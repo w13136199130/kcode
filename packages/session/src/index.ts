@@ -15,5 +15,5 @@ export { buildPlanSubmitTool, type PlanVerdict, type PlanSubmitToolDeps } from "
 export { buildSkillTool, type SkillToolDeps } from "./skill-tool.js";
 export { buildSendMessageTool, buildRespondToCoordinatorTool, STEER_HEADER } from "./agent-messaging.js";
 export { SubagentRegistry, type SubagentHandle } from "./subagent-registry.js";
-export { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
+export { CheckpointStore, withFileCheckpoints, type FileChange } from "./checkpoints.js";
 export { rewindTo } from "./rewind.js";

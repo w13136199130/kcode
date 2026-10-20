@@ -4,7 +4,8 @@ import { useStore } from "zustand";
 import { readFile } from "node:fs/promises";
 import { useServices, type UiStore, type BgTaskView } from "@kcode/ui";
 import { truncateVisual } from "../terminal/width.js";
-import { c } from "../theme/theme.js";
+import { stripEscapes } from "../terminal/sanitize.js";
+import { c, glyph } from "../theme/theme.js";
 import type { CliServices } from "../state/services.js";
 
 /**
@@ -91,18 +92,19 @@ export function TaskBrowser(props: { ui: UiStore }) {
       <Text dimColor>
         后台任务 {cursor + 1}/{tasks.length}
         {start > 0 ? " ↑更多" : ""}
-        {start + view.length < tasks.length ? " ↓更多" : ""} · ↑↓ 选择 · Enter 看日志尾部 · Ctrl+T/Esc 关闭
+        {start + view.length < tasks.length ? " ↓更多" : ""} · ↑↓ 选择 · Enter 看日志尾部 · s 停止运行中任务 · Ctrl+T/Esc 关闭
       </Text>
       {view.map((t, i) => {
         const index = start + i;
         const isSelected = index === cursor;
-        const icon = t.status === "running" ? "⚡" : t.status === "failed" ? "✗" : "✓";
+        const icon =
+          t.status === "running" ? glyph("⚡", "*") : t.status === "failed" ? glyph("✗", "x") : glyph("✓", "+");
         const color = t.status === "failed" ? c("destructive") : t.status === "running" ? c("info") : c("success");
         return (
           <Box key={t.id} flexDirection="column">
             <Text color={isSelected ? c("brand") : color} bold={isSelected}>
               {isSelected ? "❯ " : "  "}
-              {icon} {t.id} <Text dimColor>{truncateVisual(t.command, 56)}</Text>
+              {icon} {t.id} <Text dimColor>{truncateVisual(stripEscapes(t.command), 56)}</Text>
               {t.status === "running"
                 ? ` (${formatMs(Date.now() - t.startedAt)})`
                 : t.exitCode !== undefined
@@ -122,7 +124,7 @@ function TaskDetail(props: { task: BgTaskView; tail: string | null }) {
   return (
     <Box flexDirection="column" marginLeft={2}>
       <Text dimColor wrap="truncate-end">
-        ⎿ 日志 {props.task.logPath}
+        {glyph("⎿", "\\")} 日志 {stripEscapes(props.task.logPath)}
       </Text>
       {props.tail === null ? (
         <Text dimColor>  （读取日志中…）</Text>
@@ -137,7 +139,7 @@ function TaskDetail(props: { task: BgTaskView; tail: string | null }) {
               {shown.map((line, j) => (
                 <Text key={j} dimColor wrap="truncate-end">
                   {"  "}
-                  {truncateVisual(line, 120)}
+                  {truncateVisual(stripEscapes(line), 120)}
                 </Text>
               ))}
               {lines.length > TAIL_LINES ? <Text dimColor>  …（显示尾部 {TAIL_LINES}/{lines.length} 行）</Text> : null}

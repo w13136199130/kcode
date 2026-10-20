@@ -1,18 +1,23 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ProcessHookRunner, loadHookConfigs, trustProject } from "../src/index.js";
+import { ProcessHookRunner, loadHookConfigs, normalizeHookJson, trustProject } from "../src/index.js";
+import { parseHookStdout } from "../src/hooks/runner.js";
 
 let root: string;
 let hookScript: string;
 
-/** 测试钩子脚本：按 argv[2] 决定行为（allow/block/mutate/timeout） */
-const HOOK_SCRIPT = `import { readFileSync } from "node:fs";
+/** 测试钩子脚本：按 argv[2] 决定行为（allow/block/mutate/timeout/append/CC 协议） */
+const HOOK_SCRIPT = `import { appendFileSync, readFileSync } from "node:fs";
 const mode = process.argv[2] ?? "allow";
 const input = readFileSync(0, "utf8");
 if (mode === "block") { console.log(\`被钩子拦截（收到 \${input.length} 字节载荷）\`); process.exit(2); }
 if (mode === "mutate") { console.log(JSON.stringify({ action: "mutate", args: { msg: "改写后的参数" } })); process.exit(0); }
+if (mode === "append") { appendFileSync(process.argv[3], "x"); process.exit(0); }
+if (mode === "cc-context") { console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "项目约定：先读 AGENTS.md" } })); process.exit(0); }
+if (mode === "cc-deny") { console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "禁止 Bash" } })); process.exit(0); }
+if (mode === "cc-block") { console.log(JSON.stringify({ decision: "block", reason: "CC 决策拦截" })); process.exit(0); }
 if (mode === "timeout") { setInterval(() => {}, 1000); await new Promise(() => {}); }
 if (mode === "fail") { console.error("钩子内部错误"); process.exit(1); }
 process.exit(0);
@@ -67,8 +72,7 @@ describe("ProcessHookRunner（钩子裁决协议）", () => {
     const outcomeFail = await makeRunner("fail", warnsFail).preToolUse(call);
     expect(outcomeFail.veto).toBe(false);
     expect(warnsFail.length).toBeGreaterThan(0);
-  }, 30_000); // 包含 Windows 进程树终止和第二次 PowerShell 启动；钩子自身仍限时 800ms。
-  // 全量并发下进程启动变慢曾三次抖动超时——单测放宽到 30s（钩子超时语义不受影响）
+  }, 60_000); // 包含 Windows 进程树终止与第二次 PowerShell 启动；全量并发下进程启动可能很慢（超时语义不受影响）
 
   it("postToolUse 与生命周期钩子正常执行不抛错", async () => {
     const warns: string[] = [];
@@ -85,6 +89,110 @@ describe("ProcessHookRunner（钩子裁决协议）", () => {
     await expect(runner.onStop?.({ sessionId: "s" })).resolves.toBeUndefined();
     expect(warns).toEqual([]);
   }, 15_000); // 三个真实子进程顺序启动，Windows 满载时可能超过 Vitest 默认 5 秒。
+});
+
+describe("3-15 matcher 与 CC 协议", () => {
+  const call = (tool: string) => ({ callId: `c-${tool}`, tool, args: {} });
+
+  it("matcher 只对目标工具执行（工具名/正则，大小写不敏感）", async () => {
+    const log = join(root, "matcher.log");
+    const runner = new ProcessHookRunner(
+      [{ event: "pre_tool_use", command: `node "${hookScript}" append "${log}"`, matcher: "^ba" }],
+      { sessionId: "s" },
+    );
+    await runner.preToolUse(call("bash"));
+    await runner.preToolUse(call("read")); // 不命中
+    await runner.preToolUse(call("Bash")); // 大小写不敏感
+    expect(await readFile(log, "utf8")).toBe("xx");
+  }, 15_000);
+
+  it("CC hookSpecificOutput.additionalContext 汇总为上下文；deny 映射为拦截", async () => {
+    const contextRunner = makeRunner("cc-context");
+    const outcome = await contextRunner.preToolUse(call("bash"));
+    expect(outcome.veto).toBe(false);
+    expect(outcome.context).toContain("项目约定");
+
+    const denyOutcome = await makeRunner("cc-deny").preToolUse(call("bash"));
+    expect(denyOutcome.veto).toBe(true);
+    expect(denyOutcome.reason).toContain("禁止 Bash");
+
+    const blockOutcome = await makeRunner("cc-block").preToolUse(call("bash"));
+    expect(blockOutcome.veto).toBe(true);
+    expect(blockOutcome.reason).toContain("CC 决策拦截");
+  }, 20_000);
+
+  it("post_tool_use / session_start 返回 additionalContext（不否决）", async () => {
+    const warns: string[] = [];
+    const runner = new ProcessHookRunner(
+      [
+        { event: "post_tool_use", command: cmd("cc-context") },
+        { event: "session_start", command: cmd("cc-context") },
+      ],
+      { sessionId: "s", onWarn: (m) => warns.push(m) },
+    );
+    await expect(runner.postToolUse(call("bash"), { ok: true, output: "ok" })).resolves.toEqual({
+      context: "项目约定：先读 AGENTS.md",
+    });
+    await expect(runner.onSessionStart?.({ sessionId: "s" })).resolves.toEqual({
+      context: "项目约定：先读 AGENTS.md",
+    });
+    expect(warns).toEqual([]);
+  }, 20_000);
+
+  it("stdout 双协议解析：自有 action / CC decision / continue:false；未知 JSON 不误判", () => {
+    expect(parseHookStdout(JSON.stringify({ action: "allow", additionalContext: "x" }))).toEqual({
+      action: "allow",
+      context: "x",
+    });
+    expect(parseHookStdout(JSON.stringify({ decision: "block", reason: "no" }))).toEqual({
+      action: "block",
+      reason: "no",
+    });
+    expect(parseHookStdout(JSON.stringify({ continue: false, stopReason: "stop" }))).toEqual({
+      action: "block",
+      reason: "stop",
+    });
+    expect(parseHookStdout(JSON.stringify({ hookSpecificOutput: { permissionDecision: "ask" } }))?.action).toBe("block");
+    expect(parseHookStdout("not json")).toBeUndefined();
+    expect(parseHookStdout(JSON.stringify({ hello: "world" }))).toBeUndefined();
+  });
+});
+
+describe("3-15 配置形态归一化", () => {
+  it("CC 形态：事件映射、matcher、timeout 秒→毫秒、未知键只告警", () => {
+    const { hooks, warnings } = normalizeHookJson({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: "^Ba",
+            extra: true,
+            hooks: [{ type: "command", command: "echo hi", timeout: 2, mystery: 1 }],
+          },
+        ],
+        Notification: [{ hooks: [{ type: "command", command: "x" }] }],
+      },
+      other: 1,
+    });
+    expect(hooks).toHaveLength(1);
+    expect(hooks[0]).toMatchObject({ event: "pre_tool_use", command: "echo hi", matcher: "^Ba", timeoutMs: 2000 });
+    expect(warnings.some((w) => w.includes('"extra"'))).toBe(true);
+    expect(warnings.some((w) => w.includes('"mystery"'))).toBe(true);
+    expect(warnings.some((w) => w.includes('"other"'))).toBe(true);
+    expect(warnings.some((w) => w.includes("Notification"))).toBe(true);
+  });
+
+  it("自有形态：未知键告警但条目仍加载；坏条目跳过", () => {
+    const { hooks, warnings } = normalizeHookJson({
+      hooks: [
+        { event: "stop", command: "echo ok", foo: 1 },
+        { event: "not_an_event", command: "x" },
+      ],
+    });
+    expect(hooks).toHaveLength(1);
+    expect(hooks[0]?.event).toBe("stop");
+    expect(warnings.some((w) => w.includes('"foo"'))).toBe(true);
+    expect(warnings.some((w) => w.includes("不合法"))).toBe(true);
+  });
 });
 
 describe("loadHookConfigs（配置加载与信任门控）", () => {

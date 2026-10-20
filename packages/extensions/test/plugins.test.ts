@@ -5,8 +5,13 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildConsentSummary,
+  compareVersions,
   installPlugin,
+  latestInstalledPlugins,
   listInstalledPlugins,
+  parsePluginPermissions,
+  pluginMcpConfigs,
+  PluginPermissionEngine,
   readPluginManifest,
   uninstallPlugin,
 } from "../src/index.js";
@@ -16,7 +21,11 @@ let sourceDir: string;
 let cacheDir: string;
 
 /** 构造一个合法的测试插件源目录 */
-async function makePluginSource(name: string, version: string): Promise<string> {
+async function makePluginSource(
+  name: string,
+  version: string,
+  permissions: string[] = ["write:ask"],
+): Promise<string> {
   const dir = join(root, `src-${name}-${version.replace(/\./g, "-")}`);
   await mkdir(join(dir, "skills", `${name}-skill`), { recursive: true });
   await mkdir(join(dir, "commands"), { recursive: true });
@@ -30,7 +39,7 @@ async function makePluginSource(name: string, version: string): Promise<string> 
       skills: [`${name}-skill`],
       commands: [name],
       mcp: [{ name: `${name}-mcp`, transport: "stdio", command: "node server.js" }],
-      permissions: ["write:ask"],
+      permissions,
     }),
     "utf8",
   );
@@ -110,6 +119,90 @@ describe("插件安装与卸载", () => {
     await mkdir(bad, { recursive: true });
     await writeFile(join(bad, ".kcode-plugin"), JSON.stringify({ schema: "kcode.plugin/1", name: "../evil", version: "1.0.0" }), "utf8");
     await expect(readPluginManifest(bad)).rejects.toThrow("不合法");
+  });
+});
+
+describe("3-16 插件权限：只收紧不提权", () => {
+  it("解析 ask/deny；allow 与未知格式报错；deny 冲突优先", () => {
+    const parsed = parsePluginPermissions(["bash:deny", "write:ask", "read:deny", "read:ask"]);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.rules.get("bash")).toBe("deny");
+    expect(parsed.rules.get("write")).toBe("ask");
+    expect(parsed.rules.get("read")).toBe("deny"); // deny 优先
+
+    const bad = parsePluginPermissions(["bash:allow", "write", "read:maybe"]);
+    expect(bad.errors).toHaveLength(3);
+    expect(bad.errors.some((e) => e.includes("不允许提权"))).toBe(true);
+  });
+
+  it("PluginPermissionEngine 命中规则直接裁决，其余委托底层", () => {
+    let baseCalls = 0;
+    const base = {
+      decide: () => {
+        baseCalls++;
+        return "allow" as const;
+      },
+    };
+    const engine = new PluginPermissionEngine(base, new Map([["bash", "deny" as const]]));
+    const def = (name: string) => ({ name, description: "", parameters: {}, readOnly: false });
+    expect(engine.decide(def("bash"), {})).toBe("deny");
+    expect(baseCalls).toBe(0);
+    expect(engine.decide(def("read"), {})).toBe("allow");
+    expect(baseCalls).toBe(1);
+  });
+
+  it("安装期拒绝提权/非法权限声明的插件", async () => {
+    const bad = await makePluginSource("bad-perms", "1.0.0", ["bash:allow"]);
+    await expect(installPlugin(bad, join(root, "cache-bad"))).rejects.toThrow("权限声明不合法");
+  });
+});
+
+describe("3-16 只装最新版", () => {
+  it("升级安装清理旧版本；降级被拒，--force 才可覆盖", async () => {
+    const cache = join(root, "cache-latest");
+    await installPlugin(await makePluginSource("versioned", "1.0.0"), cache);
+    await installPlugin(await makePluginSource("versioned", "1.1.0"), cache);
+    const versions = await (await import("node:fs/promises")).readdir(join(cache, "versioned"));
+    expect(versions).toEqual(["1.1.0"]);
+    expect(await listInstalledPlugins(cache)).toHaveLength(1);
+
+    await expect(installPlugin(await makePluginSource("versioned", "1.0.0"), cache)).rejects.toThrow("更新版本");
+    const forced = await installPlugin(await makePluginSource("versioned", "1.0.0"), cache, { force: true });
+    expect(forced.version).toBe("1.0.0");
+    expect(await (await import("node:fs/promises")).readdir(join(cache, "versioned"))).toEqual(["1.0.0"]);
+  });
+
+  it("latestInstalledPlugins：同名只留最高版本", () => {
+    const mk = (version: string) => ({
+      manifest: { name: "x", version },
+      installPath: "",
+      seed: { hash: "h", version },
+    });
+    const latest = latestInstalledPlugins([mk("1.0.0"), mk("1.2.0"), mk("1.1.9")] as never);
+    expect(latest).toHaveLength(1);
+    expect(latest[0]?.manifest.version).toBe("1.2.0");
+    expect(compareVersions("1.10.0", "1.9.0")).toBeGreaterThan(0);
+  });
+});
+
+describe("3-16 插件 MCP 按 transport 分流", () => {
+  const manifest = (mcp: unknown[]) =>
+    ({ schema: "kcode.plugin/1", name: "p", version: "1.0.0", hooks: [], skills: [], commands: [], mcp, permissions: [] }) as never;
+
+  it("stdio 保留 args/env；http/sse 用 url；非法声明逐条报错", () => {
+    const built = pluginMcpConfigs(
+      manifest([
+        { name: "s1", transport: "stdio", command: "node", args: ["a.js"], env: { A: "1" } },
+        { name: "s2", transport: "http", url: "https://example.com/mcp" },
+        { name: "s3", transport: "sse", url: "https://example.com/sse" },
+        { name: "s4", transport: "stdio" },
+      ]),
+    );
+    expect(built.errors).toHaveLength(1);
+    expect(built.errors[0]).toContain("s4");
+    expect(built.configs.map((c) => c.transport)).toEqual(["stdio", "http", "sse"]);
+    expect(built.configs[0]).toMatchObject({ command: "node", args: ["a.js"], env: { A: "1" } });
+    expect(built.configs[1]).toMatchObject({ transport: "http", url: "https://example.com/mcp" });
   });
 });
 

@@ -75,6 +75,15 @@ describe("UI 语义 store（N2-3：run-status + transcript 双 slice）", () => 
     expect(s.getState().todos).toEqual([]);
   });
 
+  it("3-25：replayTranscript / resetTranscript 递增 renderEpoch（Static 重放代次）", () => {
+    const s = createUiStore();
+    expect(s.getState().renderEpoch).toBe(0);
+    s.getState().replayTranscript();
+    expect(s.getState().renderEpoch).toBe(1);
+    s.getState().resetTranscript();
+    expect(s.getState().renderEpoch).toBe(2);
+  });
+
   it("工厂隔离：两个 store 实例互不串态", () => {
     const a = createUiStore();
     const b = createUiStore();

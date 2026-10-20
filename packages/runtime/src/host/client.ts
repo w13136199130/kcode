@@ -66,7 +66,9 @@ export class HostClient {
 
   async #waitForHello(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("宿主握手超时（5s）")), 5_000);
+      // Windows 冷启动 + 并发测试下 utilityProcess 可能 >5s 才 ready；
+      // 15s 与桌面 host 的 3.5s 退出宽限是不同阶段，不会拖慢正常路径。
+      const timer = setTimeout(() => reject(new Error("宿主握手超时（15s）")), 15_000);
       const onEvent = (event: HostEvent): void => {
         if (event.type === "ready") {
           clearTimeout(timer);

@@ -12,6 +12,7 @@ import { HistorySearch } from "./HistorySearch.js";
 import { openInExternalEditor } from "./external-editor.js";
 import { readClipboardImageToFile } from "./clipboard-image.js";
 import { appendMemoryLine } from "../memory.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 import { c } from "../theme/theme.js";
 import { kcodeHome } from "../../bootstrap.js";
 
@@ -19,7 +20,7 @@ import { kcodeHome } from "../../bootstrap.js";
  * 输入区装配（N3C-4②③④⑤⑥）：覆盖层面板打开时顶替输入框——方向键/回车归面板独占，
  * 不与输入光标/历史双响应；这与 DialogLayer"面板顶替 children"的既有模式一致。
  * 其余状态回落：未就绪 → 初始化提示；非交互 → 一次性提问提示。
- * Ctrl+E（外部编辑器）/ Ctrl+R（历史搜索）/ Ctrl+V（贴图附件）在这里处理而非
+ * Ctrl+G（外部编辑器）/ Ctrl+R（历史搜索）/ Ctrl+V（贴图附件）在这里处理而非
  * keybinds：三者都需要输入框的值或回填通道；InputBox 自身过滤全部 Ctrl 组合键，
  * 不会双响应。
  */
@@ -34,6 +35,10 @@ export function InputArea(props: {
   history: string[];
   commands: CommandInfo[];
   cwd: string;
+  /** 3-22：会话 JSONL 路径（工具详情展示完整事件位置） */
+  jsonlPath?: string;
+  /** 3-22：按 callId 读完整工具输出（块内仅 2k 预览） */
+  loadToolOutput?: (callId: string) => Promise<string | null>;
   onCjkCommit(): void;
 }) {
   const browserOpen = useStore(props.ui, (s) => s.toolBrowser.open);
@@ -44,17 +49,19 @@ export function InputArea(props: {
   const { setRawMode } = useStdin();
   const inputActive = props.interactive && props.ready && !browserOpen && !taskBrowserOpen && !historySearchOpen;
 
-  // Ctrl+E 外部编辑长输入：仅空闲可用（spawnSync 阻塞事件循环，运行中会冻结流式渲染）
+  // 3-24：外部编辑长输入迁到 Ctrl+G（Ctrl+E 让位给行尾），仅空闲可用
+  // （spawnSync 阻塞事件循环，运行中会冻结流式渲染）
   useInput(
     (ch, key) => {
-      if (key.ctrl && ch === "e") {
+      if (key.ctrl && ch === "g") {
         void openInExternalEditor(props.value, {
           suspend: () => setRawMode(false),
           resume: () => setRawMode(true),
         }).then((result) => {
           if (result.ok) {
             if (result.text !== props.value) {
-              props.onChange(result.text);
+              // 外部编辑器写回的内容同样按不可信文本处理（3-26）
+              props.onChange(stripEscapes(result.text));
             }
           } else {
             props.ui.getState().pushBlock({ kind: "info", tone: "warn", text: result.error });
@@ -101,7 +108,13 @@ export function InputArea(props: {
     return <TaskBrowser ui={props.ui} />;
   }
   if (browserOpen) {
-    return <ToolBrowser ui={props.ui} />;
+    return (
+      <ToolBrowser
+        ui={props.ui}
+        {...(props.jsonlPath !== undefined ? { jsonlPath: props.jsonlPath } : {})}
+        {...(props.loadToolOutput !== undefined ? { loadOutput: props.loadToolOutput } : {})}
+      />
+    );
   }
   if (historySearchOpen) {
     return <HistorySearch ui={props.ui} history={props.history} onPick={props.onChange} />;
@@ -123,10 +136,10 @@ export function InputArea(props: {
         value={props.value}
         onChange={props.onChange}
         onSubmit={(v) => {
-          // N3G-3：# 开头拦截——追加项目 AGENTS.md（下次会话生效），不进模型不进历史。
-          // busy 中同样可用（写文件与会话上下文无争用）
-          if (v.startsWith("#")) {
-            const note = v.slice(1).trim();
+          // 3-28：# 记忆只认 "# "（井号 + 空格）——`#include`、`#123`、Markdown 标题
+          // 不再被误写进 AGENTS.md；裸 # 按普通提问发送（可编辑性优先）。
+          if (v.startsWith("# ")) {
+            const note = v.slice(2).trim();
             const state = props.ui.getState();
             props.onChange("");
             if (note === "") {

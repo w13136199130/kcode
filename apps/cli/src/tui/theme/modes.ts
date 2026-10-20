@@ -1,11 +1,14 @@
 import type { PermissionMode } from "@kcode/contracts";
 
 /** 四档权限模式的界面元数据（与 extensions/RULES_BY_MODE 一一对应）；符号用等宽字形不用 emoji */
-export const MODE_META: Record<PermissionMode, { label: string; hint: string; color: string; glyph: string }> = {
-  plan: { label: "只读", hint: "写/命令将被拒绝", color: "magenta", glyph: "⏸" },
-  default: { label: "变更确认", hint: "写/命令逐次确认", color: "cyan", glyph: "⏵" },
-  acceptEdits: { label: "自动编辑", hint: "编辑自动放行，命令仍确认", color: "green", glyph: "⏵⏵" },
-  fullAccess: { label: "完全访问", hint: "全自动，谨慎使用", color: "red", glyph: "⏵⏵⏵" },
+export const MODE_META: Record<
+  PermissionMode,
+  { label: string; hint: string; color: string; glyph: string; ascii: string }
+> = {
+  plan: { label: "只读", hint: "写/命令将被拒绝", color: "magenta", glyph: "⏸", ascii: "||" },
+  default: { label: "变更确认", hint: "写/命令逐次确认", color: "cyan", glyph: "⏵", ascii: ">" },
+  acceptEdits: { label: "自动编辑", hint: "编辑自动放行，命令仍确认", color: "green", glyph: "⏵⏵", ascii: ">>" },
+  fullAccess: { label: "完全访问", hint: "全自动，谨慎使用", color: "red", glyph: "⏵⏵⏵", ascii: ">>>" },
 };
 
 /** /mode 循环切换顺序：fullAccess 不进循环，只能显式指定并确认 */

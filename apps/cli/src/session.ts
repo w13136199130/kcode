@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { extname, join, resolve } from "node:path";
 import type {
   AskPreviewPayload,
   PermissionAnswer,
@@ -14,9 +16,18 @@ import {
   trustProject,
   isProjectTrusted,
   type ComposedSession,
+  type FileChange,
   type PlanVerdict,
 } from "@kcode/session";
-import { listSessions, type QueuedCommand, type RuntimeCommandQueue } from "@kcode/runtime";
+import {
+  effectiveEvents,
+  listSessions,
+  loadSessionEvents,
+  renameSession,
+  type QueuedCommand,
+  type RuntimeCommandQueue,
+} from "@kcode/runtime";
+import { workspaceKey } from "@kcode/shared";
 import type { Runtime } from "./bootstrap.js";
 
 /**
@@ -29,6 +40,10 @@ export interface SessionHandle {
     run(input: string, opts?: { images?: string[] }): Promise<{ sessionId: string; turns: number; toolCalls: number; status: RunStatus }>;
   };
   sessionId: string;
+  /** 3-22：会话 JSONL 绝对路径（工具详情给出"完整事件在哪"） */
+  jsonlPath: string;
+  /** 3-22：按 callId 读取完整工具输出（JSONL 事实源；进程内缓存；未找到 null） */
+  toolResultOutput(callId: string): Promise<string | null>;
   /** 运行中输入排队（N2-2）：busy 时入队而非丢弃；完成即排空；中断清空 */
   commandQueue: RuntimeCommandQueue;
   /** 中断当前运行（Esc）：流式停止、未开始的工具调用取消 */
@@ -43,7 +58,11 @@ export interface SessionHandle {
   availableModels(): Promise<string[]>;
   listSkills(): Promise<{ name: string; description: string }[]>;
   skillBody(name: string): Promise<string | null>;
-  listSessions(): Promise<{ sessionId: string; preview: string; turns: number }[]>;
+  listSessions(): Promise<{ sessionId: string; preview: string; turns: number; title?: string }[]>;
+  /** 3-04：给当前会话设置标题（sidecar；空串清除） */
+  rename(title: string): Promise<void>;
+  /** 3-06：当前会话的有效事件流（含工具全文；rewind/compact 已生效） */
+  exportEvents(): Promise<SessionEvent[]>;
   listCommands(): { name: string; source: "project" | "user" }[];
   expandCommand(name: string, args: string): Promise<string | null>;
   trustProject(): Promise<void>;
@@ -59,12 +78,18 @@ export interface SessionHandle {
   rewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
   /** 回退到某提问之前（恢复文件快照 + 截断对话）；失败返回错误信息 */
   rewind(eventIndex: number): Promise<string | null>;
+  /** 3-23：本会话改动（检查点基线 → 当前磁盘，供 /diff 审查） */
+  listChanges(): Promise<FileChange[]>;
+  /** 3-23：回退指定文件的全部检查点改动（省略 paths = 全部文件）；运行中拒绝 */
+  revertChanges(paths?: string[]): Promise<{ restoredFiles: number }>;
   /** /compact 手动压缩（历史过短未触发时 dropped=0）；失败返回错误信息 */
   compact(): Promise<{ dropped: number; summaryChars: number } | string>;
   /** !命令 用户直执行（不经 LLM；结果仅显示） */
   runBash(command: string, timeoutMs?: number): Promise<{ ok: boolean; output: string; error?: string; durationMs: number } | null>;
   /** 后台任务清单（N3C-4③ 任务面板轮询源）；无会话返回空数组 */
   backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number; notified?: boolean }[];
+  /** 3-27：终止运行中的后台任务；返回是否真的发出终止信号 */
+  stopBackgroundTask(id: string): boolean;
   /** 结束会话：关闭 MCP 子进程等资源（headless 运行完毕后调用；TUI 随进程退出自然回收） */
   close(): Promise<void>;
   /** /mcp：MCP 服务器接入状态 */
@@ -72,7 +97,10 @@ export interface SessionHandle {
   /** 单个已连接 MCP 服务器的工具名清单（N3I-7 /mcp tools；未连接 null） */
   mcpTools(name: string): Promise<string[] | null>;
   /** 已装载 hooks（N3I-7 /hooks） */
-  hooksInfo(): Promise<{ source: "user" | "project"; event: string; command: string; failClosed?: boolean }[]>;
+  /** 已装载 hooks（N3I-7 /hooks；3-16 增插件来源与 matcher） */
+  hooksInfo(): Promise<
+    { source: "user" | "project" | "plugin"; event: string; command: string; matcher?: string; plugin?: string; failClosed?: boolean }[]
+  >;
   /** /context 上下文占用 */
   context(): Promise<{
     model: string;
@@ -145,6 +173,39 @@ const PLAN_OPTIONS: { label: string; description: string }[] = [
  * 建立本地会话：进程内组装引擎（composeSession），事件/增量/交互以回调直连界面。
  * resume 由本地从 JSONL 重建。
  */
+/**
+ * 3-02：附图复制进会话 artifacts（内容 hash 命名，天然去重）。
+ * 原图被删/移动后，resume 仍能从会话目录重建多模态请求。
+ */
+export async function persistImages(
+  paths: readonly string[],
+  kcodeHomeDir: string,
+  sessionId: string,
+): Promise<string[]> {
+  const dir = join(kcodeHomeDir, "cli", "artifacts", "images", sessionId);
+  await mkdir(dir, { recursive: true });
+  const out: string[] = [];
+  for (const path of paths) {
+    const abs = resolve(path);
+    if (abs.startsWith(resolve(dir))) {
+      out.push(abs);
+      continue;
+    }
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(abs);
+    } catch (err) {
+      throw new Error(`读取附图失败 ${path}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 24);
+    const ext = extname(abs).toLowerCase().replace(/[^.a-z0-9]/g, "") || ".img";
+    const target = join(dir, `${hash}${ext}`);
+    await copyFile(abs, target);
+    out.push(target);
+  }
+  return out;
+}
+
 export async function createSession(opts: LocalSessionOptions): Promise<SessionHandle> {
   const kcodeHomeDir = opts.runtime.kcodeHomeDir;
   const resume =
@@ -211,11 +272,44 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
           },
   });
 
+  // 3-22：完整工具输出按需读 JSONL（转写块只留 2k 预览），进程内缓存避免反复解析
+  const toolOutputCache = new Map<string, string | null>();
+
   return {
     sessionId: composed.sessionId,
+    jsonlPath: composed.jsonlPath,
+    toolResultOutput: async (callId) => {
+      if (toolOutputCache.has(callId)) {
+        return toolOutputCache.get(callId) ?? null;
+      }
+      let found: string | null = null;
+      try {
+        const events = await loadSessionEvents(composed.jsonlPath);
+        for (let i = events.length - 1; i >= 0; i--) {
+          const event = events[i]!;
+          if (event.type === "tool_result" && event.callId === callId) {
+            found = event.output !== "" ? event.output : (event.error ?? "");
+            break;
+          }
+        }
+      } catch {
+        found = null;
+      }
+      toolOutputCache.set(callId, found);
+      return found;
+    },
     commandQueue: composed.commandQueue,
     loop: {
-      run: (input, runOpts) => composed.loop.run(input, runOpts ?? {}),
+      run: async (input, runOpts) => {
+        const images =
+          runOpts?.images !== undefined && runOpts.images.length > 0
+            ? await persistImages(runOpts.images, kcodeHomeDir, composed.sessionId)
+            : undefined;
+        return composed.loop.run(input, {
+          ...(runOpts ?? {}),
+          ...(images !== undefined ? { images } : {}),
+        });
+      },
     },
     abort: () => composed.abort(),
     setMode: (mode) => {
@@ -260,8 +354,19 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     skillBody: (name) => composed.skillBody(name),
     listSessions: async () => {
       const summaries = await listSessions(join(kcodeHomeDir, "cli", "sessions"));
-      return summaries.slice(0, 10).map((s) => ({ sessionId: s.sessionId, preview: s.preview, turns: s.turns }));
+      const cwdKey = workspaceKey(opts.cwd);
+      return summaries
+        .filter((s) => s.workspaceKey === "" || s.workspaceKey === cwdKey)
+        .slice(0, 10)
+        .map((s) => ({
+          sessionId: s.sessionId,
+          preview: s.preview,
+          turns: s.turns,
+          ...(s.title !== undefined ? { title: s.title } : {}),
+        }));
     },
+    rename: (title) => renameSession(join(kcodeHomeDir, "cli", "sessions"), composed.sessionId, title),
+    exportEvents: async () => effectiveEvents(await loadSessionEvents(composed.jsonlPath)),
     listCommands: () => composed.listCommands(),
     expandCommand: (name, args) => composed.expandCommand(name, args),
     trustProject: () => trustProject(opts.cwd, kcodeHomeDir),
@@ -284,6 +389,8 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
         return err instanceof Error ? err.message : String(err);
       }
     },
+    listChanges: () => composed.listChanges(),
+    revertChanges: (paths) => composed.revertChanges(paths),
     compact: async () => {
       try {
         const r = await composed.compactNow();
@@ -298,6 +405,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     mcpTools: async (name) => composed.mcpToolNames(name),
     hooksInfo: async () => composed.hooksInfo(),
     backgroundTasks: () => composed.backgroundTasks(),
+    stopBackgroundTask: (id) => composed.stopBackgroundTask(id),
     close: () => composed.close(),
   };
 }

@@ -1,7 +1,10 @@
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
 import { displayPath, isWithinWorkspace, resolveInCtx } from "./paths.js";
 import { atomicWriteText } from "./atomic-write.js";
+import { recordRead, verifyReadBeforeWrite } from "./read-state.js";
 
 const WriteArgs = z.object({
   path: z.string().min(1),
@@ -54,8 +57,22 @@ export const writeTool: Tool = {
       // 返回告警但不阻止——权限引擎的 ask 确认是最终门控
       return { ok: false, output: "", error: boundary };
     }
+    // 3-09：覆盖已存在文件必须先 read，且 read 后内容未变；新建文件不受限
+    if (ctx.reads !== undefined && existsSync(abs)) {
+      let current: string;
+      try {
+        current = await readFile(abs, "utf8");
+      } catch (err) {
+        return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
+      }
+      const stale = verifyReadBeforeWrite(ctx, abs, current);
+      if (stale !== undefined) {
+        return { ok: false, output: "", error: stale };
+      }
+    }
     try {
       await atomicWriteText(abs, content);
+      await recordRead(ctx, abs, content);
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
     }

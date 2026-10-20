@@ -37,6 +37,7 @@ beforeAll(async () => {
   pluginsDir = join(home, "cli", "plugins");
   cacheDir = join(pluginsDir, "cache");
   await installPlugin(await makePluginSource("demo", "1.0.0"), cacheDir);
+  // 3-16 只装最新版：升级安装会清理 1.0.0
   await installPlugin(await makePluginSource("demo", "2.0.0"), cacheDir);
   await installPlugin(await makePluginSource("other", "1.0.0"), cacheDir);
 });
@@ -98,8 +99,9 @@ describe("buildExtensionRoots（会话组装与 CLI 盘点共用）", () => {
   it("默认全启用：根顺序 project > user > 插件目录（每个插件一个）", async () => {
     await resetEnabled();
     const roots = await buildExtensionRoots({ cwd, kcodeHomeDir: home });
-    expect(roots.plugins).toHaveLength(3);
-    expect(roots.skillRoots.map((r) => r.source)).toEqual(["project", "user", "plugin", "plugin", "plugin"]);
+    // demo 只保留 2.0.0（1.0.0 已被安装期清理）+ other → 两个插件根
+    expect(roots.plugins).toHaveLength(2);
+    expect(roots.skillRoots.map((r) => r.source)).toEqual(["project", "user", "plugin", "plugin"]);
     // 插件命令沿用 project 身份（项目同名命令可覆盖插件命令）
     expect(roots.commandRoots.every((r) => r.source === "project" || r.source === "user")).toBe(true);
   });
@@ -126,7 +128,7 @@ describe("buildExtensionRoots（会话组装与 CLI 盘点共用）", () => {
     await setPluginEnabled(pluginsDir, "demo", true); // 还原，避免影响其他用例
   });
 
-  it("停用精确版本 demo@1.0.0：2.0.0 仍在", async () => {
+  it("停用已不存在的旧版本条目不误伤当前版本", async () => {
     await resetEnabled();
     await setPluginEnabled(pluginsDir, "demo@1.0.0", false);
     const roots = await buildExtensionRoots({ cwd, kcodeHomeDir: home });

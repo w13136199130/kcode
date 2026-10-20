@@ -34,6 +34,24 @@ describe("ask 变更预览（diff 渲染）", () => {
     expect(preview?.diff).toContain("+bar()");
   });
 
+  it("3-08 多编辑：逐段标注 @@ 编辑 N", async () => {
+    const preview = await buildAskPreview(
+      "edit",
+      {
+        path: "src/a.ts",
+        edits: [
+          { oldString: "a", newString: "A" },
+          { oldString: "b", newString: "B", replaceAll: true },
+        ],
+      },
+      { sessionId: "s", cwd: ws },
+    );
+    expect(preview?.diff).toContain("@@ 编辑 1");
+    expect(preview?.diff).toContain("@@ 编辑 2（全部匹配）");
+    expect(preview?.diff).toContain("+A");
+    expect(preview?.diff).toContain("+B");
+  });
+
   it("write 工具：已有文件对比旧内容；新文件整体为新增", async () => {
     const existing = join(ws, "existing.txt");
     await writeFile(existing, "line1\nline2\n", "utf8");

@@ -9,6 +9,8 @@ import { detectWindowsBash } from "./shell-detect.js";
 import { OutputCollector, type OutputLimits } from "./output-collector.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+/** 与工具护栏 600s 对齐：超过没有意义，只会让用户等更久 */
+const MAX_TIMEOUT_MS = 600_000;
 
 const BashArgs = z.object({
   command: z.string().min(1),
@@ -154,6 +156,9 @@ export function createBashTool(opts: BashToolOptions): Tool {
         return { ok: false, output: "", error: `参数不合法: ${parsed.error.message}` };
       }
       const { command, timeoutMs, runInBackground, cwd } = parsed.data;
+      if (timeoutMs !== undefined && timeoutMs > MAX_TIMEOUT_MS) {
+        return { ok: false, output: "", error: `timeoutMs 不能超过 ${MAX_TIMEOUT_MS}ms（收到 ${timeoutMs}）` };
+      }
       // 持久目录优先级：显式 cwd > 上次打点回传的 lastCwd（目录可能已被删除，存在性守卫自愈）> 会话 cwd
       const persisted = lastCwd !== undefined && existsSync(lastCwd) ? lastCwd : undefined;
       const workDir = cwd ?? persisted ?? ctx.cwd;
@@ -175,6 +180,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
           env: childEnv,
           stdio: ["ignore", logFile.fd, logFile.fd],
           windowsHide: true,
+          detached: process.platform !== "win32",
         });
         registry.track({ id, command, status: "running", logPath, startedAt: Date.now() });
         registry.attach(id, child);
@@ -202,7 +208,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
             ? join(opts.artifactsDir, `${ctx.callId}.log`)
             : undefined,
         );
-        const { code } = await runShell(
+        const outcome = await runShell(
           shell.file,
           shell.args(markCommandForSnapshot(shell.name, command, nonce)),
           workDir,
@@ -210,8 +216,22 @@ export function createBashTool(opts: BashToolOptions): Tool {
           timeoutMs ?? DEFAULT_TIMEOUT_MS,
           ctx.signal,
           collector,
+          ctx.onProgress,
         );
-        // 打点行剥除后再终态编排（打点在输出末尾，先剥可免被编进尾部）；中断/超时/语法错误时无打点，保持旧目录
+        // 3-10：超时/中断也先编排已产生的输出——"npm run build 超时"必须能看到错误尾段
+        const result = await collector.finish((text) => extractShellSnapshot(text, nonce).output);
+        if (outcome.timedOut === true) {
+          return {
+            ok: false,
+            output: result.text,
+            error: `命令超时（${Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000)}s），已终止进程树；以上为已产生的输出`,
+          };
+        }
+        if (outcome.aborted === true) {
+          return { ok: false, output: result.text, error: "已被用户中断（进程树已终止）" };
+        }
+        const code = outcome.code;
+        // 打点行剥除后再终态编排（打点在输出末尾，先剥可免被编进尾部）；语法错误时无打点，保持旧目录
         const snapshot = extractShellSnapshot(collector.getText(), nonce);
         let boundaryNote = "";
         if (snapshot.cwd !== undefined) {
@@ -225,7 +245,6 @@ export function createBashTool(opts: BashToolOptions): Tool {
             boundaryNote = `\n⚠ 工作目录已离开项目（${candidate}）——持久目录重置回 ${ctx.cwd}；操作系统外路径请每次显式 cd 或用绝对路径`;
           }
         }
-        const result = await collector.finish((text) => extractShellSnapshot(text, nonce).output);
         const text = boundaryNote === "" ? result.text : `${result.text}${boundaryNote}`;
         if (code === 0) {
           return { ok: true, output: text };
@@ -310,7 +329,12 @@ function killTree(child: ChildProcess): void {
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true });
   } else {
-    child.kill("SIGKILL");
+    try {
+      // detached spawn 创建的进程组：负 pid 一次杀 shell 与所有孙进程
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      child.kill("SIGKILL");
+    }
   }
 }
 
@@ -323,15 +347,32 @@ function runShell(
   timeoutMs: number,
   signal: AbortSignal | undefined,
   collector: OutputCollector,
-): Promise<{ code: number }> {
+  onProgress?: (tail: string, total: number) => void,
+): Promise<{ code: number; timedOut?: boolean; aborted?: boolean }> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(file, args, { cwd, env, windowsHide: true });
+    // POSIX 用独立进程组，kill(-pid) 能一并杀掉 shell 派生的孙进程
+    const child = spawn(file, args, {
+      cwd,
+      env,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+    });
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+    let progressTimer: NodeJS.Timeout | null = null;
+    const finish = (result: { code: number; timedOut?: boolean; aborted?: boolean }): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      if (progressTimer !== null) clearInterval(progressTimer);
+      signal?.removeEventListener("abort", onAbort);
+      resolvePromise(result);
+    };
     // 用户中断（Esc/Ctrl+C）：立即杀树并结算（不等 120s 超时）
     const onAbort = (): void => {
       killTree(child);
-      clearTimeout(timer);
       collector.append("\n（已被用户中断）");
-      resolvePromise({ code: -1 });
+      finish({ code: -1, aborted: true });
     };
     if (signal !== undefined) {
       if (signal.aborted) {
@@ -340,10 +381,23 @@ function runShell(
       }
       signal.addEventListener("abort", onAbort, { once: true });
     }
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       killTree(child);
-      reject(new Error(`命令超时（${Math.round(timeoutMs / 1000)}s），已终止`));
+      collector.append(`\n（命令超时 ${Math.round(timeoutMs / 1000)}s，已终止进程树）`);
+      finish({ code: -1, timedOut: true });
     }, timeoutMs);
+    if (onProgress !== undefined) {
+      // 输出节流：每 500ms 推一次尾部，而不是每个 chunk 都刷 UI；无新输出不推
+      let lastTotal = -1;
+      progressTimer = setInterval(() => {
+        const total = collector.totalChars;
+        if (total === lastTotal) return;
+        lastTotal = total;
+        const text = collector.getText();
+        onProgress(text.slice(-2_000), total);
+      }, 500);
+      progressTimer.unref?.();
+    }
     child.stdout.on("data", (chunk: Buffer) => {
       collector.append(chunk.toString("utf8"));
     });
@@ -351,13 +405,15 @@ function runShell(
       collector.append(chunk.toString("utf8"));
     });
     child.on("error", (err) => {
-      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      if (progressTimer !== null) clearInterval(progressTimer);
+      signal?.removeEventListener("abort", onAbort);
       reject(err);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      resolvePromise({ code: code ?? -1 });
+      finish({ code: code ?? -1 });
     });
   });
 }

@@ -23,18 +23,39 @@ export async function buildAskPreview(
   ctx: ToolContext,
 ): Promise<AskPreview | undefined> {
   if (tool === "edit") {
-    const parsed = args as { path?: unknown; oldString?: unknown; newString?: unknown };
-    if (
-      typeof parsed.path !== "string" ||
-      typeof parsed.oldString !== "string" ||
-      typeof parsed.newString !== "string"
-    ) {
-      return undefined;
-    }
-    return {
-      path: parsed.path,
-      diff: renderDiff(parsed.oldString.split(/\r?\n/), parsed.newString.split(/\r?\n/)),
+    const parsed = args as {
+      path?: unknown;
+      oldString?: unknown;
+      newString?: unknown;
+      replaceAll?: unknown;
+      edits?: unknown;
     };
+    if (typeof parsed.path !== "string") return undefined;
+    if (typeof parsed.oldString === "string" && typeof parsed.newString === "string") {
+      const marker = parsed.replaceAll === true ? "（全部匹配）\n" : "";
+      return {
+        path: parsed.path,
+        diff: marker + renderDiff(parsed.oldString.split(/\r?\n/), parsed.newString.split(/\r?\n/)),
+      };
+    }
+    if (Array.isArray(parsed.edits)) {
+      const diffs = parsed.edits.map((raw, i) => {
+        const e = raw as { oldString?: unknown; newString?: unknown; replaceAll?: unknown };
+        if (typeof e.oldString !== "string" || typeof e.newString !== "string") return "";
+        return `@@ 编辑 ${i + 1}${e.replaceAll === true ? "（全部匹配）" : ""}\n${renderDiff(
+          e.oldString.split(/\r?\n/),
+          e.newString.split(/\r?\n/),
+        )}`;
+      });
+      return { path: parsed.path, diff: diffs.filter((d) => d !== "").join("\n") };
+    }
+    return undefined;
+  }
+  if (tool === "apply_patch") {
+    const parsed = args as { patch?: unknown };
+    if (typeof parsed.patch !== "string") return undefined;
+    // 多文件补丁本身即审查对象；权限层已有 400 行上限
+    return { diff: parsed.patch.replace(/\r\n/g, "\n") };
   }
   if (tool === "write") {
     const parsed = args as { path?: unknown; content?: unknown };

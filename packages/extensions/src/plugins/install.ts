@@ -6,6 +6,7 @@ import {
   PluginSeed,
   type PluginManifest as PluginManifestType,
 } from "@kcode/contracts";
+import { parsePluginPermissions } from "./permissions.js";
 
 export interface PluginInstallResult {
   name: string;
@@ -22,6 +23,31 @@ export interface InstalledPlugin {
   manifest: PluginManifestType;
   installPath: string;
   seed: { hash: string; version: string };
+}
+
+/** 语义化版本比较（仅数字段；插件清单已限定 x.y.z） */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => Number.parseInt(n, 10));
+  const pb = b.split(".").map((n) => Number.parseInt(n, 10));
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return 0;
+}
+
+/** 3-16：同名插件只保留最高版本（缓存里残留的旧版本不参与装载） */
+export function latestInstalledPlugins(installed: InstalledPlugin[]): InstalledPlugin[] {
+  const best = new Map<string, InstalledPlugin>();
+  for (const plugin of installed) {
+    const current = best.get(plugin.manifest.name);
+    if (current === undefined || compareVersions(plugin.manifest.version, current.manifest.version) > 0) {
+      best.set(plugin.manifest.name, plugin);
+    }
+  }
+  return [...best.values()];
 }
 
 /** seed 文件名（内容哈希锁定的锚点；加载期校验时排除自身） */
@@ -116,11 +142,25 @@ export async function installPlugin(
   options: { force?: boolean } = {},
 ): Promise<PluginInstallResult> {
   const manifest = await readPluginManifest(sourceDir);
+  // 3-16：权限声明在安装期校验——只允许收紧（ask/deny），allow/未知格式直接拒装
+  const permissions = parsePluginPermissions(manifest.permissions);
+  if (permissions.errors.length > 0) {
+    throw new Error(`插件权限声明不合法：${permissions.errors.join("；")}`);
+  }
   const installPath = join(pluginsCacheDir, manifest.name, manifest.version);
 
   const existing = await stat(installPath).then(() => true).catch(() => false);
   if (existing && options.force !== true) {
     throw new Error(`${manifest.name} v${manifest.version} 已安装（升级需 --force）`);
+  }
+  // 只装最新版：存在更高版本时拒绝降级（--force 可显式降级覆盖）
+  const versions = await readdir(join(pluginsCacheDir, manifest.name)).catch(() => [] as string[]);
+  const newer = versions
+    .filter((v) => v !== manifest.version && compareVersions(v, manifest.version) > 0)
+    .sort(compareVersions)
+    .at(-1);
+  if (newer !== undefined && options.force !== true) {
+    throw new Error(`${manifest.name} 已安装更新版本 v${newer}（只装最新版；--force 可降级覆盖）`);
   }
   if (existing) {
     await rm(installPath, { recursive: true, force: true });
@@ -138,6 +178,16 @@ export async function installPlugin(
     sig: "local-install",
   };
   await writeFile(join(installPath, SEED_FILE), `${JSON.stringify(seed, null, 2)}\n`, "utf8");
+
+  // 3-16：安装成功后清理同插件旧版本（best-effort；Windows 文件占用不阻断新版本可用）
+  for (const version of versions) {
+    if (version === manifest.version) {
+      continue;
+    }
+    await rm(join(pluginsCacheDir, manifest.name, version), { recursive: true, force: true }).catch(
+      () => undefined,
+    );
+  }
 
   return {
     name: manifest.name,

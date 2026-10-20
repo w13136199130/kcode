@@ -47,12 +47,29 @@ describe("bash 工具", () => {
     expect(r.error).toContain("exit code 3");
   });
 
-  it("超时终止并报错", async () => {
+  it("超时终止并报错，已产生输出保留", async () => {
     const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
-    const command = "sleep 5";
+    const command = "echo before-timeout; sleep 5";
     const r = await bash.execute({ command, timeoutMs: 800 }, ctx());
     expect(r.ok).toBe(false);
     expect(r.error).toContain("超时");
+    expect(r.output).toContain("before-timeout");
+  });
+
+  it("3-10 timeoutMs 上限拒绝；运行中进度回调输出尾部", async () => {
+    const bash = createBashTool({ sessionId: "s", artifactsDir: join(root, "art") });
+    const tooLong = await bash.execute({ command: "echo x", timeoutMs: 600_001 }, ctx());
+    expect(tooLong.ok).toBe(false);
+    expect(tooLong.error).toContain("不能超过");
+
+    const tails: string[] = [];
+    const r = await bash.execute(
+      { command: "for i in 1 2 3; do echo tick-$i; sleep 0.4; done", timeoutMs: 10_000 },
+      { ...ctx(), onProgress: (tail) => tails.push(tail) },
+    );
+    expect(r.ok).toBe(true);
+    expect(tails.length).toBeGreaterThan(0);
+    expect(tails.at(-1)).toContain("tick-");
   });
 
   it("后台任务：立即返回任务号，日志落盘，完成通知触发", async () => {

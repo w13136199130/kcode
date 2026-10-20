@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import type { AgentLoop } from "@kcode/core";
 import type { SessionSink } from "@kcode/contracts";
 import { effectiveEvents, loadSessionEvents, rebuildHistory } from "@kcode/runtime";
@@ -36,10 +37,36 @@ export async function rewindTo(opts: {
       .slice(eventIndex)
       .filter(
         (e): e is Extract<(typeof events)[number], { type: "tool_call" }> =>
-          e.type === "tool_call" && (e.tool === "write" || e.tool === "edit"),
+          e.type === "tool_call" && (e.tool === "write" || e.tool === "edit" || e.tool === "apply_patch"),
       )
-      .map((e) => e.callId)
-      .filter((id) => checkpoints.get(id) !== undefined);
+      .flatMap((e) => {
+        if (e.tool !== "apply_patch") return checkpoints.get(e.callId) !== undefined ? [e.callId] : [];
+        return checkpoints.byCall(e.callId).map((entry) => entry.callId);
+      });
+    // 3-05：子代理复用父 checkpoint store，但 tool_call 落在子会话 JSONL；
+    // 父事件里只有 subagent_spawned.childSessionId——据此收集子代理的写/编辑 callId，
+    // 否则 rewind 会漏掉子代理改过的文件（半回滚）。
+    const subagentIds = events
+      .slice(eventIndex)
+      .filter((e): e is Extract<(typeof events)[number], { type: "subagent_spawned" }> => e.type === "subagent_spawned")
+      .map((e) => e.childSessionId);
+    for (const childId of subagentIds) {
+      try {
+        const childPath = join(dirname(jsonlPath), "subagents", `${childId}.jsonl`);
+        const childEvents = effectiveEvents(await loadSessionEvents(childPath));
+        for (const child of childEvents) {
+          if (
+            child.type === "tool_call" &&
+            (child.tool === "write" || child.tool === "edit") &&
+            checkpoints.get(child.callId) !== undefined
+          ) {
+            callIds.push(child.callId);
+          }
+        }
+      } catch {
+        // 子会话文件缺失：父会话仍可回退，不能因一个子代理阻断
+      }
+    }
     const restoredFiles = await checkpoints.restore(callIds);
     // M1-02：回退必须落盘，否则重启后被回退内容复活。
     // 写成 append-only 的截断标记（含有效前缀长度），经 sink 同时通知 UI 与落盘。

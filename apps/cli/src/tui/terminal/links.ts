@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { truncateVisual, visualWidth } from "./width.js";
+import { stripEscapes } from "./sanitize.js";
 
 /**
  * OSC 8 结构化链接（N3F-1 一期，复审修订）：只覆盖结构性位置——路径是已知值
@@ -33,9 +34,9 @@ export function hyperlinksEnabled(
   return isTTY && env["TERM_PROGRAM"] === "vscode";
 }
 
-/** 包一层 OSC8（ST 终止符；序列零宽）。调用方保证 label 已截断——不要截断包裹后的串 */
+/** 包一层 OSC8（ST 终止符；序列零宽）。label 先剥控制序列——链接是我们唯一允许的转义 */
 export function osc8Link(label: string, url: string): string {
-  return `\x1b]8;;${url}\x1b\\${label}\x1b]8;;\x1b\\`;
+  return `\x1b]8;;${url}\x1b\\${stripEscapes(label)}\x1b]8;;\x1b\\`;
 }
 
 /** 宽度预算裁剪（带省略号；经链接感知的 truncateVisual，序列安全） */
@@ -53,11 +54,13 @@ export function formatFileLink(
   targetPath: string,
   opts: { line?: number; budget?: number; env?: NodeJS.ProcessEnv } = {},
 ): string {
-  const shown = opts.budget !== undefined ? clipVisual(label, opts.budget) : label;
+  const safeLabel = stripEscapes(label);
+  const shown = opts.budget !== undefined ? clipVisual(safeLabel, opts.budget) : safeLabel;
   if (!hyperlinksEnabled(opts.env ?? process.env)) {
     return shown;
   }
-  const url = pathToFileURL(resolve(targetPath)).href + (opts.line !== undefined ? `#L${opts.line}` : "");
+  const url =
+    pathToFileURL(resolve(stripEscapes(targetPath))).href + (opts.line !== undefined ? `#L${opts.line}` : "");
   return osc8Link(shown, url);
 }
 
@@ -77,10 +80,12 @@ const STRUCTURED_PATH_RULES: Array<{ re: RegExp; build: (path: string, env: Node
 
 /** 工具输出/摘要里的结构位路径链接化（展示层变换——工具输出原文给模型，不掺序列） */
 export function linkifyStructuredPaths(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  // 先剥离不可信控制序列，再生成自家 OSC8——顺序反了会把恶意 OSC 保留下来
+  const safe = stripEscapes(text);
   if (!hyperlinksEnabled(env)) {
-    return text;
+    return safe;
   }
-  let out = text;
+  let out = safe;
   for (const rule of STRUCTURED_PATH_RULES) {
     out = out.replace(rule.re, (_m, pre: string, p: string, post?: string) =>
       `${pre}${rule.build(p.trim(), env)}${post ?? ""}`,

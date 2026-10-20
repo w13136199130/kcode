@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -264,8 +265,8 @@ describe("剪贴板读图（仅 Windows 实跑；无剪贴板服务环境自动�
   });
 });
 
-describe("N3G-3 # 快捷记忆", () => {
-  it("# 开头：不进模型不进历史，写 AGENTS.md 并清空输入；📝 通知", async () => {
+describe("N3G-3 / 3-28 # 快捷记忆与输入边界", () => {
+  it("`# ` 开头：不进模型不进历史，写 AGENTS.md 并清空输入；📝 通知", async () => {
     const home = await mkdtemp(join(tmpdir(), "kcode-hashmem-"));
     const store = createUiStore();
     const submits: string[] = [];
@@ -288,19 +289,28 @@ describe("N3G-3 # 快捷记忆", () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  it("裸 # ：提示无内容，不写文件不提交", async () => {
+  it("非 `# ` 开头不再误写记忆：#include / 裸 # 按普通提问发送", async () => {
     const home = await mkdtemp(join(tmpdir(), "kcode-hashmem2-"));
     const store = createUiStore();
     const submits: string[] = [];
     const { stdin, settle } = mountProbe(
       <InputAreaHarness ui={store} onSubmit={(v) => submits.push(v)} history={[]} cwd={home} />,
     );
+
+    stdin.write("#include <stdio.h>");
+    await settle();
+    stdin.write("\r");
+    await settle(250);
+    expect(submits.at(-1)).toBe("#include <stdio.h>");
+    expect(existsSync(join(home, "AGENTS.md"))).toBe(false);
+    expect(store.getState().blocks.some((b) => b.kind === "info" && b.text.includes("没有要记住的内容"))).toBe(false);
+
     stdin.write("#");
     await settle();
     stdin.write("\r");
     await settle(200);
-    expect(submits).toEqual([]);
-    expect(store.getState().blocks.some((b) => b.kind === "info" && b.text.includes("没有要记住的内容"))).toBe(true);
+    expect(submits.at(-1)).toBe("#");
+    expect(existsSync(join(home, "AGENTS.md"))).toBe(false);
     await rm(home, { recursive: true, force: true });
   });
 });

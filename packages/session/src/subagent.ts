@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type {
+  FileReadRecord,
   HookRunner,
   LLMProvider,
   PermissionAsker,
@@ -54,6 +55,8 @@ export interface TaskToolDeps {
   kcodeHomeDir: string;
   /** 父会话已装配的工具全集（不含 task 本身——子代理不嵌套派生） */
   baseTools: Tool[];
+  /** 3-09：与父会话共享的已读文件表（子代理同样受读后校验约束） */
+  readFiles?: Map<string, FileReadRecord>;
   /** 父会话 hooks（pre_tool_use 守卫对子代理同样生效） */
   hooks: HookRunner;
   /** 权限引擎工厂：explore 只读档 / 其他默认档（ask 经父 asker 转达用户） */
@@ -253,6 +256,7 @@ ${deps.envBlock}
 
 【子代理角色】${config.body}`,
           cwd: deps.cwd,
+          readFiles: deps.readFiles,
           maxTurns: SUBAGENT_MAX_TURNS,
         },
       );

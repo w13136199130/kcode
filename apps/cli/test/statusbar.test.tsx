@@ -71,6 +71,17 @@ describe("StatusBar 常驻信息段", () => {
     );
     expect(lastFrame()).toContain("上下文 90%");
   });
+
+  it("3-27：运行中后台任务数 >0 时显示 ⚙ N，为 0 时隐藏", () => {
+    const withTasks = render(
+      <StatusBar mode="default" modelLabel="m" verbose={false} repaintTick={0} busy={false} runningTasks={2} />,
+    );
+    expect(withTasks.lastFrame()).toContain("⚙ 2");
+    const none = render(
+      <StatusBar mode="default" modelLabel="m" verbose={false} repaintTick={0} busy={false} runningTasks={0} />,
+    );
+    expect(none.lastFrame()).not.toContain("⚙");
+  });
 });
 
 describe("readGitBranch", () => {

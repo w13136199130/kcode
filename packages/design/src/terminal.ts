@@ -34,12 +34,69 @@ export const TERMINAL_SYMBOLS: Partial<Record<SemanticColor, string>> = {
   interactionConfirm: "✓",
 };
 
-/** 取语义令牌的终端颜色 */
-export function terminalColor(token: SemanticColor): string | undefined {
-  return TERMINAL_COLORS[token];
+/** 亮色主题：白底可读的深色变体（3-26 `KCODE_THEME=light`） */
+export const TERMINAL_COLORS_LIGHT: Record<SemanticColor, string | undefined> = {
+  foreground: undefined,
+  foregroundSubtle: "#64748b",
+  brand: "#1d4ed8",
+  accent: "#6d28d9",
+  success: "#15803d",
+  warning: "#b45309",
+  destructive: "#b91c1c",
+  info: "#0369a1",
+  diffAdded: "#15803d",
+  diffRemoved: "#b91c1c",
+  diffContext: "#64748b",
+  interactionAsk: "#b45309",
+  interactionConfirm: "#15803d",
+};
+
+/** 设计层不依赖 Node 类型（web 端也会 import 本文件）：只约定键值形状 */
+export type TerminalEnv = Record<string, string | undefined>;
+
+function readEnv(env?: TerminalEnv): TerminalEnv {
+  if (env !== undefined) {
+    return env;
+  }
+  const proc = (globalThis as { process?: { env?: TerminalEnv } }).process;
+  return proc?.env ?? {};
 }
 
-/** 取语义令牌的无色符号回退 */
-export function terminalSymbol(token: SemanticColor): string | undefined {
+/** 3-26：NO_COLOR（非空）/ KCODE_PLAIN=1 一律无色 */
+export function colorsDisabled(env?: TerminalEnv): boolean {
+  const e = readEnv(env);
+  return (e["NO_COLOR"] !== undefined && e["NO_COLOR"] !== "") || e["KCODE_PLAIN"] === "1";
+}
+
+/** 3-26：KCODE_PLAIN=1 用 ASCII 状态符（CI/日志/不支持等宽字形的终端） */
+export function plainGlyphs(env?: TerminalEnv): boolean {
+  return readEnv(env)["KCODE_PLAIN"] === "1";
+}
+
+/** KCODE_PLAIN=1 的 ASCII 状态符（3-26） */
+const ASCII_SYMBOLS: Partial<Record<SemanticColor, string>> = {
+  success: "+",
+  destructive: "x",
+  warning: "!",
+  diffAdded: "+",
+  diffRemoved: "-",
+  interactionAsk: "?",
+  interactionConfirm: "+",
+};
+
+/** 取语义令牌的终端颜色（按 NO_COLOR/KCODE_PLAIN/KCODE_THEME 选择） */
+export function terminalColor(token: SemanticColor, env?: TerminalEnv): string | undefined {
+  if (colorsDisabled(env)) {
+    return undefined;
+  }
+  const palette = readEnv(env)["KCODE_THEME"] === "light" ? TERMINAL_COLORS_LIGHT : TERMINAL_COLORS;
+  return palette[token];
+}
+
+/** 取语义令牌的无色符号回退（KCODE_PLAIN 时用 ASCII 形态） */
+export function terminalSymbol(token: SemanticColor, env?: TerminalEnv): string | undefined {
+  if (plainGlyphs(env)) {
+    return ASCII_SYMBOLS[token];
+  }
   return TERMINAL_SYMBOLS[token];
 }

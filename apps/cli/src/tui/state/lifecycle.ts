@@ -3,7 +3,9 @@ import type { PermissionAsker, SessionEvent, UserPromptPort } from "@kcode/contr
 import type { Block, UiStore } from "@kcode/ui";
 import type { Runtime } from "../../bootstrap.js";
 import { loadInputHistory } from "../../history-store.js";
-import type { QueuedCommand } from "@kcode/runtime";
+import { effectiveEvents, loadSessionEvents, type QueuedCommand } from "@kcode/runtime";
+import { join } from "node:path";
+import { replayBlocks } from "./replay.js";
 import type { LocalSessionOptions, SessionHandle } from "../../session.js";
 import type { CommandInfo } from "../input/builtin-commands.js";
 import { BUILTIN_COMMANDS } from "../input/builtin-commands.js";
@@ -98,6 +100,20 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
         deps.setReady(true);
         deps.inputHistory.current = (await loadInputHistory(props.historyFile)).slice(-50);
         pushBlock({ kind: "banner", model: props.model === "" ? "未配置模型" : props.model, cwd: props.cwd });
+        // 3-01：resume 后从 JSONL 重建最近转写（模型历史已由 compose 注入，UI 不再空白）
+        if (props.resumeFrom !== undefined && !cancelled) {
+          try {
+            const jsonl = join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
+            const events = effectiveEvents(await loadSessionEvents(jsonl));
+            for (const block of replayBlocks(events)) pushBlock(block);
+          } catch (err) {
+            pushBlock({
+              kind: "info",
+              tone: "warn",
+              text: `历史转写读取失败：${err instanceof Error ? err.message : String(err)}`,
+            });
+          }
+        }
         if (props.model === "") {
           pushBlock({
             kind: "info",
@@ -204,6 +220,14 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           await previous.close().catch(() => undefined);
         }
         ui.getState().resetTranscript();
+        try {
+          const jsonl = join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
+          for (const block of replayBlocks(effectiveEvents(await loadSessionEvents(jsonl)))) {
+            pushBlock(block);
+          }
+        } catch {
+          // 续接历史不可读时至少保持新会话可用
+        }
         pushBlock({
           kind: "info",
           tone: "ok",

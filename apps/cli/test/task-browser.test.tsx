@@ -93,6 +93,7 @@ describe("TaskBrowser 渲染（getSession 注入）", () => {
     expect(frame).toContain("npm run build");
     expect(frame).toContain("日志行60");
     expect(frame).toContain("显示尾部 40");
+    expect(frame).toContain("s 停止运行中任务");
   }, 10_000);
 
   it("空任务时给可行动的空态提示", async () => {
@@ -109,7 +110,7 @@ describe("TaskBrowser 渲染（getSession 注入）", () => {
 });
 
 /** 键位探针：Ctrl+T/Ctrl+B 开关与互斥（keybinds 层） */
-function KeybindProbe(props: { store: ReturnType<typeof createUiStore> }) {
+function KeybindProbe(props: { store: ReturnType<typeof createUiStore>; stopTask?: (id: string) => void }) {
   useKeybinds({
     busy: false,
     interactive: true,
@@ -122,6 +123,7 @@ function KeybindProbe(props: { store: ReturnType<typeof createUiStore> }) {
     openRewindPicker: () => {},
     applyMode: () => {},
     exit: () => {},
+    ...(props.stopTask !== undefined ? { stopTask: props.stopTask } : {}),
     pushBlock: () => {},
   });
   return null;
@@ -177,6 +179,26 @@ describe("键位链路（Ctrl+T 与互斥）", () => {
     await settle();
     expect(store.getState().taskBrowser.open).toBe(false);
   }, 10_000);
+
+  it("3-27：s 只停止选中的运行中任务（终态任务忽略）", async () => {
+    const store = createUiStore();
+    store.getState().setBackgroundTasks([bgTask({ id: "bg_run", status: "running" }), bgTask({ id: "bg_done" })]);
+    const stopped: string[] = [];
+    const { stdin, settle } = mountProbe(<KeybindProbe store={store} stopTask={(id) => stopped.push(id)} />);
+
+    stdin.write("\x14"); // Ctrl+T → cursor 落在最近的 bg_done
+    await settle();
+    expect(store.getState().taskBrowser.cursor).toBe(1);
+    stdin.write("s"); // 已完成任务：忽略
+    await settle();
+    expect(stopped).toEqual([]);
+
+    stdin.write("\x1b[A"); // ↑ → bg_run
+    await settle();
+    stdin.write("s");
+    await settle();
+    expect(stopped).toEqual(["bg_run"]);
+  }, 10_000);
 });
 
 describe("外部编辑器（N3C-4④）", () => {
@@ -204,7 +226,7 @@ describe("外部编辑器（N3C-4④）", () => {
     }
   });
 
-  it("EDITOR 回填编辑结果（InputArea Ctrl+E 键位链路）", async () => {
+  it("EDITOR 回填编辑结果（InputArea Ctrl+G 键位链路）", async () => {
     process.env["EDITOR"] = `node ${editorScript}`;
     const store = createUiStore();
     const changes: string[] = [];
@@ -222,7 +244,7 @@ describe("外部编辑器（N3C-4④）", () => {
         onCjkCommit={() => {}}
       />,
     );
-    stdin.write("\x05"); // Ctrl+E
+    stdin.write("\x07"); // Ctrl+G（3-24 起外部编辑器键位）
     await new Promise((r) => setTimeout(r, 500));
     expect(changes).toEqual(["多行\n编辑后内容"]);
   }, 15_000);

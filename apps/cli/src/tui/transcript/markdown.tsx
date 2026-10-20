@@ -1,6 +1,7 @@
 import { Lexer } from "marked";
 import hljs from "highlight.js/lib/common";
 import { visualWidth } from "../terminal/width.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 
 /**
  * Markdown → 终端渲染行（A-6）：marked 只用其 Lexer 做 token 化，
@@ -174,8 +175,9 @@ type AnyToken = {
   align?: Array<"center" | "left" | "right" | null>;
 };
 
-/** Markdown 主入口：文档 → 渲染行（空文档返回一个空行） */
+/** Markdown 主入口：文档 → 渲染行（空文档返回一个空行；不可信控制序列在此剥离） */
 export function markdownToLines(md: string): MdLine[] {
+  const safe = stripEscapes(md);
   const out: MdLine[] = [];
   const lastIsEmpty = (): boolean =>
     out.length === 0 || out[out.length - 1]!.segments.every((s) => s.text.trim() === "");
@@ -421,7 +423,7 @@ export function markdownToLines(md: string): MdLine[] {
     }
   }
 
-  walkBlocks(Lexer.lex(md) as unknown as AnyToken[], undefined, "");
+  walkBlocks(Lexer.lex(safe) as unknown as AnyToken[], undefined, "");
   if (out.length === 0) {
     out.push({ segments: [] });
   }

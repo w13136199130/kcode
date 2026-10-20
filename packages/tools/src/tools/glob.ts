@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join, resolve } from "node:path";
 import fg from "fast-glob";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
@@ -9,14 +10,14 @@ const DEFAULT_LIMIT = 500;
 const GlobArgs = z.object({
   pattern: z.string().min(1),
   path: z.string().min(1).optional(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(5000).optional(),
 });
 
 /** glob 工具：按模式列文件（fast-glob），默认忽略 node_modules/.git */
 export const globTool: Tool = {
   definition: {
     name: "glob",
-    description: '按 glob 模式列出文件路径（如 "**/*.ts"），默认忽略 node_modules/.git',
+    description: '按 glob 模式列出文件路径（支持 "**/*.ts"），默认忽略 node_modules/.git，并尽量遵循 .gitignore',
     parameters: {
       type: "object",
       properties: {
@@ -45,7 +46,9 @@ export const globTool: Tool = {
         cwd: root,
         onlyFiles: true,
         dot: false,
-        ignore: ["**/node_modules/**", "**/.git/**"],
+        followSymbolicLinks: false,
+        unique: true,
+        ignore: ["**/node_modules/**", "**/.git/**", ...(await readGitignore(root))],
       });
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
@@ -67,3 +70,33 @@ export const globTool: Tool = {
     return { ok: true, output: `共 ${files.length} 个匹配\n${shown.join("\n")}${truncated}` };
   },
 };
+
+/**
+ * 3-11：读取根目录 .gitignore 转成 fast-glob ignore。
+ * 只做常用子集（目录、通配、根锚点）；`!` 反选与复杂 `**` 组合不展开。
+ */
+async function readGitignore(root: string): Promise<string[]> {
+  let text: string;
+  try {
+    text = await readFile(join(root, ".gitignore"), "utf8");
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#") || line.startsWith("!")) continue;
+    let p = line.replace(/^\//, "");
+    if (p.endsWith("/")) p = p.slice(0, -1);
+    if (p === "") continue;
+    if (!p.includes("/") && !p.includes("*")) {
+      // 裸目录/文件名：按任意层级匹配
+      out.push(`**/${p}/**`, `**/${p}`);
+    } else if (p.endsWith("/**")) {
+      out.push(p);
+    } else {
+      out.push(p, `**/${p}`);
+    }
+  }
+  return out;
+}

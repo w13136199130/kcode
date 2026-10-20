@@ -3,7 +3,7 @@ import type { ServiceSet, UiStore, Block } from "@kcode/ui";
 import type { SessionHandle } from "../../session.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
-import type { AskState, QuestionState, PlanApprovalState, RewindPoint } from "./interactions.js";
+import type { AskState, DiffBrowserState, QuestionState, PlanApprovalState, RewindPoint } from "./interactions.js";
 
 /**
  * 对话框动作包（N2-3 注入补全）：面板 setter 与引擎动作的稳定集合，
@@ -17,6 +17,8 @@ interface DialogActions {
   switchSession(resumeFrom: string): void;
   /** 回退到某个提问之前（/rewind） */
   rewind(eventIndex: number): Promise<string | null>;
+  /** 3-23：回退单个文件的检查点改动并刷新 /diff 清单（返回剩余文件数或错误） */
+  revertFile(path: string): Promise<{ remaining: number } | string>;
   /** 运行期换模型（/model） */
   setModel(ref: string): Promise<string | null>;
   setModelLabel(label: string): void;
@@ -30,6 +32,7 @@ interface DialogActions {
   setQuestion(question: QuestionState | null): void;
   setPlanApproval(plan: PlanApprovalState | null): void;
   setRewindPicker(points: RewindPoint[] | null): void;
+  setDiffBrowser(panel: DiffBrowserState | null): void;
   setResumePicker(picker: { options: MenuOption[]; ids: string[] } | null): void;
   setPermissionsPanel(panel: string[] | null): void;
   setFullAccessConfirm(v: boolean): void;

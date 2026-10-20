@@ -121,7 +121,11 @@ export function rebuildHistory(allEvents: SessionEvent[]): ChatMessage[] {
     switch (event.type) {
       case "user_message":
         flushAssistantTurn();
-        history.push({ role: "user", content: event.content });
+        history.push({
+          role: "user",
+          content: event.content,
+          ...(event.images !== undefined && event.images.length > 0 ? { images: event.images } : {}),
+        });
         break;
       case "assistant_message":
         if (pendingCalls.length > 0) {

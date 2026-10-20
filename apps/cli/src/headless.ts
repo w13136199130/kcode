@@ -123,6 +123,8 @@ export async function runHeadless(
     ephemeral: opts.ephemeral,
     sessionId: opts.sessionId,
     onEvent: (event) => {
+      // 3-10：进度是前端专用，不进入 headless 的事件流/NDJSON 契约
+      if (event.type === "tool_progress") return;
       events.push(event);
       if (format === "stream-json") write(jsonlLine(event));
     },

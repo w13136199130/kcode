@@ -28,8 +28,8 @@ import { doctorCommand } from "./doctor.js";
 import { mcpCommand } from "./mcp-cmd.js";
 import { runHeadless } from "./headless.js";
 import { commandsListCommand, skillsListCommand } from "./inspect.js";
+import { runDataCommand } from "./data-commands.js";
 import { updateCommand } from "./update.js";
-
 /** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
 const print = (s: string): void => {
   process.stdout.write(`${s}\n`);
@@ -37,7 +37,6 @@ const print = (s: string): void => {
 const printErr = (s: string): void => {
   process.stderr.write(`${s}\n`);
 };
-
 /** 2-11：顶层错误归类（参数/配置 2、认证 3、模型 API 4、其余 1） */
 function exitCodeForError(err: unknown): number {
   if (err instanceof UsageError) return 2;
@@ -263,6 +262,9 @@ async function main(): Promise<void> {
     }
     if (kind === "update") {
       process.exit((await updateCommand(sub, print)) ? 0 : 1);
+    }
+    if (kind === "sessions" || kind === "export") {
+      process.exit((await runDataCommand(kind, process.cwd(), kcodeHome(), sub, print)) ? 0 : 1);
     }
     if (kind === "skills") {
       if (sub[0] !== "list") {

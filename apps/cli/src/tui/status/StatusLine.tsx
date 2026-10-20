@@ -1,8 +1,9 @@
 import { Text } from "ink";
 import type { PermissionMode } from "@kcode/contracts";
 import type { UsageStats } from "@kcode/ui";
-import { c } from "../theme/theme.js";
+import { c, glyph, rawColor } from "../theme/theme.js";
 import { MODE_META } from "../theme/modes.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 
 /**
  * 运行状态行（N3-3 体验优化：对标 Claude Code 极简风格）：
@@ -20,8 +21,8 @@ export function StatusLine(props: {
   const tools = props.toolNames ?? [];
   const activity = tools.length > 0 ? tools.slice(0, 3).join(", ") : props.label;
   return (
-    <Text color="gray">
-      {"  ✻ "}
+    <Text color={rawColor("gray")}>
+      {`  ${glyph("✻", "*")} `}
       {activity}
       {props.elapsed}…{props.queuedCount > 0 ? <Text color={c("warning")}> · queued {props.queuedCount}</Text> : null}
     </Text>
@@ -44,6 +45,8 @@ export function StatusBar(props: {
   usage?: UsageStats | null;
   /** 当前 git 分支：null（非仓库/采样失败）时隐藏 */
   branch?: string | null;
+  /** 3-27：运行中的后台任务数（>0 才显示 ⚙ N） */
+  runningTasks?: number;
 }) {
   const usage = props.usage ?? null;
   // 余量占用超 85% 转警示色——这是"即将自动压缩"的预告
@@ -57,12 +60,17 @@ export function StatusBar(props: {
     <Text wrap="truncate-end">
       {"  "}
       <Text>
-        {`${meta.glyph} ${meta.label}`}
+        {`${glyph(meta.glyph, meta.ascii)} ${meta.label}`}
         {props.busy ? null : <Text color={muted}>{"（shift+tab 切换）"}</Text>}
       </Text>
-      <Text color={muted}>{` · ${modelShort}`}</Text>
+      <Text color={muted}>{` · ${stripEscapes(modelShort)}`}</Text>
       {usage !== null && <Text color={hot ? c("warning") : muted}>{` · 上下文 ${ctxPercent}%`}</Text>}
-      {props.branch != null && props.branch !== "" ? <Text color={muted}>{` · ⎇ ${props.branch}`}</Text> : null}
+      {(props.runningTasks ?? 0) > 0 ? (
+        <Text color={muted}>{` · ${glyph("⚙", "bg:")} ${props.runningTasks}`}</Text>
+      ) : null}
+      {props.branch != null && props.branch !== "" ? (
+        <Text color={muted}>{` · ${glyph("⎇", "git:")} ${stripEscapes(props.branch)}`}</Text>
+      ) : null}
       {props.busy ? (
         <Text color={muted}>{` · Ctrl+C 取消 · Ctrl+O ${props.verbose ? "收起" : "展开"}`}</Text>
       ) : null}

@@ -102,4 +102,16 @@ describe("markdownToLines（Markdown → 样式分段行）", () => {
     expect(joined).toContain("包裹文本");
     expect(joined).not.toContain("<div>");
   });
+
+  it("3-26：正文里的 OSC/CSI 控制序列被剥离（含代码块）", () => {
+    const evil = "前\u001b]0;pwned\u0007中\u001b[2J后";
+    const joined = plain(markdownToLines(evil)).join("");
+    expect(joined).toBe("前中后");
+    expect(joined).not.toContain("\u001b");
+
+    const code = markdownToLines("```\n\u001b]52;c;AAAA\u0007safe\n```");
+    const codeText = plain(code).join("");
+    expect(codeText).toContain("safe");
+    expect(codeText).not.toContain("\u001b");
+  });
 });

@@ -14,7 +14,8 @@ import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import { contextWindowFor, modelWindowKnown } from "@kcode/core";
 import { join, resolve } from "node:path";
 import { atomicWriteText } from "@kcode/tools";
-import { blocksToMarkdown } from "../export.js";
+import { eventsToMarkdown, serializeEvents } from "../export.js";
+import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
@@ -42,6 +43,8 @@ export interface DispatchContext {
   setPermissionsPanel(p: string[] | null): void;
   switchSession(resumeFrom: string): void;
   openRewindPicker(): void;
+  /** 3-23：打开 /diff 审查面板（query = 文件名/路径片段；省略 = 全部改动） */
+  openDiffBrowser(query?: string): void;
   runOccupied(session: SessionHandle, text: string, work: () => Promise<unknown>): Promise<void>;
   saveHistory(text: string): void;
   /** 进入运行态（busy/相位复位；见 App beginWork） */
@@ -74,6 +77,15 @@ export function modelWindowNote(ref: string): string {
 
 export async function runDispatch(ctx: DispatchContext, text: string, images?: string[]): Promise<void> {
   /** 分发一条输入（submit 直达或排空递归）：解析 !/斜杠命令与纯文本 */
+    /** 普通提问提交（纯文本 / 路径形态的斜杠输入共用；附件只随提问发送） */
+    const sendPrompt = async (): Promise<void> => {
+      ctx.setInput("");
+      ctx.saveHistory(text);
+      ctx.resetAbortSent();
+      await ctx.runOccupied(ctx.session, text, () =>
+        ctx.session.loop.run(text, images !== undefined && images.length > 0 ? { images } : {}),
+      );
+    };
     // ! 前缀：用户直执行 shell（不经 LLM、不问权限；结果仅显示）
     if (text.startsWith("!") && text.slice(1).trim() !== "") {
       const command = text.slice(1).trim();
@@ -103,6 +115,12 @@ ${result.error}` : ""}`,
       const spaceIndex = body.indexOf(" ");
       const name = spaceIndex === -1 ? body : body.slice(0, spaceIndex);
       const args = spaceIndex === -1 ? "" : body.slice(spaceIndex + 1).trim();
+      // 3-28：斜杠路径（/Users/...、/tmp/a、//server/share、/.gitignore）不是命令——
+      // 命令名不允许路径分隔符；空名（"/"、"/ 你好"）同理。按普通提问发送，不再吞掉。
+      if (name === "" || /[\\/]/.test(name) || name.startsWith(".")) {
+        await sendPrompt();
+        return;
+      }
       ctx.setInput("");
 
       if (name === "exit" || name === "quit") {
@@ -216,6 +234,24 @@ ${body}
         );
         return;
       }
+      if (name === "rename") {
+        const title = args.trim();
+        if (title === "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/rename <标题>" });
+          return;
+        }
+        try {
+          await ctx.session.rename(title);
+          ctx.pushBlock({ kind: "info", tone: "ok", text: `已重命名当前会话：${title}` });
+        } catch (err) {
+          ctx.pushBlock({
+            kind: "info",
+            tone: "warn",
+            text: `重命名失败：${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
       if (name === "sessions") {
         const sessions = await ctx.session.listSessions().catch(() => null);
         ctx.pushBlock({
@@ -223,8 +259,8 @@ ${body}
           text:
             sessions === null || sessions.length === 0
               ? "（暂无历史会话）"
-              : `最近会话（重启后 kcode --resume <id 前缀> 续接）：\n${sessions
-                  .map((s) => `· ${s.sessionId.slice(0, 16)}… · ${s.turns} 轮 · ${s.preview || "（空）"}`)
+              : `当前项目最近会话（重启后 kcode --resume <id 前缀> 续接）：\n${sessions
+                  .map((s) => `· ${s.sessionId.slice(0, 16)}… · ${s.turns} 轮 · ${s.title ?? s.preview ?? "（空）"}`)
                   .join("\n")}`,
         });
         return;
@@ -260,7 +296,7 @@ ${body}
           options: [
             ...top.map((s, i) => ({
               key: String((i + 1) % 10),
-              label: `${s.sessionId.slice(0, 12)}… · ${s.turns} 轮 · ${s.preview || "（空）"}`,
+              label: `${s.sessionId.slice(0, 12)}… · ${s.turns} 轮 · ${s.title ?? s.preview ?? "（空）"}`,
             })),
             { key: "q", label: "取消" },
           ],
@@ -395,6 +431,40 @@ ${servers
         });
         return;
       }
+      if (name === "tasks") {
+        // 3-27：清单/停止；Ctrl+T 面板是交互路径，这里给脚本化/快速查看路径
+        const parts = args.trim().split(/\s+/).filter(Boolean);
+        if (parts[0] === "stop") {
+          const id = parts[1];
+          if (id === undefined) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/tasks stop <任务 id>（/tasks 查看清单）" });
+            return;
+          }
+          const ok = ctx.session.stopBackgroundTask(id);
+          ctx.pushBlock({
+            kind: "info",
+            tone: ok ? "ok" : "warn",
+            text: ok ? `■ 已停止后台任务 ${id}` : `✗ 任务 ${id} 未在运行或已结束（/tasks 查看清单）`,
+          });
+          return;
+        }
+        const tasks = ctx.session.backgroundTasks();
+        const running = tasks.filter((t) => t.status === "running").length;
+        ctx.pushBlock({
+          kind: "info",
+          text:
+            tasks.length === 0
+              ? "（暂无后台任务——bash 的 runInBackground 命令会出现在这里；Ctrl+T 打开面板）"
+              : `后台任务（${tasks.length} 个 · ${running} 运行）：\n${tasks
+                  .map((t) => {
+                    const icon = t.status === "running" ? "⚡" : t.status === "failed" ? "✗" : "✓";
+                    const exit = t.exitCode !== undefined ? `（exit ${t.exitCode}）` : "";
+                    return `${icon} ${t.id} · ${t.command.slice(0, 60)}${exit}\n  日志 ${t.logPath}`;
+                  })
+                  .join("\n")}\nCtrl+T 面板（Enter 看日志 · s 停止）；/tasks stop <id> 终止`,
+        });
+        return;
+      }
       if (name === "hooks") {
         const hooks = await ctx.session.hooksInfo().catch(() => null);
         if (hooks === null) {
@@ -410,22 +480,29 @@ ${servers
 ${hooks
                 .map(
                   (h) =>
-                    `${h.source === "user" ? "用户" : "项目"} · ${h.event} · ${h.command}${h.failClosed === true ? "（fail-closed）" : ""}`,
+                    `${h.source === "user" ? "用户" : h.source === "project" ? "项目" : `插件 ${h.plugin ?? ""}`} · ${h.event}${h.matcher !== undefined ? ` [${h.matcher}]` : ""} · ${h.command}${h.failClosed === true ? "（fail-closed）" : ""}`,
                 )
-                .join("\n")}\n配置：~/.kcode/hooks.json（用户）/ .kcode/hooks.json（项目，需信任）`,
+                .join("\n")}\n配置：~/.kcode/hooks.json（用户）/ .kcode/hooks.json（项目，需信任）/ 插件 manifest.hooks`,
         });
         return;
       }
       if (name === "export") {
-        // N3I-6：转写块 → Markdown 落盘（原子写复用 N3I-1 公共件）
-        const blocks = ctx.ui.getState().blocks;
+        // 3-06：JSONL 事件是事实源；.jsonl 原样导出，Markdown 由事件渲染（工具全文不丢）
+        const events = await ctx.session.exportEvents();
         const target =
           args.trim() !== ""
             ? resolve(ctx.props.cwd, args.trim())
             : join(ctx.props.cwd, `kcode-session-${ctx.session.sessionId.slice(0, 8)}.md`);
         try {
-          await atomicWriteText(target, blocksToMarkdown(blocks));
-          ctx.pushBlock({ kind: "info", tone: "ok", text: `✓ 已导出会话（${blocks.length} 块）→ ${target}` });
+          const content = target.endsWith(".jsonl")
+            ? serializeEvents(events)
+            : eventsToMarkdown(events);
+          await atomicWriteText(target, content);
+          ctx.pushBlock({
+            kind: "info",
+            tone: "ok",
+            text: `✓ 已导出会话（${events.length} 个事件）→ ${target}`,
+          });
         } catch (err) {
           ctx.pushBlock({
             kind: "info",
@@ -440,8 +517,32 @@ ${hooks
         ctx.pushBlock({ kind: "info", text: "已信任当前项目（项目级 hooks/技能/命令将生效）" });
         return;
       }
+      if (name === "remember") {
+        // 3-28：`# ` 的同义显式命令（补全/help 可发现；写入项目 AGENTS.md，下次会话生效）
+        const note = args.trim();
+        if (note === "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/remember <内容>（写入项目 AGENTS.md，下次会话生效）" });
+          return;
+        }
+        try {
+          const path = await appendMemoryLine(ctx.props.cwd, note);
+          ctx.pushBlock({ kind: "info", tone: "ok", text: `📝 已记入 ${path}（下次会话装载，不进本轮上下文）` });
+        } catch (err) {
+          ctx.pushBlock({
+            kind: "info",
+            tone: "warn",
+            text: `✗ 写入 AGENTS.md 失败：${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+        return;
+      }
       if (name === "rewind") {
         ctx.openRewindPicker();
+        return;
+      }
+      if (name === "diff") {
+        // 3-23：本会话改动审查（检查点基线 vs 当前磁盘），面板内逐文件回退
+        ctx.openDiffBrowser(args === "" ? undefined : args);
         return;
       }
       if (name === "compact") {
@@ -515,7 +616,12 @@ ${hooks
       }
       const expanded = await ctx.session.expandCommand(name, args);
       if (expanded === null) {
-        ctx.pushBlock({ kind: "info", text: `未知命令 /${name}（/help 查看可用命令）` });
+        // 3-28：未知命令不吞原文——回填输入框，用户可改命令或加空格当普通提问
+        ctx.setInput(text);
+        ctx.pushBlock({
+          kind: "info",
+          text: `未知命令 /${name}（/help 查看可用命令）——原文已保留；开头加空格可当普通提问发送`,
+        });
         return;
       }
       ctx.saveHistory(text);
@@ -523,12 +629,6 @@ ${hooks
       return;
     }
 
-    ctx.setInput("");
-    ctx.saveHistory(text);
-    ctx.resetAbortSent();
-    // 图片附件（N3C-4⑤）只随普通提问发送；斜杠/自定义命令路径不消费 images
-    await ctx.runOccupied(ctx.session, text, () =>
-      ctx.session.loop.run(text, images !== undefined && images.length > 0 ? { images } : {}),
-    );
+    await sendPrompt();
 
 }
