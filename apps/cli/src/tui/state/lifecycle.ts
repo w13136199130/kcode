@@ -169,6 +169,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
       pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（续接不带旧排队）` });
     }
     deps.beginWork();
+    const previous = sessionRef.current;
     void (async () => {
       try {
         const handle = await createSession({
@@ -198,6 +199,10 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           },
         });
         sessionRef.current = handle;
+        // 3-03：新会话就绪后再关旧会话，避免切换失败把当前会话关掉留下空窗
+        if (previous !== null && previous !== handle && typeof previous.close === "function") {
+          await previous.close().catch(() => undefined);
+        }
         ui.getState().resetTranscript();
         pushBlock({
           kind: "info",

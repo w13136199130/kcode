@@ -10,8 +10,20 @@ export type Row =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "thinking"; text: string; ms?: number }
-  | { kind: "tool"; callId: string; tool: string; args: unknown; status: "running" | "done" | "failed"; output?: string; error?: string; durationMs?: number }
+  | {
+      kind: "tool";
+      callId: string;
+      tool: string;
+      args: unknown;
+      status: "running" | "done" | "failed";
+      output?: string;
+      error?: string;
+      durationMs?: number;
+      /** D2-04：host 生成的真实 preview（与审批同源） */
+      preview?: { path?: string; diff: string };
+    }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" }
+  | { kind: "todo"; todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
   | { kind: "separator"; label: string };
 
 export interface TimelineState {
@@ -36,6 +48,14 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
   }
   if (ev.type === "notice") {
     return { ...state, rows: [...state.rows, { kind: "info", text: (ev as { message: string }).message, tone: "warn" }] };
+  }
+  if (ev.type === "tool/preview") {
+    return {
+      ...state,
+      rows: state.rows.map((row) =>
+        row.kind === "tool" && row.callId === ev.callId ? { ...row, preview: ev.preview } : row,
+      ),
+    };
   }
   if (ev.type !== "session/event") {
     return state;
@@ -86,6 +106,43 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
     }
     case "llm_error":
       return { ...state, rows: [...state.rows, { kind: "info", text: `✗ 模型调用失败：${String(se["error"] ?? "")}`, tone: "warn" }] };
+    case "todo_update": {
+      const todos = Array.isArray(se["todos"])
+        ? (se["todos"] as Array<{ content: string; status: "pending" | "in_progress" | "completed" }>)
+        : [];
+      return { ...state, rows: [...state.rows, { kind: "todo", todos }] };
+    }
+    case "skill_used":
+      return {
+        ...state,
+        rows: [...state.rows, { kind: "info", text: `▸ 已注入技能 ${String(se["skill"] ?? "")}（${String(se["trigger"] ?? "")}）`, tone: "ok" }],
+      };
+    case "permission_decision": {
+      const decision = String(se["decision"] ?? "");
+      if (decision === "allow" || decision === "ask-allowed") return state; // 常态放行不刷屏
+      return {
+        ...state,
+        rows: [...state.rows, { kind: "info", text: `🔐 ${String(se["tool"] ?? "")}：${decision}${se["detail"] !== undefined ? `（${String(se["detail"])}）` : ""}`, tone: "deny" }],
+      };
+    }
+    case "compaction_summary":
+      return {
+        ...state,
+        rows: [
+          ...state.rows,
+          { kind: "separator", label: `上下文已压缩（丢弃 ${String(se["dropped"] ?? 0)} 条）` },
+        ],
+      };
+    case "subagent_spawned":
+      return {
+        ...state,
+        rows: [...state.rows, { kind: "info", text: `🤖 子代理 ${String(se["agentType"] ?? "")}：${String(se["description"] ?? "")}`, tone: "ok" }],
+      };
+    case "subagent_stopped":
+      return {
+        ...state,
+        rows: [...state.rows, { kind: "info", text: `🤖 子代理结束（${String(se["status"] ?? "")}，${String(se["turns"] ?? 0)} 轮）`, tone: "warn" }],
+      };
     case "session_end": {
       const reason = se["reason"];
       const rows =

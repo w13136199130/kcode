@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, shell } from "electron";
 import { spawnHost, type HostHandle } from "./host.js";
 import { runSmoke } from "./smoke.js";
+import { readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,27 @@ import { join } from "node:path";
  */
 
 const isSmoke = process.argv.includes("--kcode-smoke");
+
+// 测试/多环境隔离：userData 可显式指定（单实例锁与窗口状态都落在这里）
+const userDataOverride = process.env["KCODE_DESKTOP_USER_DATA"];
+if (userDataOverride !== undefined && userDataOverride !== "") {
+  app.setPath("userData", userDataOverride);
+}
+
+// D1-07：单实例——第二次启动聚焦既有窗口（每窗口一 host 的拓扑不变）
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win !== undefined) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
+}
 
 // 每窗口一个 host；窗口关闭 → 优雅退出
 const hostsByWindow = new Map<number, HostHandle>();
@@ -66,10 +88,55 @@ function ensureHost(win: BrowserWindow): HostHandle {
   return host;
 }
 
+interface WindowBounds {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+}
+
+function windowStatePath(): string {
+  return join(app.getPath("userData"), "window-state.json");
+}
+
+function loadWindowBounds(): WindowBounds {
+  try {
+    const raw = JSON.parse(readFileSync(windowStatePath(), "utf8")) as Partial<WindowBounds>;
+    const width = Number(raw.width);
+    const height = Number(raw.height);
+    if (Number.isFinite(width) && Number.isFinite(height) && width >= 720 && height >= 480) {
+      const x = Number(raw.x);
+      const y = Number(raw.y);
+      return {
+        width: Math.round(width),
+        height: Math.round(height),
+        ...(Number.isFinite(x) ? { x: Math.round(x) } : {}),
+        ...(Number.isFinite(y) ? { y: Math.round(y) } : {}),
+      };
+    }
+  } catch {
+    // 首次启动/文件损坏：默认尺寸
+  }
+  return { width: 1180, height: 800 };
+}
+
+function saveWindowBounds(win: BrowserWindow): void {
+  try {
+    const b = win.getBounds();
+    writeFileSync(
+      windowStatePath(),
+      `${JSON.stringify({ width: b.width, height: b.height, x: b.x, y: b.y })}\n`,
+      "utf8",
+    );
+  } catch {
+    // 状态记忆失败不影响退出
+  }
+}
+
 function createMainWindow(): void {
+  const bounds = loadWindowBounds();
   const win = new BrowserWindow({
-    width: 1180,
-    height: 800,
+    ...bounds,
     title: "kcode",
     webPreferences: {
       preload: joinPreload(),
@@ -117,6 +184,8 @@ function createMainWindow(): void {
     process.stderr.write(`[main] did-fail-load ${code} ${desc} ${url}\n`);
   });
 
+  win.on("focus", () => win.flashFrame(false));
+  win.on("close", () => saveWindowBounds(win));
   win.on("closed", () => {
     const h = hostsByWindow.get(win.webContents.id);
     hostsByWindow.delete(win.webContents.id);
@@ -148,7 +217,9 @@ app.whenReady().then(() => {
   ipcMain.handle("kcode:default-model", async (event) => {
     if (!senderAllowed(event)) throw new Error("拒绝：不可信 IPC 来源");
     try {
-      const cfg = JSON.parse(await readFile(join(homedir(), ".kcode", "config.json"), "utf8")) as {
+      // 与 host 同源：KCODE_HOME 优先（测试/多环境隔离），否则 ~/.kcode
+      const home = process.env["KCODE_HOME"] ?? join(homedir(), ".kcode");
+      const cfg = JSON.parse(await readFile(join(home, "config.json"), "utf8")) as {
         models?: { default?: string };
       };
       return cfg.models?.default ?? null;
@@ -180,21 +251,20 @@ app.whenReady().then(() => {
   // 通知点击 → 聚焦窗口；同时任务栏闪烁（Windows flashFrame）
   ipcMain.on("kcode:notify", (event, payload: { title?: string; body?: string }) => {
     if (!senderAllowed(event)) return;
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win !== undefined && !win.isFocused()) {
-      win.flashFrame(true);
-    }
+    // D2-06：通知归属发送它的窗口——多窗口不串
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win === null || win.isDestroyed() || win.isFocused()) return;
+    win.flashFrame(true);
     if (!Notification.isSupported()) return;
     const n = new Notification({
       title: payload.title ?? "kcode",
       body: payload.body ?? "",
     });
     n.on("click", () => {
-      const w = BrowserWindow.getAllWindows()[0];
-      if (w !== undefined) {
-        w.show();
-        w.focus();
-      }
+      if (win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
     });
     n.show();
   });

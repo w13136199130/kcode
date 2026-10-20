@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CheckpointStore } from "../src/checkpoints.js";
+import { CheckpointStore, listCheckpointChanges } from "../src/checkpoints.js";
 
 let root: string;
 let dir: string;
@@ -43,6 +43,28 @@ describe("检查点持久化", () => {
   it("目录无清单时按空目录打开，不抛错", async () => {
     const fresh = await CheckpointStore.open(join(root, "checkpoints", "sess_fresh"));
     expect(fresh.list()).toHaveLength(0);
+  });
+
+  it("D2-05 changed files：基线 diff、回退后 diff 消失、新建文件", async () => {
+    const d = join(root, "checkpoints", "sess_changes");
+    const target = join(root, "changes.txt");
+    const fresh = join(root, "changes-new.txt");
+    await writeFile(target, "a\nb\n", "utf8");
+    const store = await CheckpointStore.open(d);
+    await store.snapshot("c1", target);
+    await store.snapshot("c2", fresh);
+    await writeFile(target, "a\nc\n", "utf8");
+    await writeFile(fresh, "new\n", "utf8");
+
+    const changes = await listCheckpointChanges(store);
+    const edited = changes.find((c) => c.path === target);
+    expect(edited?.diff).toContain("-b");
+    expect(edited?.diff).toContain("+c");
+    expect(changes.find((c) => c.path === fresh)?.existed).toBe(false);
+
+    await store.restore(changes.flatMap((c) => c.callIds));
+    expect(await readFile(target, "utf8")).toBe("a\nb\n");
+    expect(await listCheckpointChanges(store)).toEqual([]);
   });
 
   it("重开后继续快照不会与既有前像重名", async () => {

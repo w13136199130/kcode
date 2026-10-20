@@ -27,14 +27,18 @@ type RunResult = Awaited<ReturnType<SessionHandle["loop"]["run"]>>;
 async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"] } = {}) {
   let options!: LocalSessionOptions;
   const finishers: ((r: RunResult) => void)[] = [];
+  const closes: Array<ReturnType<typeof vi.fn>> = [];
   const run = vi.fn((content: string) => {
     options.onEvent?.({ v: 1, type: "user_message", sessionId: "s1", ts: 0, content });
     return new Promise<RunResult>((resolve) => { finishers.push(resolve); });
   });
   bridge.create.mockImplementation(async (opts: LocalSessionOptions) => {
     options = opts;
+    const close = vi.fn(async () => undefined);
+    closes.push(close);
     return {
       sessionId: "s1",
+      close,
       commandQueue: new RuntimeCommandQueue((items) => opts.onQueueChange?.(items)),
       loop: { run },
       abort: () => {},
@@ -109,7 +113,7 @@ async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"]
     finishers[n]!({ sessionId: "s1", turns: 1, toolCalls: 0, status });
   };
   await eventually("> █");
-  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin, getOptions: () => options };
+  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin, closes, getOptions: () => options };
 }
 
 describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、中断清空）", () => {
@@ -180,6 +184,19 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     await t.eventuallySaw("已开启全新会话");
     expect(t.getOptions().initialMode).toBe("plan");
     expect(t.frame()).toContain("只读");
+  }, T);
+
+  it("3-03 /clear 成功后关闭旧会话（后台任务/MCP 不成孤儿）", async () => {
+    const t = await setup();
+    t.stdin.write("/clear");
+    await t.eventually("/clear█");
+    t.stdin.write("\r");
+    await t.settle(120);
+    t.stdin.write("\r");
+    await t.eventuallySaw("已开启全新会话");
+    // StrictMode 下初始装配可能创建两次；至少有一个旧会话被显式关闭
+    expect(t.closes.some((c) => c.mock.calls.length > 0)).toBe(true);
+    expect(t.closes.flatMap((c) => c.mock.calls)).toHaveLength(1);
   }, T);
 
   it("中断（Esc）清空排队输入：取消当前轮后不自动续跑", async () => {

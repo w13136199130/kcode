@@ -2,16 +2,21 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { newId } from "@kcode/shared";
 import {
+  ConfigSaveParams,
   PROTOCOL_MAJOR,
   PROTOCOL_MINOR,
+  ProviderConfig,
   type HostFrame,
   type PlanRespondParams,
   type SessionCreateParams,
   type SessionSubmitParams,
 } from "@kcode/contracts";
-import { listSessions } from "@kcode/runtime";
+import { createProviderRouter, openKeychain } from "@kcode/platform";
+import { deleteSession, listSessions, renameSession } from "@kcode/runtime";
 import { HostSession } from "./session.js";
 import { createCliPlatformService } from "./platform.js";
+import { loadUserModelsConfig } from "./boot.js";
+import { saveUserProvider } from "./config.js";
 
 /**
  * 宿主服务（N3-1 注 A/D）：持有最多一个会话（每会话一进程），排空权威在本进程。
@@ -44,7 +49,7 @@ export class HostServer {
       }
       this.send({
         kind: "hello",
-        hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan"] },
+        hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan", "config"] },
       });
       this.send({ kind: "ev", event: { type: "ready", hostId: this.hostId, pid: process.pid } });
       return;
@@ -105,6 +110,42 @@ export class HostServer {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.setModel((params as { ref: string }).ref);
       }
+      case "session/commands": {
+        if (this.#session === null) return { commands: [] };
+        return { commands: this.#session.listCommands() };
+      }
+      case "session/command": {
+        if (this.#session === null) throw new Error("会话未创建");
+        const p = params as { name: string; args?: string };
+        const text = await this.#session.expandCommand(p.name, p.args ?? "");
+        if (text === null) throw new Error(`未知命令 /${p.name}`);
+        return { text };
+      }
+      case "session/compact": {
+        if (this.#session === null) throw new Error("会话未创建");
+        return this.#session.compact();
+      }
+      case "session/files": {
+        if (this.#session === null) return { files: [] };
+        return { files: await this.#session.searchFiles((params as { query?: string } | undefined)?.query ?? "") };
+      }
+      case "session/tasks": {
+        if (this.#session === null) throw new Error("会话未创建");
+        return { tasks: this.#session.listTasks() };
+      }
+      case "session/task_stop": {
+        if (this.#session === null) throw new Error("会话未创建");
+        return this.#session.stopTask((params as { id: string }).id);
+      }
+      case "session/changes": {
+        if (this.#session === null) throw new Error("会话未创建");
+        return { changes: await this.#session.listChanges() };
+      }
+      case "session/revert": {
+        if (this.#session === null) throw new Error("会话未创建");
+        const paths = (params as { paths?: string[] } | undefined)?.paths;
+        return this.#session.revertChanges(paths);
+      }
       case "ask/respond": {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.askRespond(params as { requestId: string; allowed: boolean; scope?: "once" | "session" | "project" });
@@ -117,6 +158,55 @@ export class HostServer {
         if (this.#session === null) throw new Error("会话未创建");
         this.#session.planRespond(params as PlanRespondParams);
         return;
+      }
+      case "config/get": {
+        const models = await loadUserModelsConfig(this.kcodeHomeDir);
+        return {
+          defaultModel: models.default ?? null,
+          providers: Object.entries(models.providers).map(([name, provider]) => ({
+            name,
+            type: provider.type,
+            ...("baseURL" in provider ? { baseURL: provider.baseURL } : {}),
+            ...("keyRef" in provider && provider.keyRef !== undefined ? { keyRef: provider.keyRef } : {}),
+          })),
+        };
+      }
+      case "config/save": {
+        const p = ConfigSaveParams.parse(params);
+        const provider = ProviderConfig.safeParse(p.provider);
+        if (!provider.success) throw new Error(`provider 配置不合法：${provider.error.message.slice(0, 200)}`);
+        if (p.key !== undefined) {
+          const platform = this.#platform();
+          if (p.key.passphrase !== undefined && p.key.passphrase !== "") {
+            await platform.openPassphraseKeychain(p.key.passphrase).set(p.key.ref, p.key.key, p.key.audiences);
+          } else {
+            await platform.openSecureKeychain().set(p.key.ref, p.key.key, p.key.audiences);
+          }
+        }
+        await saveUserProvider(this.kcodeHomeDir, {
+          providerName: p.providerName,
+          provider: provider.data,
+          model: p.model,
+        });
+        return { model: p.model };
+      }
+      case "models/list": {
+        const models = await loadUserModelsConfig(this.kcodeHomeDir);
+        const keychain = openKeychain(join(this.kcodeHomeDir, "keys.json"));
+        const router = createProviderRouter(models, keychain);
+        const modelRef = (params as { model?: string } | undefined)?.model ?? models.default;
+        if (modelRef === undefined || modelRef === "") throw new Error("未指定模型，且配置没有 models.default");
+        const provider = await router.resolve(modelRef);
+        return { models: (await provider.listModels?.()) ?? [] };
+      }
+      case "provider/probe": {
+        const models = await loadUserModelsConfig(this.kcodeHomeDir);
+        const keychain = openKeychain(join(this.kcodeHomeDir, "keys.json"));
+        const router = createProviderRouter(models, keychain);
+        const modelRef = (params as { model?: string } | undefined)?.model ?? models.default;
+        if (modelRef === undefined || modelRef === "") throw new Error("未指定模型，且配置没有 models.default");
+        await router.resolve(modelRef);
+        return { ok: true };
       }
       case "platform/probe": {
         // N3-2 注 E：key 是否已录入——在宿主侧查（key 明文不出宿主）
@@ -142,7 +232,29 @@ export class HostServer {
       }
       case "sessions/list": {
         const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions"));
-        return { sessions: summaries.slice(0, 20).map((s) => ({ sessionId: s.sessionId, preview: s.preview, turns: s.turns, modifiedAt: s.modifiedAt })) };
+        return {
+          sessions: summaries.slice(0, 100).map((s) => ({
+            sessionId: s.sessionId,
+            preview: s.preview,
+            turns: s.turns,
+            modifiedAt: s.modifiedAt,
+            workspaceKey: s.workspaceKey,
+            ...(s.title !== undefined ? { title: s.title } : {}),
+          })),
+        };
+      }
+      case "sessions/rename": {
+        const p = params as { sessionId: string; title: string };
+        await renameSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId, p.title);
+        return;
+      }
+      case "sessions/delete": {
+        const p = params as { sessionId: string };
+        if (this.#session?.describe().sessionId === p.sessionId) {
+          throw new Error("不能删除正在使用的会话（先新建或切换到其他会话）");
+        }
+        await deleteSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId);
+        return;
       }
       default:
         throw new Error(`未知方法 ${method}`);

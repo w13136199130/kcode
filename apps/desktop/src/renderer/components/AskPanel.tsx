@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatGrantPattern, suggestGrant } from "../lib/grant-patterns.js";
 
 /**
@@ -14,23 +14,44 @@ export function AskPanel(props: {
   onRespond(allowed: boolean, scope?: "once" | "session" | "project"): void;
 }) {
   const [picked, setPicked] = useState(false);
+  // D2-01：键盘可完成审批；默认焦点已在拒绝，所以 Enter 不会误放行
+  useEffect(() => {
+    if (picked) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target !== null && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      const key = e.key.toLowerCase();
+      const decide = (allowed: boolean, scope?: "once" | "session" | "project"): void => {
+        e.preventDefault();
+        setPicked(true);
+        props.onRespond(allowed, scope);
+      };
+      if (key === "y") decide(true);
+      else if (key === "s") decide(true, "session");
+      else if (key === "p") decide(true, "project");
+      else if (key === "n" || e.key === "Escape") decide(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [picked, props]);
   if (picked) return null;
   const suggestion = suggestGrant({ tool: props.tool, args: props.args });
   const projectLabel =
     suggestion !== null
       ? `本项目不再询问 · ${formatGrantPattern(suggestion)}`
       : "本项目不再询问";
+  const sessionLabel =
+    suggestion !== null
+      ? `本会话不再询问 · ${formatGrantPattern(suggestion)}`
+      : "本会话不再询问";
   const command =
     typeof (props.args as { command?: unknown } | null)?.command === "string"
       ? (props.args as { command: string }).command
       : null;
   const argsText = JSON.stringify(props.args, null, 2) ?? "";
-  const argsPreview =
-    command !== null
-      ? command
-      : argsText.length > 8_000
-        ? `${argsText.slice(0, 8_000)}\n…（参数过长已截断显示；完整内容见会话事件）`
-        : argsText;
+  // D2-01：完整参数（容器可滚动），不再静默截断
+  const argsPreview = command !== null ? command : argsText;
 
   const respond = (allowed: boolean, scope?: "once" | "session" | "project"): void => {
     setPicked(true);
@@ -67,7 +88,7 @@ export function AskPanel(props: {
           允许
         </button>
         <button type="button" className="ask-btn" onClick={() => respond(true, "session")}>
-          本会话不再询问
+          {sessionLabel}
         </button>
         <button type="button" className="ask-btn" onClick={() => respond(true, "project")} title={suggestion !== null ? "保存参数级放行规则" : "保存工具级放行"}>
           {projectLabel}

@@ -1,5 +1,8 @@
 import { test, expect, _electron as electron } from "@playwright/test";
 import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -11,7 +14,24 @@ import { fileURLToPath } from "node:url";
  */
 test("首启 → host ready → reload replay → preload/CSP → 关闭", async () => {
   test.setTimeout(90_000);
-  const env = { ...process.env };
+  // 已配置用户（避免首启 onboarding 挡住工作区断言）；D1-01 首启另由 Onboarding 单测覆盖
+  const fakeHome = await mkdtemp(join(tmpdir(), "kcode-desktop-e2e-home-"));
+  await mkdir(join(fakeHome, ".kcode"), { recursive: true });
+  await writeFile(
+    join(fakeHome, ".kcode", "config.json"),
+    JSON.stringify({
+      models: {
+        default: "mock/model",
+        providers: { mock: { type: "openai-compatible", baseURL: "https://example.com/v1" } },
+      },
+    }),
+    "utf8",
+  );
+  const env = {
+    ...process.env,
+    KCODE_HOME: join(fakeHome, ".kcode"),
+    KCODE_DESKTOP_USER_DATA: join(fakeHome, "userData"),
+  };
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await electron.launch({
     args: ["dist/main.cjs", "--headless", "--no-sandbox", "--disable-gpu"],
@@ -30,6 +50,15 @@ test("首启 → host ready → reload replay → preload/CSP → 关闭", async
   await expect(page.locator("body")).not.toContainText("连接宿主中", { timeout: 20_000 });
   log("host ready");
   await expect(page.locator(".workspace-header")).toBeVisible();
+
+  // D1-05：Composer 的 / 命令菜单（内置命令来自 contracts，与 CLI 同表）
+  const composer = page.locator(".composer-input");
+  await composer.fill("/");
+  await expect(page.locator(".composer-menu")).toBeVisible();
+  await expect(page.locator(".composer-menu")).toContainText("/mode");
+  await composer.press("Escape");
+  await expect(page.locator(".composer-menu")).toHaveCount(0);
+  await composer.fill("");
 
   // D0-08：sandbox preload 只暴露 kcodeHost；renderer 仍无 Node require
   expect(await page.evaluate(() => typeof window.kcodeHost)).toBe("object");
@@ -61,5 +90,37 @@ test("首启 → host ready → reload replay → preload/CSP → 关闭", async
       proc.kill("SIGKILL");
     }
   }
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
   log("closed");
+});
+
+test("D1-01 无配置：进入 onboarding 而不是空白/死锁", async () => {
+  test.setTimeout(60_000);
+  const fakeHome = await mkdtemp(join(tmpdir(), "kcode-desktop-onboard-"));
+  const env = {
+    ...process.env,
+    KCODE_HOME: join(fakeHome, ".kcode"),
+    KCODE_DESKTOP_USER_DATA: join(fakeHome, "userData"),
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const app = await electron.launch({
+    args: ["dist/main.cjs", "--headless", "--no-sandbox", "--disable-gpu"],
+    cwd: fileURLToPath(new URL("../..", import.meta.url)),
+    env,
+  });
+  const page = await app.firstWindow({ timeout: 20_000 });
+  await expect(page.locator(".onboarding-root")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".onboarding-card")).toContainText("欢迎使用 kcode");
+  const proc = app.process();
+  await page.close();
+  if (proc.exitCode === null && proc.pid !== undefined) {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { windowsHide: true });
+    } else {
+      proc.kill("SIGKILL");
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
 });

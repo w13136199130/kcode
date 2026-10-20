@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { SessionEvent } from "@kcode/contracts";
 import { parseJsonlPrefix } from "./replayer.js";
@@ -13,6 +13,35 @@ export interface SessionSummary {
   preview: string;
   /** 工作区身份键（无 session_start 时为空串） */
   workspaceKey: string;
+  /** D1-03：用户自定义标题（sidecar `<id>.title`；缺省用 preview） */
+  title?: string;
+}
+
+const SESSION_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+function titlePath(sessionsDir: string, sessionId: string): string {
+  if (!SESSION_ID_RE.test(sessionId)) throw new Error("会话 id 不合法");
+  return join(sessionsDir, `${sessionId}.title`);
+}
+
+/** 自定义标题（最多 80 字；空标题 = 删除 sidecar，回退 preview） */
+export async function renameSession(sessionsDir: string, sessionId: string, title: string): Promise<void> {
+  const path = titlePath(sessionsDir, sessionId);
+  const clean = title.trim().slice(0, 80);
+  if (clean === "") {
+    await rm(path, { force: true });
+    return;
+  }
+  await writeFile(path, `${clean}\n`, "utf8");
+}
+
+/** 删除会话文件与标题 sidecar（调用方负责拒绝删除当前活动会话） */
+export async function deleteSession(sessionsDir: string, sessionId: string): Promise<void> {
+  if (!SESSION_ID_RE.test(sessionId)) throw new Error("会话 id 不合法");
+  await Promise.all([
+    rm(join(sessionsDir, `${sessionId}.jsonl`), { force: true }),
+    rm(titlePath(sessionsDir, sessionId), { force: true }),
+  ]);
 }
 
 /** 列出会话目录里的历史会话（按修改时间倒序；损坏文件跳过） */
@@ -42,13 +71,22 @@ export async function listSessions(sessionsDir: string): Promise<SessionSummary[
           if (preview === "") preview = event.content.slice(0, 60);
         }
       }
+      const sessionId = name.replace(/\.jsonl$/, "");
+      let title: string | undefined;
+      try {
+        const raw = (await readFile(titlePath(sessionsDir, sessionId), "utf8")).trim();
+        if (raw !== "") title = raw;
+      } catch {
+        // 无标题 sidecar
+      }
       summaries.push({
-        sessionId: name.replace(/\.jsonl$/, ""),
+        sessionId,
         filePath,
         modifiedAt: fileStat.mtimeMs,
         turns,
         preview,
         workspaceKey,
+        ...(title !== undefined ? { title } : {}),
       });
     } catch {
       // 单个损坏文件不阻断列表

@@ -36,6 +36,20 @@ export function useDesktopConnection(): HostConnection {
   const bridgeRef = useRef(window.kcodeHost ?? null);
   const pendingRef = useRef(new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>());
   const idCounter = useRef(0);
+  /** D1-06：增量合帧（16ms）——逐 token setEvents 会让长回答每 token 重渲染一次 */
+  const eventBuffer = useRef<HostEvent[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushEvents = useCallback((): void => {
+    flushTimer.current = null;
+    if (eventBuffer.current.length === 0) return;
+    const batch = eventBuffer.current;
+    eventBuffer.current = [];
+    setEvents((prev) => {
+      const next = [...prev, ...batch];
+      return next.length > 500 ? next.slice(-500) : next;
+    });
+  }, []);
 
   useEffect(() => {
     const bridge = window.kcodeHost;
@@ -72,10 +86,10 @@ export function useDesktopConnection(): HostConnection {
         return;
       }
       if (frame.kind === "ev") {
-        setEvents((prev) => {
-          const next = [...prev, frame.event];
-          return next.length > 500 ? next.slice(-500) : next;
-        });
+        eventBuffer.current.push(frame.event);
+        if (flushTimer.current === null) {
+          flushTimer.current = setTimeout(flushEvents, 16);
+        }
       }
     };
 
@@ -94,8 +108,12 @@ export function useDesktopConnection(): HostConnection {
     return () => {
       // StrictMode 双挂载：不退订 = 两个 handler 各处理一遍每条事件（界面全双份，M2a 实测）
       unsubscribe();
+      if (flushTimer.current !== null) {
+        clearTimeout(flushTimer.current);
+        flushTimer.current = null;
+      }
     };
-  }, []);
+  }, [flushEvents]);
 
   const send = useCallback(async (method: string, params?: unknown): Promise<unknown> => {
     const bridge = bridgeRef.current;

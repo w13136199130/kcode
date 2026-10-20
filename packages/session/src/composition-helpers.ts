@@ -18,13 +18,23 @@ export async function loadMcpConfigs(kcodeHomeDir: string) {
   }
 }
 
-/** 读取并合并项目级/用户级 AGENTS.md 记忆 */
-export async function loadAgentsMd(cwd: string, kcodeHomeDir: string): Promise<string | undefined> {
+/**
+ * 读取并合并项目级/用户级 AGENTS.md 记忆。
+ * P0-0：项目级 AGENTS.md 是未信任仓库的 prompt-injection 面，必须与 skills/hooks 同一 trust 门控；
+ * 未信任时只读用户级。
+ */
+export async function loadAgentsMd(
+  cwd: string,
+  kcodeHomeDir: string,
+  opts: { includeProject?: boolean } = {},
+): Promise<string | undefined> {
+  const includeProject = opts.includeProject ?? true;
   const sections: string[] = [];
   for (const [label, path] of [
     ["项目", join(cwd, "AGENTS.md")],
     ["用户", join(kcodeHomeDir, "AGENTS.md")],
   ] as const) {
+    if (label === "项目" && !includeProject) continue;
     try {
       const text = await readFile(path, "utf8");
       if (text.trim() !== "") {

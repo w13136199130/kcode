@@ -12,9 +12,12 @@ import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
 import { PlanPanel } from "./components/PlanPanel.js";
 import { applyEvent, initialTimeline, type TimelineState } from "./components/projection.js";
 import { CommandPalette } from "./components/CommandPalette.js";
-import { DiffViewer } from "./components/DiffViewer.js";
+import { useWorkspacePanes } from "./hooks/useWorkspacePanes.js";
+import { useCommandCatalog } from "./hooks/useCommandCatalog.js";
+import { useDesktopCommands } from "./hooks/useDesktopCommands.js";
 import { SettingsOverlay } from "./components/SettingsOverlay.js";
-import type { Row } from "./components/projection.js";
+import { Onboarding } from "./components/Onboarding.js";
+
 import "./styles.css";
 
 /**
@@ -43,10 +46,14 @@ interface PlanState {
 
 function DesktopApp() {
   const conn = useDesktopConnection();
+  const panes = useWorkspacePanes(conn);
+  const commands = useCommandCatalog(conn);
   const [timeline, setTimeline] = useState<TimelineState>(initialTimeline);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [modelDefault, setModelDefault] = useState<string | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [mode, setMode] = useState<PermissionMode>("default");
+  const [queuedCount, setQueuedCount] = useState(0);
   const [ask, setAsk] = useState<AskState | null>(null);
   const [question, setQuestion] = useState<QuestionState | null>(null);
   const [plan, setPlan] = useState<PlanState | null>(null);
@@ -57,10 +64,16 @@ function DesktopApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState("dev");
-  const [diffRow, setDiffRow] = useState<Extract<Row, { kind: "tool" }> | null>(null);
+
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
   }, []);
+
+  // D1-07：标题 = 项目名（窗口标题随工作区变化）
+  useEffect(() => {
+    const name = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
+    document.title = `${name} — kcode`;
+  }, [defaultCwd]);
 
   // 系统通知（M3a）：仅在窗口失焦时发——任务完成 / 待审批（沿检测去重）
   const prevBusyRef = useRef(timeline.busy);
@@ -108,12 +121,26 @@ function DesktopApp() {
   const onNewSessionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    void window.kcodeHost?.getDefaultModel().then(setModelDefault);
+    let cancelled = false;
+    // D1-01：配置读取完成（即使为空）才决定进入 onboarding 还是工作区
+    void (async () => {
+      try {
+        const model = await window.kcodeHost?.getDefaultModel();
+        if (!cancelled) setModelDefault(model ?? null);
+      } catch {
+        if (!cancelled) setModelDefault(null);
+      } finally {
+        if (!cancelled) setConfigLoaded(true);
+      }
+    })();
     void window.kcodeHost?.getDefaultCwd().then((fallback) => {
       // 上次选过的项目优先；目录被删除时 host 会报错，用户可用「打开文件夹」重选
       const last = localStorage.getItem("kcode-last-cwd");
-      setDefaultCwd(last !== null && last !== "" ? last : fallback);
+      if (!cancelled) setDefaultCwd(last !== null && last !== "" ? last : fallback);
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）
@@ -171,6 +198,10 @@ function DesktopApp() {
     processed.current = conn.events.length;
     if (news.length === 0) return;
     for (const ev of news) {
+      if (ev.type === "queue/change") {
+        setQueuedCount(ev.snapshot.items.length);
+        continue;
+      }
       if (ev.type === "session/created") {
         setSessionId(ev.sessionId);
         continue;
@@ -210,10 +241,17 @@ function DesktopApp() {
     }
   }, [conn.events, conn]);
 
-  const onSend = (text: string): void => {
-    setTimeline((prev) => ({ ...prev, busy: true }));
-    void conn.send("session/submit", { text }).catch(() => setTimeline((prev) => ({ ...prev, busy: false })));
-  };
+  const { onSend } = useDesktopCommands({
+    conn,
+    commands,
+    mode,
+    sessionId,
+    modelDefault,
+    queuedCount,
+    onNewSessionRef,
+    setMode,
+    setTimeline,
+  });
 
   const onStop = (): void => {
     void conn.send("session/interrupt").catch(() => undefined);
@@ -222,6 +260,7 @@ function DesktopApp() {
   /** 同窗口新建会话（反馈修订：不开新窗——zcode 同款侧栏切换体验） */
   const onNewSession = useCallback((): void => {
     if (modelDefault === null || defaultCwd === "") return;
+    setQueuedCount(0);
     void conn
       .send("session/dispose")
       .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd }))
@@ -236,6 +275,7 @@ function DesktopApp() {
   const onResume = useCallback(
     (id: string): void => {
       if (modelDefault === null || defaultCwd === "" || id === sessionId) return;
+      setQueuedCount(0);
       void conn
         .send("session/dispose")
         .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd, resumeFrom: id }))
@@ -262,6 +302,7 @@ function DesktopApp() {
     }
     void window.kcodeHost?.pickDirectory().then((dir) => {
       if (dir === null || dir === "" || dir === defaultCwd) return;
+      setQueuedCount(0);
       localStorage.setItem("kcode-last-cwd", dir);
       if (sessionId === null || modelDefault === null) {
         setDefaultCwd(dir);
@@ -292,6 +333,7 @@ function DesktopApp() {
   }, [conn, defaultCwd, modelDefault, sessionId, timeline.busy]);
 
   const ready = conn.status === "ready" && sessionId !== null;
+  const projectName = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
   onNewSessionRef.current = onNewSession;
   const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
 
@@ -307,19 +349,38 @@ function DesktopApp() {
       </div>
     );
   }
+  if (!configLoaded) {
+    return <div className="center-note">正在读取配置…</div>;
+  }
+  if (modelDefault === null) {
+    return conn.status === "ready" ? (
+      <Onboarding
+        conn={conn}
+        initialCwd={defaultCwd}
+        onComplete={(modelRef, cwd) => {
+          localStorage.setItem("kcode-last-cwd", cwd);
+          setDefaultCwd(cwd);
+          setModelDefault(modelRef);
+        }}
+      />
+    ) : (
+      <div className="center-note">正在连接宿主进程…</div>
+    );
+  }
 
   return (
     <>
       <WorkspaceLayout
       collapsed={sidebarCollapsed}
       onToggleSidebar={() => setSidebarCollapsed((v) => !v)}
-      sidePane={diffRow !== null ? <DiffViewer row={diffRow} /> : undefined}
-      sidePaneOpen={diffRow !== null}
-      onCloseSidePane={() => setDiffRow(null)}
+      sidePane={panes.sidePane}
+      sidePaneOpen={panes.sidePaneOpen}
+      onCloseSidePane={panes.close}
       sidebar={
         <SessionSidebar
           conn={conn}
           currentId={sessionId}
+          workspace={defaultCwd}
           onOpen={onResume}
           onNewSession={onNewSession}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -328,14 +389,16 @@ function DesktopApp() {
       main={
         <div className={`main-column ${isEmpty ? "draft" : ""}`}>
           <WorkspaceHeader
-            title="kcode"
+            title={projectName}
             cwd={defaultCwd}
             model={modelDefault}
             mode={mode}
             onPickWorkspace={onPickWorkspace}
+            onShowChanges={panes.openChanges}
+            onShowTasks={panes.openTasks}
           />
           <div className="timeline-stack">
-              <Timeline state={timeline} onOpenDiff={setDiffRow} />
+              <Timeline state={timeline} onOpenDiff={panes.openDiff} />
               {isEmpty ? (
                 <div className="draft-welcome">
                   <div className="draft-welcome-title">kcode</div>
@@ -375,9 +438,14 @@ function DesktopApp() {
           <Composer
             busy={timeline.busy}
             disabled={!ready}
-            queuedCount={0}
+            queuedCount={queuedCount}
             mode={mode}
             model={modelDefault}
+            commands={commands}
+            onListFiles={async (query) => {
+              const r = (await conn.send("session/files", { query }).catch(() => null)) as { files?: string[] } | null;
+              return r?.files ?? [];
+            }}
             onModeChange={(m) => {
               setMode(m);
               void conn.send("session/set_mode", { mode: m }).catch(() => undefined);

@@ -297,6 +297,7 @@ ${body}
           ctx.pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（新会话不带旧排队）` });
         }
         ctx.beginWork();
+        const previous = ctx.sessionRef.current;
         try {
           const handle = await ctx.createSession({
             runtime: ctx.props.runtime,
@@ -313,6 +314,10 @@ ${body}
             onQueueChange: (items) => ctx.ui.getState().setQueuedCount(items.length),
           });
           ctx.sessionRef.current = handle;
+          // 3-03：新会话就绪后再关旧会话（后台 bash/子代理/MCP 不随 /clear 变孤儿）
+          if (previous !== null && previous !== handle && typeof previous.close === "function") {
+            await previous.close().catch(() => undefined);
+          }
           ctx.ui.getState().resetTranscript();
           // 清屏 + 重绘 banner（Static 里已打印的旧内容随滚动缓冲一并清除）
           process.stdout.write("[2J[0f");

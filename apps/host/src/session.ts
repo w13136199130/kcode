@@ -14,8 +14,9 @@ import type {
 } from "@kcode/contracts";
 import { composeSession, resolveResumeHistory, type ComposedSession } from "@kcode/session";
 import { RuntimeCommandQueue, effectiveEvents, loadSessionEvents, JsonlSessionSink } from "@kcode/runtime";
-import { buildAskPreview } from "@kcode/tools";
+import { buildAskPreview, type AskPreview } from "@kcode/tools";
 import { loadUserModelsConfig, createHostLlmFactory } from "./boot.js";
+import { searchWorkspaceFiles } from "./files.js";
 
 /**
  * 宿主侧会话（N3-1 注 A/B/C）：
@@ -44,6 +45,8 @@ export class HostSession {
   #askEpoch = 0;
   #reasoningBuffer = "";
   #reasoningTimer: NodeJS.Timeout | null = null;
+  /** D2-04：ask 与工具卡共用同一份 preview（write 会读磁盘，避免重复读） */
+  #previewCache = new Map<string, Promise<AskPreview | undefined>>();
   #epoch = 0;
   #closed = false;
 
@@ -98,7 +101,13 @@ export class HostSession {
       sessionId: targetSessionId,
       resumeUsage: resume?.usage,
       // 事件/增量/通知全走 RPC
-      onEvent: (event) => this.#emit({ type: "session/event", event }),
+      onEvent: (event) => {
+        this.#emit({ type: "session/event", event });
+        if (event.type === "tool_call") {
+          this.#emitPreview({ callId: event.callId, tool: event.tool, args: event.args ?? {} });
+        }
+        if (event.type === "tool_result") this.#previewCache.delete(event.callId);
+      },
       onDelta: (text) => this.#emit({ type: "delta", text }),
       onReasoning: (delta) => this.#bufferReasoning(delta),
       onNotice: (message) => this.#emit({ type: "notice", message }),
@@ -190,6 +199,47 @@ export class HostSession {
     this.#composed?.setMode(mode);
   }
 
+  async listChanges(): Promise<Array<{ path: string; diff: string; callIds: string[]; existed: boolean }>> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return this.#composed.listChanges();
+  }
+
+  listTasks(): ReturnType<NonNullable<ComposedSession["backgroundTasks"]>> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return this.#composed.backgroundTasks();
+  }
+
+  listCommands(): Array<{ name: string; source: "project" | "user" }> {
+    if (this.#composed === null) return [];
+    return this.#composed.listCommands();
+  }
+
+  expandCommand(name: string, args: string): Promise<string | null> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return this.#composed.expandCommand(name, args);
+  }
+
+  compact(): Promise<{ dropped: number; summaryChars: number } | null> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return this.#composed.compactNow();
+  }
+
+  async searchFiles(query: string): Promise<string[]> {
+    if (this.#cwd === "") return [];
+    return searchWorkspaceFiles(this.#cwd, query);
+  }
+
+  stopTask(id: string): { stopped: boolean } {
+    if (this.#composed === null) throw new Error("会话未创建");
+    return { stopped: this.#composed.stopBackgroundTask(id) };
+  }
+
+  async revertChanges(paths?: string[]): Promise<{ restoredFiles: number }> {
+    if (this.#composed === null) throw new Error("会话未创建");
+    if (this.#reservation) throw new Error("运行中不能回退文件");
+    return this.#composed.revertChanges(paths);
+  }
+
   async setModel(ref: string): Promise<{ error?: string } | undefined> {
     try {
       await this.#composed?.setModel(ref);
@@ -270,15 +320,33 @@ export class HostSession {
     }
   }
 
+  #preview(call: { callId: string; tool: string; args: unknown }): Promise<AskPreview | undefined> {
+    const cached = this.#previewCache.get(call.callId);
+    if (cached !== undefined) return cached;
+    const pending = buildAskPreview(call.tool, call.args, {
+      sessionId: call.callId,
+      cwd: this.#cwd,
+    }).catch(() => undefined);
+    this.#previewCache.set(call.callId, pending);
+    return pending;
+  }
+
+  /** D2-04：工具卡的 diff 与审批同源；即使 acceptEdits 不弹 ask 也发一次 */
+  #emitPreview(call: { callId: string; tool: string; args: unknown }): void {
+    if (call.tool !== "write" && call.tool !== "edit") return;
+    void this.#preview(call).then((preview) => {
+      if (preview !== undefined) {
+        this.#emit({ type: "tool/preview", callId: call.callId, preview });
+      }
+    });
+  }
+
   #asker(): PermissionAsker {
     return {
       confirm: async (call) => {
         // 预览在宿主侧生成：renderer 无文件访问；write 需要对比磁盘旧内容
         const epoch = this.#askEpoch;
-        const preview = await buildAskPreview(call.tool, call.args, {
-          sessionId: call.callId,
-          cwd: this.#cwd,
-        }).catch(() => undefined);
+        const preview = await this.#preview(call);
         // 预览期间被中断/关会话：不再弹一个已经过期的审批
         if (epoch !== this.#askEpoch) return { allowed: false };
         return new Promise<boolean | PermissionAnswer>((resolve) => {

@@ -5,6 +5,8 @@ export * from "./skill.js";
 export * from "./agent.js";
 export * from "./mcp.js";
 export * from "./provider.js";
+export * from "./login-presets.js";
+export * from "./commands.js";
 export * from "./keyhierarchy.js";
 export * from "./usage.js";
 export * from "./update.js";

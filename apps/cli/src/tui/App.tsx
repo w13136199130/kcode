@@ -45,6 +45,8 @@ export interface KcodeAppProps {
   initialMode?: PermissionMode;
   /** 组装期剔除的工具（2-10：与 headless 同一路径，未知名在 compose 期抛错） */
   disallowedTools?: string[];
+  /** `kcode login`：启动即打开登录向导 */
+  initialLogin?: boolean;
 }
 
 
@@ -102,7 +104,19 @@ export function KcodeApp(props: KcodeAppProps) {
   const [planApproval, setPlanApproval] = useState<PlanApprovalState | null>(null);
   const [input, setInput] = useState("");
   const [modelPicker, setModelPicker] = useState<ModelPicker>(null);
-  const [loginWizard, setLoginWizard] = useState<LoginWizard>(null);
+  const [loginWizard, setLoginWizard] = useState<LoginWizard>(
+    props.initialLogin
+      ? {
+          stage: "method",
+          providerName: "",
+          presetBaseURL: "",
+          presetModel: "",
+          baseURL: "",
+          apiKey: "",
+          model: "",
+        }
+      : null,
+  );
   const [commands, setCommands] = useState<CommandInfo[]>(BUILTIN_COMMANDS);
   /** IME 上屏强制重绘：终端清除组合区覆盖的时机在应用渲染之后（日志实测 0~1.3s 窗口），
    *  0~1.5s 五连重绘覆盖；交替空格保证每次帧都有 diff 绕过 Ink 去重 */
@@ -285,6 +299,23 @@ export function KcodeApp(props: KcodeAppProps) {
     });
     void Promise.race([session.close().catch(() => undefined), timeout]).finally(() => exit());
   };
+
+  // 3-03：外部 SIGINT/SIGTERM（kill、IDE 停止、CI 超时）也走 close：
+  // 停后台 bash/子代理/MCP，给 runner 3.5s 收尾，再强制退出。
+  useEffect(() => {
+    const onSignal = (): void => {
+      shutdown();
+      const timer = setTimeout(() => process.exit(143), 3_500);
+      timer.unref?.();
+    };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    return () => {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 2-05：fatal 后重试初始会话装配 */
   const retryFatal = (): void => {

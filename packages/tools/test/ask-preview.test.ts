@@ -56,7 +56,7 @@ describe("ask 变更预览（diff 渲染）", () => {
 
   it("非写/编辑工具无预览；超长 diff 截断", async () => {
     expect(await buildAskPreview("bash", { command: "ls" }, { sessionId: "s", cwd: ws })).toBeUndefined();
-    const long = renderDiff([], Array.from({ length: 100 }, (_, i) => `l${i}`));
+    const long = renderDiff([], Array.from({ length: 500 }, (_, i) => `l${i}`));
     expect(long).toContain("…（其余");
   });
 });

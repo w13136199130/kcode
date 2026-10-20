@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
+import { renderDiff } from "@kcode/tools";
 
 /**
  * 文件检查点：write/edit 执行前保存目标文件的前像；
@@ -113,6 +114,55 @@ export class CheckpointStore {
   async cleanup(): Promise<void> {
     await rm(this.dir, { recursive: true, force: true });
   }
+}
+
+export interface FileChange {
+  path: string;
+  diff: string;
+  callIds: string[];
+  existed: boolean;
+}
+
+/**
+ * D2-05：本会话 changed files——同一文件以首个检查点为基线，
+ * 与当前磁盘内容做 LCS diff（回退后 diff 自然消失）。
+ */
+export async function listCheckpointChanges(store: CheckpointStore): Promise<FileChange[]> {
+  const groups = new Map<string, CheckpointEntry[]>();
+  for (const entry of store.list()) {
+    const list = groups.get(entry.path);
+    if (list === undefined) groups.set(entry.path, [entry]);
+    else list.push(entry);
+  }
+  const changes: FileChange[] = [];
+  for (const [path, entries] of groups) {
+    const first = entries[0]!;
+    let oldText: string | null = null;
+    if (first.existed && first.snapshotPath !== undefined) {
+      try {
+        oldText = await readFile(first.snapshotPath, "utf8");
+      } catch {
+        continue; // 前像缺失：不做不可信的 diff
+      }
+    }
+    let current: string | null = null;
+    try {
+      current = await readFile(path, "utf8");
+    } catch {
+      current = null; // 已被删除
+    }
+    if (first.existed && oldText === current) continue;
+    if (!first.existed && current === null) continue; // 新建后又删除，净变化为 0
+    const before = first.existed ? (oldText ?? "").split(/\r?\n/) : [];
+    const after = current === null ? [] : current.split(/\r?\n/);
+    changes.push({
+      path,
+      diff: renderDiff(before, after),
+      callIds: entries.map((e) => e.callId),
+      existed: first.existed,
+    });
+  }
+  return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /**

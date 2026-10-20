@@ -10,6 +10,10 @@ export function WorkspaceHeader(props: {
   model: string | null;
   mode: PermissionMode;
   onPickWorkspace?(): void;
+  /** D2-05：打开 changed files / revert 侧栏 */
+  onShowChanges?(): void;
+  /** D2-07：打开后台任务侧栏 */
+  onShowTasks?(): void;
 }) {
   const modeLabel: Record<PermissionMode, string> = {
     plan: "⏸ 只读",
@@ -29,6 +33,16 @@ export function WorkspaceHeader(props: {
       <div className="workspace-badges">
         {props.model !== null ? <span className="badge">{props.model}</span> : null}
         <span className="badge">{modeLabel[props.mode]}</span>
+        {props.onShowChanges !== undefined ? (
+          <button type="button" className="badge workspace-pick" onClick={props.onShowChanges}>
+            变更
+          </button>
+        ) : null}
+        {props.onShowTasks !== undefined ? (
+          <button type="button" className="badge workspace-pick" onClick={props.onShowTasks}>
+            任务
+          </button>
+        ) : null}
         {props.onPickWorkspace !== undefined ? (
           <button type="button" className="badge workspace-pick" onClick={props.onPickWorkspace}>
             打开文件夹

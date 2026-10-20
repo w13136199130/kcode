@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   ChatMessage,
@@ -39,7 +38,7 @@ import { buildSkillTool } from "./skill-tool.js";
 import { buildSendMessageTool } from "./agent-messaging.js";
 import { SubagentRegistry } from "./subagent-registry.js";
 import { loadMcpConfigs, loadAgentsMd, normalizeDisallowedTools, applyDisallowedTools } from "./composition-helpers.js";
-import { CheckpointStore, withFileCheckpoints } from "./checkpoints.js";
+import { CheckpointStore, listCheckpointChanges, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
 import { runUserBash } from "./user-bash.js";
 import { PLAN_MODE_SUFFIX, SYSTEM_PROMPT } from "./prompt.js";
@@ -67,6 +66,12 @@ export interface ComposedSession {
   clearPersistentGrants(): Promise<number>;
   /** 会话累计用量（含 resume 种子；/cost） */
   usageSummary(): SessionUsage;
+  /** D2-05：本会话写/编辑产生的 changed files（相对检查点前像的真实 diff） */
+  listChanges(): Promise<
+    Array<{ path: string; diff: string; callIds: string[]; existed: boolean }>
+  >;
+  /** 按文件路径回退到本会话首次修改前；paths 省略 = 全部 */
+  revertChanges(paths?: string[]): Promise<{ restoredFiles: number }>;
   /** /rewind 回退点清单（每个 user_message 一项；fileChanges = 其后的写/编辑次数） */
   listRewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
   /** 回退到某个 user_message 之前：恢复文件快照（逆序）+ 以事件重建截断历史；运行中拒绝 */
@@ -83,6 +88,8 @@ export interface ComposedSession {
   hooksInfo(): { source: "user" | "project"; event: string; command: string; failClosed?: boolean }[];
   /** 后台任务清单（N3C-4③）：bash 工具注册表的会话级视图（任务面板轮询源） */
   backgroundTasks(): { id: string; command: string; status: "running" | "done" | "failed"; exitCode?: number; logPath: string; startedAt: number; notified?: boolean }[];
+  /** D2-07：终止运行中的后台任务；返回是否真的发出终止信号 */
+  stopBackgroundTask(id: string): boolean;
   /** /context 上下文占用 */
   contextStats(): {
     model: string;
@@ -198,14 +205,14 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
             return answer;
           },
         };
-  const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
-  // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
-  const shell = await currentShellInfo();
-  // 2-17：项目扩展（skills/agents/commands）与 hooks 共用同一 trust 门控
+  // 2-17 / P0-0：项目扩展（skills/agents/commands）、hooks、AGENTS.md 共用同一 trust 门控
   const projectTrusted = await isProjectTrusted(
     opts.cwd,
     join(opts.kcodeHomeDir, "trusted-projects.json"),
   );
+  const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir, { includeProject: projectTrusted });
+  // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
+  const shell = await currentShellInfo();
   // B1 子代理定义：project > user，同名先见者胜；保留名不可覆盖
   const agents = await AgentLibrary.open(
     [
@@ -241,7 +248,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   });
   if (!projectTrusted) {
     opts.onNotice?.(
-      "项目未被信任：.kcode/skills、.kcode/agents、.kcode/commands 未装载（输入 /trust 信任本项目后新会话生效）",
+      "项目未被信任：AGENTS.md、.kcode/skills、.kcode/agents、.kcode/commands 未装载（输入 /trust 信任本项目后新会话生效）",
     );
   }
   const plugins = extensionRoots.plugins;
@@ -468,6 +475,15 @@ ${plan}`);
     listPersistentGrants: () => grantStore.list(),
     clearPersistentGrants: () => grantStore.clear(),
     usageSummary: () => loop.getUsage(),
+    listChanges: () => listCheckpointChanges(checkpoints),
+    revertChanges: async (paths) => {
+      const selected = paths === undefined ? undefined : new Set(paths);
+      const callIds = checkpoints
+        .list()
+        .filter((e) => selected === undefined || selected.has(e.path))
+        .map((e) => e.callId);
+      return { restoredFiles: await checkpoints.restore(callIds) };
+    },
     listRewindPoints: async () => {
       // 只列**有效前缀**内的提问：已回退掉的轮次不应再出现在回退点清单里
       const events = effectiveEvents(await loadSessionEvents(jsonlPath));
@@ -533,6 +549,7 @@ ${plan}`);
         onNotice: opts.onNotice,
       }),
     backgroundTasks: () => bashTasks.list().map((t) => ({ ...t })),
+    stopBackgroundTask: (id) => bashTasks.stop(id),
     contextStats: () => loop.contextStats(),
     close: async () => {
       // 退出顺序：先 abort/杀后台，再等当前 run 结算，最后关 MCP。

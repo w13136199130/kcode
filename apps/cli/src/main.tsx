@@ -224,8 +224,10 @@ async function main(): Promise<void> {
     print(`kcode ${process.env["KCODE_VERSION"] ?? "dev"}（${process.platform}-${process.arch}，Node ${process.versions.node}）`);
     return;
   }
+  // P0-0：顶层 `kcode login` 启动即打开登录向导（等价于 TUI 内 /login）
+  const loginRequested = rest[0] === "login";
   // 2-04：解析/帮助先于任何 IO（平台服务、配置、keychain）
-  const args = parseCliArgs(rest);
+  const args = parseCliArgs(loginRequested ? rest.slice(1) : rest);
   if (args.help) {
     print(usageText());
     return;
@@ -310,6 +312,13 @@ async function main(): Promise<void> {
   // 2-01：没有 default 也进 TUI（未配置模式）；headless 需要真实模型，下面单独拦
   const modelRef =
     args.model !== undefined ? resolveModelOverride(models, args.model) : (models.default ?? "");
+  if (args.verbose) {
+    printErr(
+      `[verbose] kcode ${process.env["KCODE_VERSION"] ?? "dev"} · ${process.platform}-${process.arch} · node ${process.versions.node}\n` +
+        `[verbose] cwd=${process.cwd()} settings=${args.settings ?? "~/.kcode/config.json"} model=${modelRef === "" ? "（未配置）" : modelRef}\n` +
+        `[verbose] mode=${args.mode ?? project.mode ?? "default"} output=${args.outputFormat ?? "text"} providers=${Object.keys(models.providers ?? {}).join(",") || "（空）"}`,
+    );
+  }
 
   // 提前预警：配置了需要 key 的 provider 但当前终端没设口令——
   // 单进程直接继承本终端环境，此刻启动必然在会话创建时报 keychain 错
@@ -443,6 +452,7 @@ async function main(): Promise<void> {
       resumeFrom={args.resume}
       initialMode={initialMode}
       disallowedTools={args.disallowedTools}
+      initialLogin={loginRequested}
     />,
     { exitOnCtrlC: false },
   );

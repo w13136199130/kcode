@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Row, TimelineState } from "./projection.js";
 import { RowView } from "./rows.js";
@@ -20,16 +20,26 @@ export function Timeline({
   const stickToBottomRef = useRef(true);
 
   const rows = state.rows;
-  // 工具行用 callId 做 key：replay/续接后按 index 复用会把上一会话的展开态/状态
-  // 带到新行上（React 复用同一位置的组件）。非工具行没有稳定 id，用类型+下标。
-  const rowKey = (row: TimelineState["rows"][number], index: number): string =>
-    row.kind === "tool" ? `tool:${row.callId}` : `${row.kind}:${index}`;
+  // D1-04：非工具行不再用下标——replay/复活/滚动时按内容哈希生成稳定 key，
+  // 重复内容用出现序号消歧；工具行继续用 callId（状态更新不换 key）。
+  const rowKeys = useMemo(() => {
+    const seen = new Map<string, number>();
+    return rows.map((row) => {
+      const base =
+        row.kind === "tool"
+          ? `tool:${row.callId}`
+          : `${row.kind}:${JSON.stringify(row).slice(0, 160)}`;
+      const n = seen.get(base) ?? 0;
+      seen.set(base, n + 1);
+      return `${base}#${n}`;
+    });
+  }, [rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 48,
     overscan: 8,
-    getItemKey: (i) => rowKey(rows[i]!, i),
+    getItemKey: (i) => rowKeys[i] ?? String(i),
   });
 
   // 用户上滚即脱离吸底；回到底部恢复

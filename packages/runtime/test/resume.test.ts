@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionEvent } from "@kcode/contracts";
 import { JsonlSessionSink } from "../src/index.js";
-import { createSessionsTool, listSessions, loadSessionEvents, parseJsonlPrefix, rebuildHistory } from "../src/index.js";
+import {
+  createSessionsTool,
+  deleteSession,
+  listSessions,
+  loadSessionEvents,
+  parseJsonlPrefix,
+  rebuildHistory,
+  renameSession,
+} from "../src/index.js";
 
 let root: string;
 let sessionsDir: string;
@@ -172,6 +180,30 @@ describe("sessions 工具（跨会话读取）", () => {
 
     const missing = await tool.execute({ action: "read", sessionId: "nope" }, { sessionId: "s" });
     expect(missing.ok).toBe(false);
+  });
+});
+
+describe("D1 会话标题/删除", () => {
+  it("rename 写 sidecar 并在 list 中返回；空标题回退 preview；delete 清文件", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kcode-title-"));
+    try {
+      const id = "sess_title";
+      await writeFile(
+        join(dir, `${id}.jsonl`),
+        ev({ v: 1, type: "session_start", ts: 0, sessionId: id, model: "m" }) +
+          ev({ v: 1, type: "user_message", ts: 0, sessionId: id, content: "原始预览" }),
+      );
+      expect((await listSessions(dir))[0]?.title).toBeUndefined();
+      await renameSession(dir, id, "部署排查");
+      expect((await listSessions(dir))[0]?.title).toBe("部署排查");
+      await renameSession(dir, id, "   ");
+      expect((await listSessions(dir))[0]?.title).toBeUndefined();
+      await deleteSession(dir, id);
+      expect(await listSessions(dir)).toEqual([]);
+      await expect(renameSession(dir, "../evil", "x")).rejects.toThrow(/不合法/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

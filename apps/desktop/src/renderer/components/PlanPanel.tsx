@@ -21,7 +21,7 @@ export function PlanPanel(props: {
         <button type="button" className="ask-btn" onClick={() => props.onRespond("revise")}>
           继续研究
         </button>
-        <button type="button" className="ask-btn deny" onClick={() => props.onRespond("abandon")}>
+        <button type="button" className="ask-btn deny" onClick={() => props.onRespond("abandon")} autoFocus>
           放弃
         </button>
       </div>

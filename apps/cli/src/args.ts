@@ -56,6 +56,8 @@ export interface CliArgs {
   /** --interactive：即使带 -p 也进 TUI（默认 -p 恒无头） */
   interactive: boolean;
   disallowedTools?: string[];
+  /** P0-0：--verbose 打印解析后的运行上下文（不改日志级别，仅诊断入口） */
+  verbose: boolean;
 }
 
 /** 2-08：stdin 管道内容作为上下文；`-` 表示整段输入就是 prompt */
@@ -67,8 +69,9 @@ export function mergeStdinPrompt(stdinText: string, prompt: string): string {
 
 export function usageText(): string {
   return [
-    "用法：kcode [提示词] [选项]",
+    "用法：kcode [提示词] [选项] ｜ kcode login",
     "  -h, --help                   显示本帮助并退出",
+    "      login                     启动登录向导（等价于 TUI 内 /login）",
     "  -p, --prompt <text>          单次提问（与位置参数提示词二选一）",
     "  -c, --continue               续接当前工作区最近会话（= --resume latest）",
     "  -r, --resume <会话id|latest>  续接指定会话",
@@ -85,6 +88,7 @@ export function usageText(): string {
     "      --cwd <路径>              以指定目录为工作区启动",
     "      --settings <路径>         用户级配置文件覆盖（缺省 ~/.kcode/config.json）",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
+    "      --verbose                 启动时打印诊断上下文（不改变日志级别）",
     "子命令：kcode init · kcode key add <ref> <audience...> [--key-file <path>]｜list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
   ].join("\n");
 }
@@ -99,7 +103,7 @@ function valueOf(argv: readonly string[], index: number, flag: string): string {
 }
 
 export function parseCliArgs(argv: readonly string[]): CliArgs {
-  const args: CliArgs = { images: [], json: false, help: false, interactive: false, ephemeral: false };
+  const args: CliArgs = { images: [], json: false, help: false, interactive: false, ephemeral: false, verbose: false };
   const words: string[] = [];
   let promptFlag: string | undefined;
   let disallowed: string[] | undefined;
@@ -193,6 +197,9 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         break;
       case "--interactive":
         args.interactive = true;
+        break;
+      case "--verbose":
+        args.verbose = true;
         break;
       case "--disallowed-tools":
       case "--disallowedTools": {

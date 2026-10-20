@@ -39,6 +39,16 @@ export function RowView({
       return <ToolCallRowView row={row} onOpenDiff={onOpenDiff} />;
     case "info":
       return <div className={`row-info tone-${row.tone ?? "plain"}`}>{row.text}</div>;
+    case "todo":
+      return (
+        <div className="row-todo">
+          {row.todos.map((todo, idx) => (
+            <div key={`${idx}-${todo.content}`} className={`row-todo-item status-${todo.status}`}>
+              {todo.status === "completed" ? "☑" : todo.status === "in_progress" ? "◐" : "☐"} {todo.content}
+            </div>
+          ))}
+        </div>
+      );
     case "separator":
       return <div className="row-separator">{row.label}</div>;
   }

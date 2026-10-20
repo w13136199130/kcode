@@ -8,8 +8,8 @@ export interface AskPreview {
   diff: string;
 }
 
-/** 预览 diff 的行数上限：超出截断为提示行，避免刷屏 */
-const MAX_DIFF_LINES = 40;
+/** 预览 diff 的行数上限：桌面可滚动查看；400 行覆盖常规 100 行文件审查，超出仍明确提示 */
+const MAX_DIFF_LINES = 400;
 
 /**
  * 为写/编辑类工具构建变更预览（组合层在推送 ask 前调用）：

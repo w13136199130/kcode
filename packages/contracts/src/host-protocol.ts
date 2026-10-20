@@ -47,6 +47,22 @@ export const PlanRespondParams = z.object({
 });
 export type PlanRespondParams = z.infer<typeof PlanRespondParams>;
 
+/** D1-02：onboarding/设置保存 provider（key 独立经 keychain，不落 config.json） */
+export const ConfigSaveParams = z.object({
+  providerName: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+  provider: z.unknown(), // ProviderConfig；server 侧用 contracts 的 union 再校验
+  model: z.string().min(1),
+  key: z
+    .object({
+      ref: z.string().regex(/^keychain:\/\/[a-z0-9-]+$/),
+      key: z.string().min(1),
+      audiences: z.array(z.string().url()).min(1),
+      passphrase: z.string().optional(),
+    })
+    .optional(),
+});
+export type ConfigSaveParams = z.infer<typeof ConfigSaveParams>;
+
 export const HostMethod =
   z.string().regex(/^[a-z/][a-z0-9/_-]*$/);
 export type HostMethod = z.infer<typeof HostMethod>;
@@ -91,6 +107,12 @@ export const HostEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready"), hostId: z.string().min(1), pid: z.number().int().positive() }),
   z.object({ type: z.literal("session/created"), sessionId: z.string().min(1), epoch: z.number().int().nonnegative() }),
   z.object({ type: z.literal("session/event"), event: z.unknown() }),
+  /** D2-04：host 生成的写/编辑真实 preview（与 ask/request 同源；工具卡也可用） */
+  z.object({
+    type: z.literal("tool/preview"),
+    callId: z.string().min(1),
+    preview: z.object({ path: z.string().optional(), diff: z.string() }),
+  }),
   z.object({ type: z.literal("session/summary"), summary: RunSummaryShape }),
   z.object({ type: z.literal("delta"), text: z.string() }),
   z.object({ type: z.literal("reasoning"), text: z.string() }),
