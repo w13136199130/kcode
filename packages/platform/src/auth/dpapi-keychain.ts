@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "./atomic-write.js";
 import type { KeychainEntry } from "@kcode/contracts";
 import type { KeychainStore } from "./types.js";
 
@@ -70,8 +70,7 @@ export class DpapiKeychain implements KeychainStore {
     for (const [ref, row] of map) {
       entries[ref] = { blob: row.blob };
     }
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify({ v: 1, entries }, null, 2)}\n`, "utf8");
+    await writeFileAtomic(this.filePath, `${JSON.stringify({ v: 1, entries }, null, 2)}\n`);
     this.#cache = map;
   }
 }

@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from "node:path";
 import fg from "fast-glob";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
+import { isSensitivePath } from "@kcode/shared";
 
 const DEFAULT_LIMIT = 500;
 
@@ -48,6 +49,12 @@ export const globTool: Tool = {
       });
     } catch (err) {
       return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
+    }
+    // 2-14：broad glob 不把敏感路径列给模型；显式指定敏感 pattern/path 时
+    // 权限层已负责 ask/deny，保留结果以免“批准后仍看不到”。
+    const explicitSensitive = isSensitivePath(pattern) || (path !== undefined && isSensitivePath(path));
+    if (!explicitSensitive) {
+      files = files.filter((file) => !isSensitivePath(file));
     }
     files.sort();
     const max = limit ?? DEFAULT_LIMIT;

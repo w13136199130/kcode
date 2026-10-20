@@ -19,11 +19,13 @@ import {
   FsSkillLibrary,
   ModePermissionEngine,
   MutablePermissionEngine,
+  SensitivePathPermissionEngine,
   ProcessHookRunner,
   ProjectGrantStore,
   grantSubject,
   suggestGrant,
   buildExtensionRoots,
+  isProjectTrusted,
   loadHookConfigs,
 } from "@kcode/extensions";
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
@@ -160,7 +162,10 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
       await sink.append(event);
     },
   };
-  const permissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
+  // 2-14：敏感路径保护在会话级放行之外——grant 不能把 .env/.ssh 放行打穿
+  let sessionMode: PermissionMode = "default";
+  const mutablePermissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
+  const permissions = new SensitivePathPermissionEngine(mutablePermissions, () => sessionMode);
   // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
   const grantStore = ProjectGrantStore.open(join(opts.kcodeHomeDir, "permissions.json"), opts.cwd);
   const persistentGrants = await grantStore.list();
@@ -183,7 +188,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
             }
             const answer = normalizePermissionAnswer(await baseAsker.confirm(call));
             if (answer.allowed && answer.scope === "session") {
-              permissions.grant(call.tool);
+              mutablePermissions.grant(call.tool);
             }
             if (answer.allowed && answer.scope === "project") {
               // 参数级建议规则（bash 子命令前缀 / edit·write 目录前缀）；无建议回落整工具名
@@ -195,10 +200,17 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir);
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
   const shell = await currentShellInfo();
+  // 2-17：项目扩展（skills/agents/commands）与 hooks 共用同一 trust 门控
+  const projectTrusted = await isProjectTrusted(
+    opts.cwd,
+    join(opts.kcodeHomeDir, "trusted-projects.json"),
+  );
   // B1 子代理定义：project > user，同名先见者胜；保留名不可覆盖
   const agents = await AgentLibrary.open(
     [
-      { dir: join(opts.cwd, ".kcode", "agents"), source: "project" as const },
+      ...(projectTrusted
+        ? [{ dir: join(opts.cwd, ".kcode", "agents"), source: "project" as const }]
+        : []),
       { dir: join(opts.kcodeHomeDir, "agents"), source: "user" as const },
     ],
     opts.onNotice,
@@ -223,8 +235,14 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const extensionRoots = await buildExtensionRoots({
     cwd: opts.cwd,
     kcodeHomeDir: opts.kcodeHomeDir,
+    trusted: projectTrusted,
     onWarn: opts.onNotice,
   });
+  if (!projectTrusted) {
+    opts.onNotice?.(
+      "项目未被信任：.kcode/skills、.kcode/agents、.kcode/commands 未装载（输入 /trust 信任本项目后新会话生效）",
+    );
+  }
   const plugins = extensionRoots.plugins;
 
   const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
@@ -257,7 +275,6 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   // 父会话当前模型（setModel 后更新；task 子代理默认沿用）
   let currentModel = opts.model;
   // 权限模式与切换（plan_submit 批准后也要切回 default——先用占位，loop 创建后赋真身）
-  let sessionMode: PermissionMode = "default";
   let applyMode: (mode: PermissionMode) => void = () => {};
   // B1 子代理：会话工具全集先成数组（task 不在其中——子代理不嵌套派生），再挂 task 工具
   // 后台任务注册表在会话级创建并注入 bash 工具（N3C-4③）：句柄/面板与工具共享同一份事实
@@ -299,7 +316,10 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     baseTools: subagentBaseTools,
     hooks,
     // 只读子代理走 plan 档语义（声明驱动的只读放行面）；其余同默认档
-    permissionFor: (kind) => new ModePermissionEngine(kind === "readonly" ? "plan" : "default"),
+    permissionFor: (kind) => {
+      const mode = kind === "readonly" ? "plan" : "default";
+      return new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode);
+    },
     asker,
     agents,
     envBlock: `<env>
@@ -410,10 +430,10 @@ ${plan}`);
   applyMode = (mode: PermissionMode) => {
     // 切入 plan 档清空会话级放行：只读姿态不被历史放行打穿
     if (mode === "plan") {
-      permissions.clearGrants();
+      mutablePermissions.clearGrants();
     }
     sessionMode = mode;
-    permissions.set(new ModePermissionEngine(mode));
+    mutablePermissions.set(new ModePermissionEngine(mode));
     loop.updateSystemPrompt(basePrompt + (mode === "plan" ? PLAN_MODE_SUFFIX : ""));
   };
   // 初始权限档（--mode）：走与运行中切换完全相同的路径，杜绝"开局档位语义不同"的分叉

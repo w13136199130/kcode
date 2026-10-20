@@ -1,3 +1,5 @@
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
 
@@ -14,6 +16,8 @@ export interface WebToolOptions {
   fetch?: typeof globalThis.fetch;
   /** 搜索后端来源 env（测试注入；默认 process.env） */
   env?: NodeJS.ProcessEnv;
+  /** DNS 解析（测试注入；默认 node:dns） */
+  lookup?: LookupFn;
 }
 
 const FetchArgs = z.object({
@@ -27,24 +31,66 @@ const SearchArgs = z.object({
   maxResults: z.number().int().positive().max(8).optional(),
 });
 
-/**
- * 内网地址字面量防护（SSRF 第一层；DNS rebinding 不在 v1 范围）：
- * 拒绝 localhost / 回环 / 链路本地 / RFC1918 私网 / 元数据端点。
- */
+type LookupAddress = { address: string; family: number };
+type LookupFn = (hostname: string) => Promise<LookupAddress[]>;
+
+/** 内网/保留地址判定（字面量 + DNS 解析后都复用这一份） */
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const a = parts[0]!;
+  const b = parts[1]!;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 192 && b === 0 && (parts[2] === 0 || parts[2] === 2)) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a >= 224) return true; // multicast + reserved
+  return false;
+}
+
+function isPrivateIpv6(raw: string): boolean {
+  const ip = raw.toLowerCase();
+  if (ip === "::" || ip === "::1") return true;
+  // IPv4-mapped：::ffff:127.0.0.1
+  if (ip.startsWith("::ffff:")) return isPrivateIpv4(ip.slice("::ffff:".length));
+  // link-local fe80::/10
+  if (/^fe[89ab][0-9a-f]:/.test(ip)) return true;
+  // unique local fc00::/7
+  if (/^f[cd][0-9a-f]{0,2}:/.test(ip)) return true;
+  return false;
+}
+
+/** 字面量/域名粗检；IP 一律走精确判定，域名再做 DNS 后的 IP 校验 */
 function isPrivateHost(hostname: string): boolean {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return (
-    h === "localhost" ||
-    h === "::1" ||
-    h.endsWith(".localhost") ||
-    /^127\./.test(h) ||
-    /^0\./.test(h) ||
-    /^10\./.test(h) ||
-    /^192\.168\./.test(h) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    /^169\.254\./.test(h) ||
-    h === "metadata.google.internal"
-  );
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) {
+    return true;
+  }
+  const family = isIP(h);
+  if (family === 4) return isPrivateIpv4(h);
+  if (family === 6) return isPrivateIpv6(h);
+  return false;
+}
+
+/** 2-15：每个跳转都解析并校验全部 A/AAAA，任一私网即拒绝（fail-closed） */
+async function assertPublicHost(hostname: string, lookup: LookupFn): Promise<void> {
+  const h = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (isPrivateHost(h)) {
+    throw new Error(`拒绝访问内网/本机地址（SSRF 防护）: ${hostname}`);
+  }
+  if (isIP(h) !== 0) return;
+  const addresses = await lookup(h);
+  if (addresses.length === 0) {
+    throw new Error(`域名无法解析（SSRF 防护 fail-closed）: ${hostname}`);
+  }
+  for (const { address } of addresses) {
+    if (isPrivateHost(address)) {
+      throw new Error(`域名解析到内网地址（SSRF 防护）: ${hostname} → ${address}`);
+    }
+  }
 }
 
 async function readCapped(response: Response): Promise<{ buf: Buffer; truncated: boolean }> {
@@ -91,21 +137,68 @@ function decodeBody(buf: Buffer, contentType: string): string {
   return text;
 }
 
+const defaultLookup: LookupFn = async (hostname) => {
+  const entries = await dnsLookup(hostname, { all: true });
+  return entries.map((e) => ({ address: e.address, family: e.family }));
+};
+
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+/** 2-15：web_fetch 专用——manual 重定向逐跳复检，禁止 302 → 127.0.0.1 */
+async function fetchWithRedirectGuard(
+  doFetch: typeof globalThis.fetch,
+  rawUrl: string,
+  lookup: LookupFn,
+): Promise<{ response: Response; finalUrl: string }> {
+  let current: URL;
+  try {
+    current = new URL(rawUrl);
+  } catch {
+    throw new Error(`URL 不合法: ${rawUrl}`);
+  }
+  for (let hop = 0; hop <= 5; hop++) {
+    if (current.protocol !== "http:" && current.protocol !== "https:") {
+      throw new Error("仅支持 http/https");
+    }
+    await assertPublicHost(current.hostname, lookup);
+    const response = await doFetch(current.toString(), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { "user-agent": BROWSER_UA, accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5" },
+    });
+    if (REDIRECT_STATUS.has(response.status)) {
+      const location = response.headers.get("location");
+      if (location !== null) {
+        await response.body?.cancel();
+        current = new URL(location, current);
+        continue;
+      }
+    }
+    return { response, finalUrl: current.toString() };
+  }
+  throw new Error("重定向次数过多（>5）");
+}
+
 async function fetchText(
   doFetch: typeof globalThis.fetch,
   url: string,
+  opts: { safe?: boolean; lookup?: LookupFn } = {},
 ): Promise<{ text: string; contentType: string; finalUrl: string; status: number; truncated: boolean }> {
-  const response = await doFetch(url, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    headers: { "user-agent": BROWSER_UA, accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5" },
-  });
+  const safeResult =
+    opts.safe === true ? await fetchWithRedirectGuard(doFetch, url, opts.lookup ?? defaultLookup) : null;
+  const response =
+    safeResult?.response ??
+    (await doFetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { "user-agent": BROWSER_UA, accept: "text/html,application/xhtml+xml,text/plain,application/json;q=0.9,*/*;q=0.5" },
+    }));
   const { buf, truncated } = await readCapped(response);
   const contentType = response.headers.get("content-type") ?? "text/plain";
   return {
     text: decodeBody(buf, contentType),
     contentType,
-    finalUrl: response.url || url,
+    finalUrl: safeResult?.finalUrl ?? (response.url || url),
     status: response.status,
     truncated,
   };
@@ -139,7 +232,7 @@ async function htmlToReadable(html: string): Promise<string> {
 }
 
 /** web_fetch：抓取 URL 并转可读文本（HTML→文本，JSON/纯文本原样，GBK 自动解码） */
-export function webFetchTool(doFetch: typeof globalThis.fetch): Tool {
+export function webFetchTool(doFetch: typeof globalThis.fetch, lookup: LookupFn = defaultLookup): Tool {
   return {
     definition: {
       name: "web_fetch",
@@ -176,7 +269,7 @@ export function webFetchTool(doFetch: typeof globalThis.fetch): Tool {
         return { ok: false, output: "", error: `拒绝访问内网/本机地址（SSRF 防护）: ${target.hostname}` };
       }
       try {
-        const r = await fetchText(doFetch, target.toString());
+        const r = await fetchText(doFetch, target.toString(), { safe: true, lookup });
         if (r.status >= 400) {
           return { ok: false, output: "", error: `HTTP ${r.status}（${target.toString().slice(0, 120)}）` };
         }
@@ -348,7 +441,7 @@ interface HtmlNode {
 export function createWebTools(opts: WebToolOptions = {}): Tool[] {
   const doFetch = opts.fetch ?? globalThis.fetch;
   const backend = resolveSearchBackend(opts.env ?? process.env);
-  const tools: Tool[] = [webFetchTool(doFetch)];
+  const tools: Tool[] = [webFetchTool(doFetch, opts.lookup ?? defaultLookup)];
   if (backend.kind !== "none") {
     tools.push(webSearchTool(doFetch, backend));
   }

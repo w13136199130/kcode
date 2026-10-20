@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { trustProject } from "@kcode/extensions";
 import { commandsListCommand, skillsListCommand } from "../src/inspect.js";
 
 let cwd: string;
@@ -26,13 +27,20 @@ afterAll(async () => {
 });
 
 describe("kcode skills/commands list（N3C-3）", () => {
-  it("盘点项目级技能并标注来源", async () => {
-    const lines: string[] = [];
-    await skillsListCommand(cwd, home, (l) => lines.push(l));
-    expect(lines).toEqual(["deploy — 部署指南技能（项目）"]);
+  it("2-17 未信任只列不装载；/trust 后标注项目来源", async () => {
+    const trustFile = join(home, "trusted-projects.json");
+    const before: string[] = [];
+    await skillsListCommand(cwd, home, (l) => before.push(l));
+    expect(before).toEqual(["deploy — 部署指南技能（项目，未信任：/trust 后装载）"]);
+
+    await trustProject(cwd, trustFile);
+    const after: string[] = [];
+    await skillsListCommand(cwd, home, (l) => after.push(l));
+    expect(after).toEqual(["deploy — 部署指南技能（项目）"]);
   });
 
   it("盘点项目级命令", async () => {
+    await trustProject(cwd, join(home, "trusted-projects.json"));
     const lines: string[] = [];
     await commandsListCommand(cwd, home, (l) => lines.push(l));
     expect(lines).toEqual(["/build（项目）"]);

@@ -1,4 +1,5 @@
 import { appendFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { render } from "ink";
 import { existsSync } from "node:fs";
@@ -62,7 +63,7 @@ async function readStdinText(): Promise<string> {
 
 /** key 录入子命令：直接操作本地加密文件（平台能力经 IPlatformService 注入，N2-1） */
 async function keyCommand(platform: IPlatformService, args: string[]): Promise<void> {
-  const [op, ref, key, ...audiences] = args;
+  const [op, ref, ...rest] = args;
   // 环境无口令时交互式询问（set 只对当前窗口生效，新开窗口常见此况）
   const legacyKeysFile = join(kcodeHome(), "keys.json");
   const dpapiEligible = platform.secureStorageAvailable && !existsSync(legacyKeysFile);
@@ -73,9 +74,42 @@ async function keyCommand(platform: IPlatformService, args: string[]): Promise<v
     }
   }
   const keychain = platform.openDefaultKeychain();
-  if (op === "add" && ref !== undefined && key !== undefined && audiences.length > 0) {
-    await keychain.set(ref, key, audiences);
-    print(`已录入 ${ref}（受众：${audiences.join(", ")}）`);
+  if (op === "add") {
+    if (ref === undefined) {
+      throw new UsageError("用法：kcode key add <ref> <audience...> [--key-file <path>]");
+    }
+    // 2-18：key 不接受位置参数（会进 shell 历史/进程列表）；只允许隐藏输入或 --key-file
+    let keyFile: string | undefined;
+    const positional: string[] = [];
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "--key-file") {
+        const value = rest[i + 1];
+        if (value === undefined || value === "") {
+          throw new UsageError("--key-file 需要一个文件路径");
+        }
+        keyFile = value;
+        i += 1;
+      } else {
+        positional.push(rest[i]!);
+      }
+    }
+    if (positional.length === 0) {
+      throw new UsageError("用法：kcode key add <ref> <audience...> [--key-file <path>]");
+    }
+    if (positional.some((a) => !/^https?:\/\//i.test(a))) {
+      throw new UsageError(
+        "检测到疑似把 API key 放在命令行：请改用隐藏输入，或 --key-file <path>；受众应为 http(s) URL",
+      );
+    }
+    const key =
+      keyFile !== undefined
+        ? (await readFile(keyFile, "utf8")).trim()
+        : (await promptHidden("请输入 API key（不回显，回车确认）：")).trim();
+    if (key === "") {
+      throw new UsageError("未读取到 API key（非 TTY 请使用 --key-file <path>）");
+    }
+    await keychain.set(ref, key, positional);
+    print(`已录入 ${ref}（受众：${positional.join(", ")}）`);
     return;
   }
   if (op === "list") {
@@ -85,7 +119,7 @@ async function keyCommand(platform: IPlatformService, args: string[]): Promise<v
     }
     return;
   }
-  throw new Error("用法：kcode key add <ref> <key> <audience...> ｜ kcode key list");
+  throw new UsageError("用法：kcode key add <ref> <audience...> [--key-file <path>] ｜ kcode key list");
 }
 
 /** 插件管理子命令：install/list/remove/enable/disable（本地目录安装，市场在后续版本接入） */
@@ -306,7 +340,7 @@ async function main(): Promise<void> {
           "口令三次校验失败。若忘记原口令，重置方法（注意：会清除已录的 key，需要重新录入）：\n" +
             '  1) set KCODE_KEYCHAIN_PASSPHRASE=新口令\n' +
             "  2) del \"%USERPROFILE%\\.kcode\\keys.json\"\n" +
-            "  3) kcode key add keychain://glm <你的API key> https://open.bigmodel.cn/api/paas/v4（任意目录可执行）",
+            "  3) kcode key add keychain://glm https://open.bigmodel.cn/api/paas/v4（隐藏输入 API key，任意目录可执行）",
         );
         process.exit(1);
       }

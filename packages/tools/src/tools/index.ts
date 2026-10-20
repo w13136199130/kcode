@@ -16,7 +16,7 @@ export { globTool } from "./glob.js";
 export { grepTool } from "./grep.js";
 export { writeTool } from "./write.js";
 export { editTool } from "./edit.js";
-export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, extractShellSnapshot, msysPathToWin32 } from "./bash.js";
+export { createBashTool, BackgroundTaskRegistry, type BashToolOptions, type BackgroundTask, currentShellInfo, extractShellSnapshot, msysPathToWin32, sanitizeBashEnv } from "./bash.js";
 export { detectWindowsBash, pickBashCandidates } from "./shell-detect.js";
 export { OutputCollector, DEFAULT_OUTPUT_LIMITS, type OutputLimits } from "./output-collector.js";
 export { createTaskTools } from "./task-tools.js";

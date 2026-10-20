@@ -4,8 +4,8 @@ import {
   pbkdf2Sync,
   randomBytes,
 } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writeFileAtomic } from "./atomic-write.js";
 import type { KeychainEntry } from "@kcode/contracts";
 import { homedir, platform, userInfo } from "node:os";
 import { DpapiKeychain } from "./dpapi-keychain.js";
@@ -114,8 +114,10 @@ export class EncryptedFileKeychain implements KeychainStore {
   }
 
   async #flush(map: Map<string, KeychainEntry>): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, encrypt(JSON.stringify([...map.values()]), this.passphrase), "utf8");
+    await writeFileAtomic(
+      this.filePath,
+      encrypt(JSON.stringify([...map.values()]), this.passphrase),
+    );
     this.#cache = map;
   }
 }

@@ -65,17 +65,24 @@ export class ToolPipeline {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async run(tool: Tool, args: unknown, callId: string, signal?: AbortSignal): Promise<ToolOutput> {
+  /**
+   * 权限裁决 + ask 交互（2-16 抽出复用：原始参数与 hook mutate 后的最终参数各判一次）。
+   * 返回 null = 放行；返回 ToolOutput = 拒绝/中断，调用方直接返回。
+   */
+  private async authorize(
+    tool: Tool,
+    args: unknown,
+    callId: string,
+    signal?: AbortSignal,
+    detailSuffix = "",
+  ): Promise<ToolOutput | null> {
     const name = tool.definition.name;
-    const cancelled = (): ToolOutput => {
+    const decision = await this.permissions.decide(tool.definition, args);
+    if (signal?.aborted) {
       this.audit({ ts: this.now(), sessionId: this.sessionId, callId, tool: name,
         decision: "error", detail: "aborted before execution" });
       return { ok: false, output: "", error: "aborted before execution" };
-    };
-    if (signal?.aborted) return cancelled();
-
-    const decision = await this.permissions.decide(tool.definition, args);
-    if (signal?.aborted) return cancelled();
+    }
     if (decision === "deny") {
       this.audit({
         ts: this.now(),
@@ -83,6 +90,7 @@ export class ToolPipeline {
         callId,
         tool: name,
         decision: "deny",
+        ...(detailSuffix !== "" ? { detail: detailSuffix } : {}),
       });
       return { ok: false, output: "", error: "permission denied (deny)" };
     }
@@ -92,6 +100,11 @@ export class ToolPipeline {
         this.asker !== undefined
           ? normalizePermissionAnswer(await this.asker.confirm({ callId, tool: name, args }))
           : { allowed: false };
+      const detail = this.asker === undefined
+        ? "no asker → downgraded to deny"
+        : answer.allowed
+          ? `user allowed${answer.scope === "session" ? " (session)" : ""}`
+          : "user denied";
       this.audit({
         ts: this.now(),
         sessionId: this.sessionId,
@@ -99,19 +112,29 @@ export class ToolPipeline {
         tool: name,
         decision: answer.allowed ? "ask-allowed" : "ask-denied",
         ...(answer.scope !== undefined ? { scope: answer.scope } : {}),
-        detail:
-          this.asker === undefined
-            ? "no asker → downgraded to deny"
-            : answer.allowed
-              ? `user allowed${answer.scope === "session" ? " (session)" : ""}`
-              : "user denied",
+        detail: detailSuffix === "" ? detail : `${detail} ${detailSuffix}`,
       });
       if (!answer.allowed) {
         return { ok: false, output: "", error: "permission denied (ask)" };
       }
     }
+    return null;
+  }
+
+  async run(tool: Tool, args: unknown, callId: string, signal?: AbortSignal): Promise<ToolOutput> {
+    const name = tool.definition.name;
+    const cancelled = (): ToolOutput => {
+      this.audit({ ts: this.now(), sessionId: this.sessionId, callId, tool: name,
+        decision: "error", detail: "aborted before execution" });
+      return { ok: false, output: "", error: "aborted before execution" };
+    };
+    if (signal?.aborted) return cancelled();
+
+    const blocked = await this.authorize(tool, args, callId, signal);
+    if (blocked !== null) return blocked;
 
     if (signal?.aborted) return cancelled();
+    const beforeHook = JSON.stringify(args);
     const pre = await this.hooks.preToolUse({ callId, tool: name, args });
     if (signal?.aborted) return cancelled();
     if (pre.veto) {
@@ -131,6 +154,18 @@ export class ToolPipeline {
     }
 
     const effectiveArgs = pre.args ?? args;
+    // 2-16：hook 改参后必须按最终参数重新判权。原判权看的是 hook 之前的 args；
+    // 不复判时 `ls` 可被改成 `rm -rf`，或 read 的路径被改成 .env。
+    if (pre.args !== undefined && JSON.stringify(effectiveArgs) !== beforeHook) {
+      const reblocked = await this.authorize(
+        tool,
+        effectiveArgs,
+        callId,
+        signal,
+        "after pre_tool_use mutate",
+      );
+      if (reblocked !== null) return reblocked;
+    }
     let result: ToolOutput;
     try {
       const exec = tool.execute(effectiveArgs, {

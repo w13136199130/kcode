@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ScriptedLLM, type ScriptedTurn } from "@kcode/core";
 import type { SessionEvent } from "@kcode/contracts";
+import { trustProject } from "@kcode/extensions";
 import { composeSession } from "../src/composition.js";
 
 let home: string;
@@ -99,6 +100,8 @@ describe("task 工具（B1 子代理）", () => {
       "utf8",
     );
     try {
+      // 2-17：项目 agents 需 /trust 才装载
+      await trustProject(ws2, join(home, "trusted-projects.json"));
       const { events, llms } = await runWithScripts(
         [
           [{ toolCalls: [taskCall("finder", "找到 a.md 的标题")] }, { text: "完成" }],

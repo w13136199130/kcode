@@ -9,6 +9,7 @@ import {
   extractShellSnapshot,
   msysPathToWin32,
   pickBashCandidates,
+  sanitizeBashEnv,
 } from "../src/index.js";
 
 let root: string;
@@ -226,6 +227,29 @@ describe("bash 工作目录持久（会话级 cd 跨调用保留）", () => {
     expect(re.error).toContain("exit code 3");
     const after = await bash.execute({ command: "pwd" }, ctx());
     expect(after.output).toContain("exit-sub");
+  });
+});
+
+describe("2-13 bash env 清洗", () => {
+  it("剥离 keychain 口令与常见 secret；保留 PATH/SSH_AUTH_SOCK", () => {
+    const env = sanitizeBashEnv({
+      PATH: "C:/bin",
+      SSH_AUTH_SOCK: "/tmp/agent.sock",
+      KCODE_KEYCHAIN_PASSPHRASE: "secret",
+      OPENAI_API_KEY: "sk-xxx",
+      GITHUB_TOKEN: "ghp_xxx",
+      AWS_SECRET_ACCESS_KEY: "aws",
+      DB_PASSWORD: "pw",
+      NORMAL_SETTING: "ok",
+    });
+    expect(env.PATH).toBe("C:/bin");
+    expect(env.SSH_AUTH_SOCK).toBe("/tmp/agent.sock");
+    expect(env.NORMAL_SETTING).toBe("ok");
+    expect(env.KCODE_KEYCHAIN_PASSPHRASE).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(env.DB_PASSWORD).toBeUndefined();
   });
 });
 

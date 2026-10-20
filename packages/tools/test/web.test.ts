@@ -11,6 +11,10 @@ function htmlResponse(html: string, headers: Record<string, string> = {}): Respo
   });
 }
 
+const publicLookup = async (): Promise<Array<{ address: string; family: number }>> => [
+  { address: "93.184.216.34", family: 4 },
+];
+
 const withFetch =
   (handler: (url: string) => Response): typeof fetch =>
   async (input: unknown) =>
@@ -21,11 +25,13 @@ const webFetch = webTools[0]!;
 const webSearch = webTools[1]!;
 
 function makeTools(fetchMock: typeof fetch): Tool[] {
-  return createWebTools({ fetch: fetchMock });
+  return createWebTools({ fetch: fetchMock, lookup: publicLookup });
 }
 
-const makeToolsIdx0 = (fetchMock: typeof fetch): Tool => createWebTools({ fetch: fetchMock })[0]!;
-const makeToolsIdx1 = (fetchMock: typeof fetch): Tool => createWebTools({ fetch: fetchMock })[1]!;
+const makeToolsIdx0 = (fetchMock: typeof fetch): Tool =>
+  createWebTools({ fetch: fetchMock, lookup: publicLookup })[0]!;
+const makeToolsIdx1 = (fetchMock: typeof fetch): Tool =>
+  createWebTools({ fetch: fetchMock, lookup: publicLookup })[1]!;
 void webFetch;
 void webSearch;
 
@@ -52,10 +58,13 @@ describe("web_fetch", () => {
         if (url.includes("/api")) {
           return new Response('{"ok":true}', { status: 200, headers: { "content-type": "application/json" } });
         }
-        // 模拟 fetch 跟随重定向后的最终响应（url 属性不可构造，只能 shadow）
-        const r = new Response("moved", { status: 200, headers: { "content-type": "text/plain" } });
-        Object.defineProperty(r, "url", { value: "https://final.example.com/x" });
-        return r;
+        if (url.includes("/redir")) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://final.example.com/x" },
+          });
+        }
+        return new Response("moved", { status: 200, headers: { "content-type": "text/plain" } });
       }),
     );
     const json = await fetchTool.execute({ url: "https://example.com/api" }, ctx());
@@ -77,6 +86,40 @@ describe("web_fetch", () => {
     const localhost = await fetchTool.execute({ url: "http://localhost:8080/x" }, ctx());
     expect(localhost.ok).toBe(false);
     expect(localhost.error).toContain("SSRF");
+  });
+
+  it("2-15 逐跳 SSRF：302 到 127.0.0.1、DNS 私网、整数 IPv4、IPv6 ULA 均拒绝", async () => {
+    let calls = 0;
+    const redirectTool = makeToolsIdx0(
+      withFetch((url) => {
+        calls += 1;
+        if (url.includes("public.example")) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: "http://127.0.0.1/secret" },
+          });
+        }
+        return new Response("should-not-fetch", { status: 200 });
+      }),
+    );
+    const redirected = await redirectTool.execute({ url: "https://public.example/x" }, ctx());
+    expect(redirected.ok).toBe(false);
+    expect(redirected.error).toContain("SSRF");
+    expect(calls).toBe(1); // 第二跳在发请求前就被拦
+
+    const privateDns = createWebTools({
+      fetch: withFetch(() => new Response("nope", { status: 200 })),
+      lookup: async () => [{ address: "10.0.0.7", family: 4 }],
+    })[0]!;
+    const dnsBlocked = await privateDns.execute({ url: "https://evil.example/x" }, ctx());
+    expect(dnsBlocked.ok).toBe(false);
+    expect(dnsBlocked.error).toContain("解析到内网");
+
+    for (const url of ["http://2130706433/", "http://[fd00::1]/", "http://[::1]/"]) {
+      const blocked = await makeToolsIdx0(withFetch(() => new Response("nope"))).execute({ url }, ctx());
+      expect(blocked.ok).toBe(false);
+      expect(blocked.error).toContain("SSRF");
+    }
   });
 
   it("HTTP 错误与网络失败明确报错", async () => {

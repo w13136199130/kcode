@@ -16,16 +16,26 @@ export interface ExtensionRoots {
   plugins: InstalledPlugin[];
   /** 停用清单原始条目（plugin list 显示 [已停用] 标注用） */
   disabledIds: string[];
+  /** 项目是否已 /trust；false 时 project 根只出现在 untrusted*，不参与会话装载 */
+  trusted: boolean;
   skillRoots: SkillSource[];
   commandRoots: CommandSource[];
+  /** 未信任项目的根：CLI 盘点可展示“已发现但未装载” */
+  untrustedSkillRoots: SkillSource[];
+  untrustedCommandRoots: CommandSource[];
 }
 
 export async function buildExtensionRoots(opts: {
   cwd: string;
   kcodeHomeDir: string;
+  /** 项目是否已 /trust（2-17）；缺省 true 保持既有测试/调用语义，会话组装必须显式传 */
+  trusted?: boolean;
   /** 完整性校验失败等装载期告警的出口（会话组装传 onNotice，CLI 传打印） */
   onWarn?: (message: string) => void;
 }): Promise<ExtensionRoots> {
+  const trusted = opts.trusted ?? true;
+  const projectSkill: SkillSource = { dir: join(opts.cwd, ".kcode", "skills"), source: "project" };
+  const projectCommand: CommandSource = { dir: join(opts.cwd, ".kcode", "commands"), source: "project" };
   const pluginsDir = join(opts.kcodeHomeDir, "cli", "plugins");
   const disabled = await readDisabledPlugins(pluginsDir);
   const enabled = filterEnabledPlugins(await listInstalledPlugins(join(pluginsDir, "cache")), disabled);
@@ -43,16 +53,19 @@ export async function buildExtensionRoots(opts: {
   return {
     plugins,
     disabledIds: disabled,
+    trusted,
     skillRoots: [
-      { dir: join(opts.cwd, ".kcode", "skills"), source: "project" },
+      ...(trusted ? [projectSkill] : []),
       { dir: join(opts.kcodeHomeDir, "skills"), source: "user" },
       ...plugins.map((p) => ({ dir: join(p.installPath, "skills"), source: "plugin" as const })),
     ],
     // 插件命令沿用既有语义：以 project 身份装载（项目同名命令仍可覆盖它）
     commandRoots: [
-      { dir: join(opts.cwd, ".kcode", "commands"), source: "project" },
+      ...(trusted ? [projectCommand] : []),
       { dir: join(opts.kcodeHomeDir, "commands"), source: "user" },
       ...plugins.map((p) => ({ dir: join(p.installPath, "commands"), source: "project" as const })),
     ],
+    untrustedSkillRoots: trusted ? [] : [projectSkill],
+    untrustedCommandRoots: trusted ? [] : [projectCommand],
   };
 }

@@ -11,6 +11,7 @@ import {
   ModePermissionEngine,
   MutablePermissionEngine,
   RuleBasedPermissionEngine,
+  SensitivePathPermissionEngine,
   matchTool,
 } from "../src/index.js";
 
@@ -119,6 +120,24 @@ describe("MutablePermissionEngine（计划模式切换，§1.1 A 域）", () => 
     engine.set(new ModePermissionEngine("plan"));
     engine.clearGrants();
     expect(await engine.decide(BASH, {})).toBe("deny");
+  });
+});
+
+describe("2-14 敏感路径装饰器", () => {
+  it("default ask / plan deny / fullAccess allow；普通路径透传", async () => {
+    const readTool = def("read", { default: "allow" }, true);
+    let mode: "plan" | "default" | "fullAccess" = "default";
+    const guard = new SensitivePathPermissionEngine(
+      new MutablePermissionEngine(new ModePermissionEngine("default")),
+      () => mode,
+    );
+    expect(await guard.decide(readTool, { path: ".env" })).toBe("ask");
+    mode = "plan";
+    expect(await guard.decide(readTool, { path: ".ssh/id_rsa" })).toBe("deny");
+    mode = "fullAccess";
+    expect(await guard.decide(readTool, { path: ".env" })).toBe("allow");
+    mode = "default";
+    expect(await guard.decide(readTool, { path: "src/index.ts" })).toBe("allow");
   });
 });
 

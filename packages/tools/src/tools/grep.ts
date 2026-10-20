@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from "node:path";
 import { rgPath } from "@vscode/ripgrep";
 import { z } from "zod";
 import type { Tool } from "@kcode/contracts";
+import { isSensitivePath } from "@kcode/shared";
 
 const DEFAULT_MAX_RESULTS = 200;
 /** 工具侧内存/回显护栏；发给模型的 token 预算由 definition.resultBudget 在 loop 层裁 */
@@ -73,7 +74,23 @@ export const grepTool: Tool = {
       if (stdout.trim() === "") {
         return { ok: true, output: "（无匹配）" };
       }
-      let out = stdout.trimEnd();
+      // 2-14：broad grep 不把 .env/.ssh 等命中行交给模型；显式指定敏感路径时
+      // 权限层已负责 ask/deny，这里保留结果以免“批准后仍看不到内容”。
+      const explicitSensitive =
+        (path !== undefined && isSensitivePath(path)) || (glob !== undefined && isSensitivePath(glob));
+      let out = explicitSensitive
+        ? stdout.trimEnd()
+        : stdout
+            .trimEnd()
+            .split("\n")
+            .filter((line) => {
+              const match = /^(.*?):\d+:/.exec(line);
+              return !isSensitivePath(match?.[1] ?? line);
+            })
+            .join("\n");
+      if (out === "") {
+        return { ok: true, output: "（无匹配）" };
+      }
       if (out.length > MAX_OUTPUT_CHARS) {
         out = `${out.slice(0, MAX_OUTPUT_CHARS)}\n（截断：输出超过 ${MAX_OUTPUT_CHARS} 字符）`;
       }

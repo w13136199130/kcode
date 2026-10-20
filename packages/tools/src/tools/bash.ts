@@ -101,6 +101,22 @@ export class BackgroundTaskRegistry {
 }
 
 /**
+ * 2-13：bash 子进程 env 清洗。
+ * 模型可让 bash 执行 `env`/`echo $VAR`，因此 keychain 口令与常见 API secret
+ * 绝不能继承给子进程。保留 SSH_AUTH_SOCK/PATH 等运行必需项（socket 路径不是 secret）。
+ */
+export function sanitizeBashEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const blocked =
+    /^(?:KCODE_KEYCHAIN_PASSPHRASE|KCODE_API_KEY|.*(?:API_?KEY|ACCESS_KEY|SECRET(?:_KEY)?|TOKEN|PASSWORD|PASSWD|CREDENTIALS?))$/i;
+  const out: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined || blocked.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * bash 工具（§9 B 域；N3E-1/2 升级）：跨平台 shell、超时、后台任务。
  * 前台输出走三段预算（内联 30k / 超限全文落盘 artifacts / 尾部保留）；
  * 持久工作目录仅在项目边界内保留（越界重置回会话目录并提示）。
@@ -142,6 +158,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
       const persisted = lastCwd !== undefined && existsSync(lastCwd) ? lastCwd : undefined;
       const workDir = cwd ?? persisted ?? ctx.cwd;
       const shell = await shellOnce();
+      const childEnv = sanitizeBashEnv(process.env);
 
       if (runInBackground === true) {
         if (opts.artifactsDir === undefined) {
@@ -155,6 +172,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
         // 后台命令不打点（保持日志纯净），在当前持久目录启动，也不回写持久目录
         const child = spawn(shell.file, shell.args(command), {
           cwd: workDir,
+          env: childEnv,
           stdio: ["ignore", logFile.fd, logFile.fd],
           windowsHide: true,
         });
@@ -188,6 +206,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
           shell.file,
           shell.args(markCommandForSnapshot(shell.name, command, nonce)),
           workDir,
+          childEnv,
           timeoutMs ?? DEFAULT_TIMEOUT_MS,
           ctx.signal,
           collector,
@@ -300,12 +319,13 @@ function runShell(
   file: string,
   args: string[],
   cwd: string | undefined,
+  env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal: AbortSignal | undefined,
   collector: OutputCollector,
 ): Promise<{ code: number }> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(file, args, { cwd, windowsHide: true });
+    const child = spawn(file, args, { cwd, env, windowsHide: true });
     // 用户中断（Esc/Ctrl+C）：立即杀树并结算（不等 120s 超时）
     const onAbort = (): void => {
       killTree(child);

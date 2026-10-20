@@ -104,6 +104,16 @@ describe("buildExtensionRoots（会话组装与 CLI 盘点共用）", () => {
     expect(roots.commandRoots.every((r) => r.source === "project" || r.source === "user")).toBe(true);
   });
 
+  it("2-17 trusted:false：project 根不装载，只进 untrusted 列表", async () => {
+    await resetEnabled();
+    const roots = await buildExtensionRoots({ cwd, kcodeHomeDir: home, trusted: false });
+    expect(roots.trusted).toBe(false);
+    expect(roots.skillRoots.some((r) => r.source === "project")).toBe(false);
+    expect(roots.commandRoots.some((r) => r.dir === join(cwd, ".kcode", "commands"))).toBe(false);
+    expect(roots.untrustedSkillRoots.map((r) => r.source)).toEqual(["project"]);
+    expect(roots.untrustedCommandRoots.map((r) => r.source)).toEqual(["project"]);
+  });
+
   it("停用 demo（全部版本）：plugins 过滤、对应根不再出现、disabledIds 可见", async () => {
     await resetEnabled();
     await setPluginEnabled(pluginsDir, "demo", false);

@@ -16,6 +16,13 @@
 | 1-08 | CRLF edit 精确匹配 | `packages/tools/src/tools/edit.ts` | 精确匹配前生成 CRLF/LF 变体；原样出现多次仍判歧义，不"挑一个"；保留文件原 EOL。 |
 | 2-02 | LLM 延迟解析 | `packages/session/src/lazy-llm.ts`、`composition.ts` | compose 阶段只拿工厂，不碰 keychain/路由；首次 `stream`/`listModels` 才 resolve，失败不缓存（/login 后同会话可重试）；`setModel` 同样延迟。`!命令` 直执行不再创建父 LLM（测试从 1 改 0）。 |
 | 2-01 | unconfigured TUI + init + /login 热生效 | `apps/cli/src/{bootstrap,main,args}.ts`、`tui/{App.tsx,state/lifecycle.ts,state/services.ts,dialogs/LoginWizardPanel.tsx}` | 缺 `config.json` 返回空 providers（损坏仍 fail-fast）；无 default 也进 TUI，banner 提示 `/login`；新增 `kcode init` 空骨架；登录保存后 `reloadRuntime` 重读配置并 `Object.assign` 同一 Runtime，再 `session.setModel`，无需重启。 |
+| 2-15 | web_fetch 逐跳 SSRF | `packages/tools/src/tools/web.ts` | `redirect:"manual"` 最多 5 跳、每跳复检协议/主机/DNS；DNS 全部 A/AAAA 任一私网即拒绝；IPv4 覆盖回环/RFC1918/CGNAT/链路本地/保留/组播，IPv6 覆盖 `::1`/ULA/link-local；302 → 127.0.0.1、整数 IPv4、`[::1]` 均拒绝。 |
+| 2-19 | update 链收紧 | `apps/cli/src/update.ts` | 远程源强制 https；本地源必须 `--local`；tarball 仅 basename；`tar -tvzf` 逐条拒绝绝对路径/盘符/`..`/符号链接；可选 `--pubkey`/`KCODE_UPDATE_PUBKEY` 强制 Ed25519 签名；保留上一版 `previous.json` + `--rollback`。 |
+| 2-18 | key 不走 argv + keychain 原子写 | `apps/cli/src/main.tsx`、`packages/platform/src/auth/{keychain,dpapi-keychain,atomic-write}.ts` | `key add <ref> <audience...> [--key-file <path>]`：只接受隐藏输入或文件，位置参数检测到疑似 key 直接拒绝；`atomic-write` 统一 tmp→`.bak`→rename，两条 keychain 均改用。 |
+| 2-17 | 项目扩展 trust 门控 | `packages/extensions/src/roots.ts`、`packages/session/src/composition.ts`、`apps/cli/src/inspect.ts` | 未 `/trust` 时 `.kcode/skills|agents|commands` 不参与会话装载；CLI `skills/commands list` 仍展示并标注“项目，未信任：/trust 后装载”；trusted:false 的根进入 `untrustedSkillRoots/untrustedCommandRoots`。 |
+| 2-16 | hook 改参后重新判权 | `packages/core/src/core/pipeline.ts` | `pre_tool_use` mutate 后比较最终参数 JSON，变化则重跑权限引擎；ask 用最终参数展示；审计 detail 标 `after pre_tool_use mutate`。`ls` 被改成 `rm -rf` 会重新 ask。 |
+| 2-14 | 敏感路径 denylist | `packages/shared/src/sensitive-path.ts`、`packages/extensions/src/permissions/sensitive-path.ts`、`packages/tools/src/tools/{glob,grep}.ts`、`packages/session/src/composition.ts` | `.env*`、`.ssh/**`、`.aws/**`、`id_rsa|ed25519|ecdsa|dsa`、`.git-credentials` 等：plan 档 deny、default/acceptEdits ask、fullAccess 放行；装饰器在会话级放行之外，grant 不能打穿；glob/grep 对宽泛搜索过滤敏感命中；**bash 命令同口径**（`cat .env` 不再走安全命令直跑）。 |
+| 2-13 | bash 子进程 env 清洗 | `packages/tools/src/tools/bash.ts` | 前后台 spawn 统一用 `sanitizeBashEnv`：剥 `KCODE_KEYCHAIN_PASSPHRASE`、`*_API_KEY/TOKEN/SECRET/PASSWORD`；保留 `PATH`/`SSH_AUTH_SOCK` 等运行必需项。 |
 | 2-12 | 脚本化输出/轮次/临时会话 | `apps/cli/src/{args,headless,main,session}.ts`、`packages/session/src/composition.ts` | `--output-format text|json|stream-json`（json 只出单条 result，stream-json 出事件流）；`--max-turns` 透传 AgentLoop；`--ephemeral` 不创建 JSONL；`--session-id` 指定 ID；`--json` 保持 stream-json 兼容。 |
 | 2-11 | 退出码契约 + result 字段 | `apps/cli/src/{headless,main}.ts` | 0 成功 / 1 通用 / 2 参数配置 / 3 认证 / 4 模型 API / 130 中断；`result` 增加 `permissionDenials/toolFailures/usage`；有 deny 且 completed 时状态改 failed、退出码 1，避免 CI 假绿。 |
 | 2-07 | `-p` 恒无头 + `--interactive` | `apps/cli/src/{args,main}.ts` | `-p`/`--prompt` 在 TTY 下也不再渲染 Ink；`--interactive` 显式回 TUI oneShot；`--json` 仍优先无头。 |
@@ -58,7 +65,7 @@
 
 ```text
 pnpm typecheck   → 16/16 packages 通过
-pnpm test        → 112 files / 578 passed / 1 skipped
+pnpm test        → 115 files / 591 passed / 1 skipped
 pnpm lint        → 0 errors（40 warnings）
 pnpm gates:check → 11 条例外，无过期/无漂移
 pnpm build       → 8/8 tasks 通过
@@ -89,9 +96,8 @@ desktop E2E      → 1 passed（首启/replay/preload/CSP/关闭）
 
 ## 下一批（建议顺序）
 
-1. **CLI 2-13~2-19 安全最小集**：bash env 清洗、敏感路径 denylist、SSRF 逐跳、hook 改参复判、项目扩展 trust、key 不走 argv、update 链收紧。
-2. **CLI 2-20~2-24 审批/交互一致性**：完整 diff、参数级放行、通知、模式同步、/help 生成化。
-3. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
+1. **CLI 2-20~2-24 审批/交互一致性**：完整 diff、参数级放行、通知、模式同步、/help 生成化。
+2. **桌面 D1**：onboarding/login（复用 2-01 热重载）、设置、真 diff、队列。
 
 ## 备注
 

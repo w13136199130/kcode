@@ -85,7 +85,7 @@ export function usageText(): string {
     "      --cwd <路径>              以指定目录为工作区启动",
     "      --settings <路径>         用户级配置文件覆盖（缺省 ~/.kcode/config.json）",
     "      --disallowed-tools <名单>  本次运行剔除的工具（逗号/空格分隔，可多次出现）",
-    "子命令：kcode init · kcode key add|list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
+    "子命令：kcode init · kcode key add <ref> <audience...> [--key-file <path>]｜list · kcode plugin install|list|remove|enable|disable · kcode mcp add|list|remove|test · kcode doctor · kcode skills list · kcode commands list",
   ].join("\n");
 }
 

@@ -3,3 +3,4 @@ export * from "./presets.js";
 export * from "./store.js";
 export * from "./safe-commands.js";
 export * from "./grant-patterns.js";
+export * from "./sensitive-path.js";
