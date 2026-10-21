@@ -426,6 +426,7 @@ ${body}
           return;
         }
         const mode = process.env["KCODE_SANDBOX_MODE"] === "read-only" ? "read-only" : "workspace-write";
+        const access = process.env["KCODE_ACCESS_MODE"] === "read-only" ? "read-only" : "workspace-write";
         const denyRead = process.env["KCODE_SANDBOX_DENY_READ"]?.trim();
         ctx.pushBlock({
           kind: "info",
@@ -433,6 +434,7 @@ ${body}
           text: [
             `沙箱：${status.backend} ✅（KCODE_SANDBOX=${setting}）`,
             `模式：${mode} · 网络：deny · cwd：${ctx.props.cwd}`,
+            `访问模式：${access}${access === "read-only" ? "（写工具/命令/MCP 拒绝，/terminal 禁用）" : ""}`,
             `denyRead：${denyRead === undefined || denyRead === "" ? "未启用（默认；如安装时授予了 profile read，可设 KCODE_SANDBOX_DENY_READ=default）" : denyRead}`,
             "覆盖：bash 前台（含 ! 直执行）；后台任务会明确拒绝",
             "未覆盖：read/write/edit、MCP/hooks、模型请求",

@@ -537,6 +537,10 @@ export function KcodeApp(props: KcodeAppProps) {
   /** /terminal：MXC 可用时使用受保护 PTY；srt 明确回退普通 PTY。 */
   const startTerminal = async (): Promise<void> => {
     if (terminal !== null) return;
+    if (process.env["KCODE_ACCESS_MODE"] === "read-only") {
+      pushBlock({ kind: "info", tone: "warn", text: "访问模式 read-only：禁止打开交互终端" });
+      return;
+    }
     try {
       const setting = sandboxSetting();
       let backend: "mxc" | "plain" = "plain";

@@ -36,6 +36,8 @@ import {
   loadHookConfigs,
   loadPolicy,
   PolicyPermissionEngine,
+  ReadOnlyAccessEngine,
+  accessModeFromEnv,
 } from "@kcode/extensions";
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
 import { createSandboxPort } from "@kcode/sandbox";
@@ -232,6 +234,12 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     });
   const mutablePermissions = new MutablePermissionEngine(new ModePermissionEngine("default"));
   const basePermissions = new SensitivePathPermissionEngine(mutablePermissions, () => sessionMode);
+  const accessMode = accessModeFromEnv();
+  const withAccess = (engine: PermissionEngine): PermissionEngine =>
+    accessMode === "read-only" ? new ReadOnlyAccessEngine(engine) : engine;
+  if (accessMode === "read-only") {
+    opts.onNotice?.("访问模式：read-only（仅只读工具可用；写文件/命令/MCP 调用会被拒绝）");
+  }
   // 项目级持久放行库（ask 时点查询：plan 档 deny 规则先生效，持久放行只跳过询问）
   const grantStore = ProjectGrantStore.open(join(opts.kcodeHomeDir, "permissions.json"), opts.cwd);
   const persistentGrants = await grantStore.list();
@@ -298,6 +306,9 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     timeoutMs: number | undefined,
     optsForBash: { sessionId: string; kcodeHomeDir: string; cwd: string; onNotice?: (message: string) => void },
   ): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }> => {
+    if (accessMode === "read-only") {
+      return { ok: false, output: "", error: "访问模式 read-only：禁止执行 shell 命令", durationMs: 0 };
+    }
     const verdict = await policyOnly.decide(
       { name: "bash", description: "", parameters: {}, readOnly: false },
       { command },
@@ -372,7 +383,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const withPluginRules = (engine: PermissionEngine): PermissionEngine =>
     pluginPermissionRules.size > 0 ? new PluginPermissionEngine(engine, pluginPermissionRules) : engine;
   // 插件规则在外层：插件 deny 不能被项目策略 allow 打穿；策略在内层：可覆盖会话 grant。
-  const permissions = withPluginRules(withPolicy(basePermissions));
+  const permissions = withPluginRules(withPolicy(withAccess(basePermissions)));
 
   const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
   const baseHookConfigs = await loadHookConfigs({
@@ -476,7 +487,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     audit: auditSink,
     // 3-19：子代理权限档由声明决定（plan/default/acceptEdits）；插件限制规则继续叠加
     permissionFor: (mode) =>
-      withPluginRules(withPolicy(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode))),
+      withPluginRules(withPolicy(withAccess(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode)))),
     parentMode: () => sessionMode,
     asker,
     agents,

@@ -92,6 +92,7 @@ pnpm --filter @kcode/cli start -- --cwd "$PWD"
 |---|---|---|---|
 | `KCODE_SANDBOX` | `off` / `srt` / `auto` / `mxc` | `off` | `auto`：MXC 可用优先，否则 srt |
 | `KCODE_SANDBOX_MODE` | `workspace-write` / `read-only` | `workspace-write` | 仅影响 srt 的 `allowWrite` |
+| `KCODE_ACCESS_MODE` | `workspace-write` / `read-only` | `workspace-write` | 顶层访问模式：read-only 拒绝所有非只读工具/命令（与 srt 独立） |
 | `KCODE_SANDBOX_DENY_READ` | `default` 或分号分隔路径 | 空 | 默认不启用；安装用了 `--skip-profile-grant` 时无必要；启用 profile grant 后再考虑 |
 | `KCODE_SANDBOX_NETWORK` | 暂未开放 | `deny` | 当前固定 deny；allowlist 未接 |
 
@@ -148,6 +149,8 @@ packages/sandbox/
 - `none.ts`：显式关闭的兜底。
 
 默认 `denyRead` 为空：安装脚本默认 `--skip-profile-grant`，沙箱账户本来就读不到用户 profile，不需要再逐条 deny；若你显式启用了 profile grant，可设 `KCODE_SANDBOX_DENY_READ=default`（或分号列表）补敏感路径。srt alpha 在部分机器上对 denyRead 的 ACL stamp 可能很慢，先小范围验证。
+
+`KCODE_ACCESS_MODE=read-only` 是顶层访问模式（`ReadOnlyAccessEngine`）：所有 `readOnly !== true` 的工具（write/edit/apply_patch/bash/MCP 等）直接 deny，`!` 直执行和 `/terminal` 也拒绝；它不依赖 srt，和 `KCODE_SANDBOX_MODE` 正交。
 
 ### 4.3 tools
 

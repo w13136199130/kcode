@@ -294,6 +294,21 @@ pnpm vitest run apps/cli/test/terminal-panel.test.tsx
 
 `/terminal` 打开交互终端（Ctrl+] 退出）：MXC 可用时是受保护 PTY；srt 下明确回退普通 PTY，不受 srt 保护，不要用它执行不可信代码。
 
+### 3.16 全局只读访问模式（AccessMode）
+
+```powershell
+$env:KCODE_ACCESS_MODE = "read-only"
+pnpm --filter @kcode/cli start -- --cwd "$PWD"
+```
+
+1. `/sandbox` 应显示 `访问模式：read-only`；
+2. 让模型调用 `write` / `edit` / `apply_patch` / `bash`，应全部 permission denied；
+3. `!` 直执行应被拒绝；`/terminal` 应提示禁止；
+4. 只读工具（read/glob/grep/web_fetch/todo 等）仍可用；
+5. 取消 `KCODE_ACCESS_MODE` 后恢复正常。
+
+这个模式与 `KCODE_SANDBOX_MODE` 正交：前者管所有工具，后者只管 srt 的 bash 写权限。
+
 真实适配器（需已安装；一次性，opt-in）：
 
 ```powershell

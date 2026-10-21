@@ -175,7 +175,7 @@ $env:KCODE_SANDBOX = "srt"                          # 或 auto
 $env:KCODE_SANDBOX_MODE = "workspace-write"         # 或 read-only
 ```
 
-`/sandbox` 查看状态；`/sandbox install` 在 TUI 内安装（默认 skip-profile-grant，已安装时不会重复 UAC）。`/terminal` 打开交互终端（Ctrl+] 退出）：MXC 可用时是受保护 PTY；srt 下因 exec 非交互会显式回退普通 PTY，不受 srt 保护。srt 不可用时 fail-closed（不会静默无沙箱执行）；后台任务暂不支持沙箱；`read/write/edit` 文件工具仍在沙箱外，由权限与 policy 约束。详见 [srt-sandbox.md](docs/srt-sandbox.md)。srt Windows 后端目前是 alpha，机器级安装需谨慎。
+`/sandbox` 查看状态；`/sandbox install` 在 TUI 内安装（默认 skip-profile-grant，已安装时不会重复 UAC）。`/terminal` 打开交互终端（Ctrl+] 退出）：MXC 可用时是受保护 PTY；srt 下因 exec 非交互会显式回退普通 PTY，不受 srt 保护。需要“连文件工具也不能写”的全局只读，用 `KCODE_ACCESS_MODE=read-only`（拒绝 write/edit/apply_patch/bash/MCP，`/terminal` 也禁用）。srt 不可用时 fail-closed（不会静默无沙箱执行）；后台任务暂不支持沙箱；`read/write/edit` 文件工具仍在沙箱外，由权限与 policy 约束。详见 [srt-sandbox.md](docs/srt-sandbox.md)。srt Windows 后端目前是 alpha，机器级安装需谨慎。
 
 **Sandbox (experimental / Windows)** — opt-in via Anthropic `srt` (`KCODE_SANDBOX=srt`, one-time `windows-install`); covers foreground bash only, fails closed when unavailable, and requires a machine-level UAC install. File tools remain outside the sandbox and stay governed by permissions/policy. See [srt-sandbox.md](docs/srt-sandbox.md).
 

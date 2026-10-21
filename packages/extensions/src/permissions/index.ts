@@ -5,3 +5,4 @@ export * from "./safe-commands.js";
 export * from "./grant-patterns.js";
 export * from "./sensitive-path.js";
 export * from "./policy.js";
+export * from "./access.js";
