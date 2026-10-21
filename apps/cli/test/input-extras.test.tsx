@@ -268,7 +268,11 @@ describe("剪贴板读图（仅 Windows 实跑；无剪贴板服务环境自动�
     if (process.platform === "win32") {
       return;
     }
-    expect(await readClipboardImageToFile(join(home, "tmp"))).toBeNull();
+    // vi.mock 固定返回假路径；平台降级测试必须加载真实实现
+    const actual = await vi.importActual<typeof import("../src/tui/input/clipboard-image.js")>(
+      "../src/tui/input/clipboard-image.js",
+    );
+    expect(await actual.readClipboardImageToFile(join(home, "tmp"))).toBeNull();
   });
 });
 

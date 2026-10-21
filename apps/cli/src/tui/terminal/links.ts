@@ -44,6 +44,15 @@ export function clipVisual(text: string, budget: number): string {
   return visualWidth(text) > budget ? `${truncateVisual(text, Math.max(0, budget - 1))}…` : text;
 }
 
+/** Windows 盘符绝对路径在非 Windows 宿主上也生成正确的 file:// URL */
+function fileUrlFor(targetPath: string): string {
+  const normalized = targetPath.replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+  return pathToFileURL(resolve(targetPath)).href;
+}
+
 /**
  * 结构化文件链接：label 即展示文本（可含行列后缀），targetPath 可相对
  * （按 process.cwd() 解析——main.tsx 启动时已 chdir 到工作区）。
@@ -60,7 +69,7 @@ export function formatFileLink(
     return shown;
   }
   const url =
-    pathToFileURL(resolve(stripEscapes(targetPath))).href + (opts.line !== undefined ? `#L${opts.line}` : "");
+    fileUrlFor(stripEscapes(targetPath)) + (opts.line !== undefined ? `#L${opts.line}` : "");
   return osc8Link(shown, url);
 }
 
