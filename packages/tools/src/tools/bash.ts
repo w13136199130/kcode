@@ -3,10 +3,14 @@ import { existsSync } from "node:fs";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
-import type { Tool } from "@kcode/contracts";
+import type { SandboxMode, SandboxPort, Tool } from "@kcode/contracts";
 import { newId } from "@kcode/shared";
 import { detectWindowsBash } from "./shell-detect.js";
+import { runSandboxedBash } from "./sandboxed-bash.js";
+import { extractShellSnapshot, markCommandForSnapshot } from "./shell-snapshot.js";
 import { OutputCollector, type OutputLimits } from "./output-collector.js";
+
+export { extractShellSnapshot } from "./shell-snapshot.js";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 /** 与工具护栏 600s 对齐：超过没有意义，只会让用户等更久 */
@@ -32,6 +36,10 @@ export interface BashToolOptions {
   registry?: BackgroundTaskRegistry;
   /** 前台输出三段预算覆盖（N3E-1，测试注入用；缺省 30k/2k/1M） */
   outputLimits?: Partial<OutputLimits>;
+  /** 4-01：可选沙箱端口（由 session composition 注入；undefined = 原路径） */
+  sandbox?: SandboxPort;
+  /** 沙箱模式；默认 workspace-write */
+  sandboxMode?: SandboxMode;
 }
 
 export interface BackgroundTask {
@@ -166,6 +174,9 @@ export function createBashTool(opts: BashToolOptions): Tool {
       const childEnv = sanitizeBashEnv(process.env);
 
       if (runInBackground === true) {
+        if (opts.sandbox !== undefined) {
+          return { ok: false, output: "", error: "沙箱模式暂不支持后台任务：请改为前台执行，或关闭沙箱" };
+        }
         if (opts.artifactsDir === undefined) {
           return { ok: false, output: "", error: "后台任务未配置日志目录（artifactsDir），无法启动" };
         }
@@ -197,6 +208,44 @@ export function createBashTool(opts: BashToolOptions): Tool {
           );
         });
         return { ok: true, output: `后台任务已启动 ${id}；日志：${logPath}` };
+      }
+
+      if (opts.sandbox !== undefined) {
+        try {
+          const outcome = await runSandboxedBash({
+            sandbox: opts.sandbox,
+            command,
+            shellName: shell.name,
+            shellFile: shell.file,
+            workDir: workDir ?? process.cwd(),
+            env: childEnv,
+            mode: opts.sandboxMode ?? "workspace-write",
+            timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            signal: ctx.signal,
+            sessionCwd: ctx.cwd,
+            artifactsDir: opts.artifactsDir,
+            callId: ctx.callId,
+            outputLimits: opts.outputLimits,
+          });
+          if (outcome.nextCwd !== undefined) lastCwd = outcome.nextCwd ?? undefined;
+          if (outcome.error !== undefined) {
+            return { ok: false, output: outcome.text, error: outcome.error };
+          }
+          if (outcome.timedOut) {
+            return {
+              ok: false,
+              output: outcome.text,
+              error: `命令超时（${Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000)}s），沙箱已终止；以上为已产生的输出`,
+            };
+          }
+          if (outcome.aborted) {
+            return { ok: false, output: outcome.text, error: "已被用户中断（沙箱命令已终止）" };
+          }
+          if (outcome.code === 0) return { ok: true, output: outcome.text };
+          return { ok: false, output: outcome.text, error: `exit code ${outcome.code}` };
+        } catch (err) {
+          return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
+        }
       }
 
       try {
@@ -419,50 +468,8 @@ function runShell(
 }
 
 /** 工作目录打点前缀：随机 nonce 后缀防与用户输出巧合碰撞 */
-const SHELL_SNAPSHOT_PREFIX = "__kcode_pwd_";
-
 function randomNonce(): string {
   return Math.random().toString(36).slice(2, 12);
-}
-
-/**
- * 前台命令尾部追加打点：命令结束后回传当前目录，供下次调用恢复 cwd。
- * bash 侧用 cygpath -w 把 $PWD 转成 Win32 路径（git-bash 会把 Windows 目录映射成
- * /tmp 等 MSYS 视图，无盘符形式 JS 侧无法还原；cygpath 缺失时回退原始 $PWD），
- * 先记录退出码再打点、末尾 exit 还原（进程退出码语义不变）；
- * PowerShell 侧退出码沿用外层 `exit $LASTEXITCODE` 不变。
- * 命令语法错误 / 主动 exit / 被中断杀树时打点不会出现——extractShellSnapshot 判无即跳过。
- */
-function markCommandForSnapshot(
-  shellName: "bash" | "powershell",
-  command: string,
-  nonce: string,
-): string {
-  if (shellName === "powershell") {
-    return `${command}; Write-Output "${SHELL_SNAPSHOT_PREFIX}${nonce}:$pwd"`;
-  }
-  const reportPwd = `"$(cygpath -w "$PWD" 2>/dev/null || printf '%s' "$PWD")"`;
-  return `${command}; __kcode_rc=$?; printf '\\n${SHELL_SNAPSHOT_PREFIX}${nonce}:%s\\n' ${reportPwd}; exit $__kcode_rc`;
-}
-
-/** 从输出中提取打点行：返回回传目录与剥除打点行后的输出（取最后一次出现） */
-export function extractShellSnapshot(
-  output: string,
-  nonce: string,
-): { cwd?: string; output: string } {
-  const token = `${SHELL_SNAPSHOT_PREFIX}${nonce}:`;
-  const idx = output.lastIndexOf(token);
-  if (idx === -1) {
-    return { output };
-  }
-  const lineEnd = output.indexOf("\n", idx);
-  const cwd = (
-    lineEnd === -1 ? output.slice(idx + token.length) : output.slice(idx + token.length, lineEnd)
-  ).replace(/\r$/, "");
-  const lineStart = output.lastIndexOf("\n", idx - 1);
-  const before = lineStart === -1 ? "" : output.slice(0, lineStart);
-  const after = lineEnd === -1 ? "" : output.slice(lineEnd + 1);
-  return { cwd: cwd.length > 0 ? cwd : undefined, output: before + after };
 }
 
 /** MSYS(git-bash) 的 $PWD 是 POSIX 风格（/e/foo）；转 Win32（E:\foo）供下次 spawn 的 cwd 使用（盘符大写与 Node 一致） */

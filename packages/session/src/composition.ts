@@ -38,6 +38,7 @@ import {
   PolicyPermissionEngine,
 } from "@kcode/extensions";
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
+import { createSandboxPort } from "@kcode/sandbox";
 import { LlmSummarizer } from "@kcode/platform";
 import { LazyLlmProvider } from "./lazy-llm.js";
 import { newId, workspaceKey } from "@kcode/shared";
@@ -304,7 +305,11 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     if (verdict === "deny") {
       return { ok: false, output: "", error: "项目策略拒绝该命令（policy deny）", durationMs: 0 };
     }
-    return runUserBash(command, timeoutMs, optsForBash);
+    return runUserBash(command, timeoutMs, {
+      ...optsForBash,
+      ...(sandbox !== undefined ? { sandbox } : {}),
+      sandboxMode,
+    });
   };
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir, { includeProject: projectTrusted });
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
@@ -424,6 +429,9 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   const bashTasks = new BackgroundTaskRegistry();
   // 后台子代理连杀登记（N3D-1）：Esc 中断父时一并终止后台子代理（单进程语义，不抄 detachParent）
   const backgroundKills = new Set<() => void>();
+  // 4-01：KCODE_SANDBOX=off（默认）不注入端口；srt/auto/mxc 显式开启。
+  const sandbox = createSandboxPort();
+  const sandboxMode = process.env["KCODE_SANDBOX_MODE"] === "read-only" ? "read-only" : "workspace-write";
   const baseTools = [
     ...createSessionTools({
       sessionId,
@@ -432,6 +440,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       sink,
       prompt: opts.askUser,
       registry: bashTasks,
+      ...(sandbox !== undefined ? { sandbox, sandboxMode } : {}),
       onTodoUpdate: (todos) => {
         todoState = todos;
       },

@@ -255,6 +255,49 @@ pnpm vitest run apps/cli/test/command-palette.test.tsx
 pnpm vitest run packages/extensions/test/policy.test.ts packages/session/test/policy-wiring.test.ts
 ```
 
+### 3.15 srt 沙箱（4-01，实验）
+
+> srt Windows 是 alpha；安装会创建 `srt-sandbox` 本地账户和机器级 WFP 过滤器，需要一次 UAC。只在测试机尝试。
+
+1. 安装（脚本默认 `--skip-profile-grant`，不授予 profile 读）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action install
+```
+
+2. 启动并查看：
+
+```powershell
+$env:KCODE_SANDBOX="srt"
+$env:KCODE_SANDBOX_MODE="workspace-write"
+pnpm --filter @kcode/cli start
+```
+
+3. `/sandbox` 应显示 `srt ✅`；
+4. 让模型执行 `echo ok > sandbox-write.txt` 成功；写 `C:\Windows\...` 失败；`curl https://example.com` 失败；
+5. 再测 `git status`、`node -v`、`pnpm -v`；若被 ACL 挡，先记录具体命令，不要关闭沙箱掩盖；
+6. 关闭 `KCODE_SANDBOX` 后行为恢复；验收/回滚：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action verify
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action uninstall
+```
+
+自动化（不需要安装 srt）：
+
+```powershell
+pnpm vitest run packages/sandbox/test/router.test.ts packages/sandbox/test/policy.test.ts packages/tools/test/bash-sandbox.test.ts
+```
+
+真实适配器（需已安装；一次性，opt-in）：
+
+```powershell
+$env:KCODE_SRT_LIVE="1"
+pnpm vitest run packages/sandbox/test/srt-live.test.ts
+```
+
+模块划分与已知限制见 [srt-sandbox.md](./srt-sandbox.md)。
+
 ## 4. 结果怎么看
 
 - 自动化通过但手工异常：优先抓 `~/.kcode/cli/sessions/<id>.jsonl` 与 `~/.kcode/cli/audit/<id>.jsonl`；

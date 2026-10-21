@@ -20,6 +20,7 @@ import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
 import { formatCostUsage } from "./cost.js";
 import { formatAuditRecords } from "./audit-view.js";
+import { createSandboxPort, sandboxSetting } from "@kcode/sandbox";
 import { lastAssistantText, lastCodeBlock } from "./copy.js";
 import { copyTextToClipboard } from "../terminal/clipboard-text.js";
 import { stripEscapes } from "../terminal/sanitize.js";
@@ -348,6 +349,32 @@ ${body}
             }
           });
         ctx.pushBlock({ kind: "info", text: formatAuditRecords(records, path) });
+        return;
+      }
+      if (name === "sandbox") {
+        const setting = sandboxSetting();
+        if (setting === "off") {
+          ctx.pushBlock({
+            kind: "info",
+            text: [
+              "沙箱：关闭（默认）",
+              "开启：先安装 srt（一次性 UAC），然后设置 KCODE_SANDBOX=srt：",
+              "  npx @anthropic-ai/sandbox-runtime windows-install",
+              "  $env:KCODE_SANDBOX=\"srt\"; kcode",
+              "当前仅覆盖 bash 前台命令；文件读写工具仍走权限/策略。",
+            ].join("\n"),
+          });
+          return;
+        }
+        const port = createSandboxPort();
+        const status = port === undefined ? { available: false, backend: "none" as const, reason: "未创建后端" } : await port.available();
+        ctx.pushBlock({
+          kind: "info",
+          tone: status.available ? "ok" : "warn",
+          text: status.available
+            ? `沙箱：${status.backend} ✅（KCODE_SANDBOX=${setting}）`
+            : `沙箱：${setting} 不可用——${status.reason ?? "unknown"}\n安装：npx @anthropic-ai/sandbox-runtime windows-install`,
+        });
         return;
       }
       if (name === "queue") {

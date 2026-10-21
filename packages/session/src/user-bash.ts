@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import type { SandboxMode, SandboxPort } from "@kcode/contracts";
 import { createBashTool } from "@kcode/tools";
 
 /**
@@ -13,12 +14,16 @@ export async function runUserBash(
     kcodeHomeDir: string;
     cwd: string;
     onNotice?: (message: string) => void;
+    sandbox?: SandboxPort;
+    sandboxMode?: SandboxMode;
   },
 ): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }> {
   const bash = createBashTool({
     sessionId: `${opts.sessionId}-user`,
     artifactsDir: join(opts.kcodeHomeDir, "cli", "artifacts", `${opts.sessionId}-user`),
     onNotice: opts.onNotice,
+    ...(opts.sandbox !== undefined ? { sandbox: opts.sandbox } : {}),
+    ...(opts.sandboxMode !== undefined ? { sandboxMode: opts.sandboxMode } : {}),
   });
   const started = Date.now();
   const result = await bash.execute(

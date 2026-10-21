@@ -33,6 +33,7 @@ export const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "usage", desc: "查看本会话 token 用量（/cost 别名）", hidden: true },
   { name: "audit", desc: "查看本会话审计记录（工具/裁决/耗时）", argsHint: "[条数]（默认 20，上限 200）" },
   { name: "copy", desc: "复制最近回复或代码块到剪贴板", argsHint: "[code]（空 = 最近回复）" },
+  { name: "sandbox", desc: "查看 Windows 沙箱状态与安装方式（srt，实验）", argsHint: "（无参数）" },
   { name: "plan", desc: "计划模式快捷切换", argsHint: "（无参数：plan ↔ default 切换）", hidden: true },
   { name: "remember", desc: "记住一条项目偏好（写入 AGENTS.md，下次会话生效；同 `# ` 快捷方式）", argsHint: "<内容>" },
   { name: "trust", desc: "信任当前项目", argsHint: "（无参数）" },

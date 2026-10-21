@@ -3,7 +3,7 @@
 > 配套参考：[竞品基线](./cli-agent-benchmark-2026.md) · [ZCode 架构对标](./zcode-benchmark.md) · [威胁模型](./threat-model.md)
 > 范围：本文是**唯一执行文档**（CLI 主线 + 共享层 + 桌面冻结边界）。`apps/cli` 与 `apps/desktop` 共享 `packages/*` 与同一会话语义；CLI 是主产品，桌面 D3 冻结。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**；追加 **3-33 队列可视 + 安全中断**、**3-34 输出可操作 + N0 收尾**、**3-35 配色对比度审计**、**3-36 Ctrl+K 命令面板**、**3-37 审批菜单文案收敛**；**阶段四 4-02 策略文件完成**。最近一次全量：**160 files / 814 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
+> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**；追加 **3-33 队列可视 + 安全中断**、**3-34 输出可操作 + N0 收尾**、**3-35 配色对比度审计**、**3-36 Ctrl+K 命令面板**、**3-37 审批菜单文案收敛**；**阶段四 4-02 策略文件完成**；**4-01 srt 沙箱 M1 骨架接入**（默认 off，见 [srt-sandbox.md](./srt-sandbox.md)）。最近一次全量：**163 test files passed / 1 skipped；824 tests passed / 2 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 已配置（最终以 Actions 最新结果为准）。
 
 > **产品化优先令（2026-10-20）**：CLI 是主产品，桌面 D3 冻结，只保留共享层类型兼容；先完成 CLI 阶段二尾巴与阶段三 P0，再恢复桌面。阶段三内部按“生命周期可靠性 → 编码闭环 → TUI 摩擦 → 扩展深水区”排序，不再按原表从 3-01 顺序平铺。详见下方「阶段三产品化重排」。
 
@@ -18,7 +18,7 @@
 | 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | **P1-D 全部完成**；下一步 P2-E 3-29 审计 | 扩展边界与 `/trust` 一致 |
 | 6 | **P2-E 治理**：3-29→3-30→3-32→3-31 | **P2-E 全部完成** | 文档/审计有证据 |
 
-**立即下一步**：P0/P1/P2 计划项已收口，阶段四 **4-02 策略文件已完成**（JSON、deny/ask/allow、命令/路径前缀、fail-closed，见 §4）。下一步建议 **4-01 Windows 原生沙箱**（15–20 人日，原型 + 生产化）或按 0.4 使用数据选 4-03/4-04。Windows CI 需推送仓库后首跑。D3 仍冻结。
+**立即下一步**：P0/P1/P2 计划项已收口，阶段四 **4-02 策略文件已完成**；**4-01 srt 适配器 M1 骨架已接入**（默认 off、需 `windows-install`，见 [srt-sandbox.md](./srt-sandbox.md)）。下一步：真实 srt 安装验收 + 审计/status；MXC 等 Node 24/主机支持后再平移。D3 仍冻结。
 
 **桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。
 
@@ -262,7 +262,7 @@
 
 | ID | 方向 | 动作 | 验收 | 人日 |
 |---|---|---|---|---|
-| 4-01 | **Windows 原生沙箱**（⚠️ spike 完成，未进 M1）：Job Object + `KILL_ON_JOB_CLOSE` 可用；纯 `CreateRestrictedToken`（去特权）仍保留管理员/High integrity，可写系统目录；加 `Users+RESTRICTED` restricted SID 后 `cmd.exe` 退出 `0xC0000142`。下一步转 AppContainer / low-integrity + workspace ACL / elevated helper 二次 spike | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 15–20（原型+生产化，当前阻断） |
+| 4-01 | **Windows 沙箱（srt 接入，⚠️ M1 骨架）**：不自研沙箱；`SandboxPort` + `@kcode/sandbox` Router；srt adapter 走 `srt` CLI（settings/包装脚本，规避库 persistent-root 卡死；自动注入 git safe.directory）；bash 前台接入，沙箱不可用 fail-closed；后台任务明确拒绝；`/sandbox` 状态；MXC 仅留 adapter 占位。默认 `off`，需一次 srt `windows-install`。下一步：审计/status、MXC 平移 | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 3–5（M1，不含生产化） |
 | 4-02 | **策略文件**（✅）：`.kcode/policy.json` v1：allow/ask/deny + commandPrefix/pathPrefix + priority；bash/PowerShell 文本前缀（分段/包装剥离）；deny 覆盖任何模式、allow 需 `/trust`、解析失败 fail-closed | 能声明"永不执行 rm -rf / del /s / git push --force" | 4 |
 | 4-03 | **LSP/diagnostics** | 编辑后收集 tsc/eslint/pyright 诊断，作为工具结果回灌；`diagnostics` 工具 | 改完文件能立即看到类型错误，不必模型自己跑全量 | 6–8 |
 | 4-04 | **repo map** | tree-sitter 或 rg + 结构摘要；按 token 预算注入 | 大仓问答/定位不再靠盲搜 | 6–8 |
@@ -273,6 +273,27 @@
 | 4-09 | **IDE/ACP** | `kcode acp` 作为 ACP server；VS Code 选区/诊断桥 | Zed/其他编辑器可把 kcode 当外部 agent | 6–8 |
 
 **建议**：4-01/4-02 是 Windows 差异化的核心，优先于 4-03/4-04；4-08/4-09 在 CLI 稳定后再评估。
+
+#### 4-01 模块代码划分（srt 接入）
+
+```text
+packages/contracts/src/sandbox.ts     ← SandboxPort/Request/Result（无 vendor 类型）
+packages/sandbox/
+  src/router.ts                       ← KCODE_SANDBOX 选择 + fail-closed
+  src/policy.ts                       ← allowWrite/denyRead/网络策略（vendor 无关）
+  src/backends/srt.ts                 ← 唯一 import srt；初始化/包装/输出归一化
+  src/backends/mxc.ts                 ← MXC 占位；未来只改这里
+  src/backends/none.ts                ← 显式关闭
+packages/tools/src/tools/
+  bash.ts                             ← 只判断 opts.sandbox，选前台/后台拒绝
+  sandboxed-bash.ts                   ← 沙箱前台执行 + 输出预算 + cwd 边界
+  shell-snapshot.ts                   ← bash/沙箱共用的 cwd 打点
+packages/session/src/composition.ts   ← createSandboxPort() 注入 tools
+apps/cli/src/tui/input/commands.ts    ← /sandbox 状态与安装提示
+docs/srt-sandbox.md                   ← 使用、边界、验收、MXC 平移
+```
+
+依赖方向：`contracts ← sandbox ← session/composition`；`tools` 只依赖 `SandboxPort`，不依赖 `@kcode/sandbox`。MXC 接入只改 `backends/mxc.ts` 与 Router 顺序，bash/session 不改。
 
 ---
 
@@ -342,6 +363,7 @@
 | `command-palette` | Ctrl+K 过滤/选择/执行；无参数直跑、需参数回填；Esc/Ctrl+K 关闭 | 三 |
 | `ask-labels` | 精确/前缀规则文案；多行命令压单行；选项不含完整命令 | 三 |
 | `policy-file` | deny/ask/allow 优先级；复合/包装命令；未信任 allow 忽略；坏文件 fail-closed | 四 |
+| `sandbox-srt` | Router 选择/fail-closed；bash 前台接入；后台拒绝；沙箱不可用不执行原命令 | 四 |
 | `static-running-tool` | 排队提示不冻结工具卡 | 三 |
 | `terminal-escape` | OSC/ESC 被剥离 | 三 |
 | `sandbox-windows` | 沙箱内写边界/网络 | 四 |
@@ -410,7 +432,7 @@
 
 - CLI 阶段一 1-01~1-11；阶段二 2-01~2-24（脚本化契约 + 安全最小集 + 审批闭环 + 通知/模式同步 + 生成式 /help）。
 - 桌面 D0/D1/D2：onboarding、host config RPC、队列、时间线、会话标题/删除、单实例/窗口状态、Composer slash/@、审批键盘/真实 diff/changed files/任务面板。
-- 验证基线：160 test files / 814 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
+- 验证基线：163 test files passed / 1 skipped；824 tests passed / 2 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
 
 ### 当前 P0（按序）
 

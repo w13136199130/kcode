@@ -27,3 +27,40 @@ Next spike (1–2 days), pick one:
 - **Elevated helper service**: if neither token path launches reliably, test a helper process that owns token creation; Node only passes command/cwd over IPC.
 
 The job-object lifecycle and command plumbing can be reused; the blocker is token construction/launch, not process cleanup.
+
+## AppContainer second spike (success)
+
+`appcontainer.ps1` uses the Microsoft-documented `CreateAppContainerProfile` +
+`STARTUPINFOEX` + `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` path, then grants the
+workspace to the AppContainer Package SID with `icacls` for the probe.
+
+Measured on the same host (2026-10-21). The current host runs an elevated admin token;
+unelevated validation is still required before M1.
+
+| Check | Result |
+|---|---|
+| create profile / derive SID | ✅ |
+| launch `cmd.exe` with AppContainer attribute list | ✅ exit 0 |
+| token integrity | Low (`S-1-16-4096`) |
+| workspace write (ACL granted to Package SID) | ✅ |
+| `C:\Windows` write | ❌ denied |
+| network (`curl https://example.com`, no `internetClient`) | ❌ curl exit 28 (blocked/timeout) |
+
+This is a viable direction. Remaining production questions:
+
+1. **Integration mechanism**: Node cannot build `STARTUPINFOEX`/AppContainer tokens
+   directly. Either ship a small native helper (`kcode-sandbox.exe`) that creates the
+   token/job and proxies stdio, or add a native addon. Helper is lower-risk for ABI and
+   packaging.
+2. **ACL lifecycle**: production must grant/remove the workspace ACE deterministically
+   (and use a read-only ACE for read-only mode) instead of shelling out to `icacls`.
+3. **Process tree**: combine AppContainer with the already-working Job Object
+   (`KILL_ON_JOB_CLOSE`) and test child/grandchild cleanup.
+4. **Capabilities**: no `internetClient` for default; an explicit network policy needs
+   a capability or proxy allowlist — do not silently add network.
+5. **Profile naming/cleanup**: per-install or per-session profile; remove stale profiles.
+
+Decision: **proceed to 4-01 M1 spike-to-product**, starting with the native helper and
+ACL lifecycle. Do not call the current probe production-ready: it shells out to `icacls`
+and only proves the token/launch mechanics.
+

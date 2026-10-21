@@ -14,6 +14,7 @@
     "@kcode/extensions": "workspace:*",
     "@kcode/platform": "workspace:*",
     "@kcode/runtime": "workspace:*",
+    "@kcode/sandbox": "workspace:*",
     "@kcode/session": "workspace:*",
     "@kcode/shared": "workspace:*",
     "@kcode/tools": "workspace:*",

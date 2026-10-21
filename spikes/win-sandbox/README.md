@@ -35,5 +35,20 @@ Decision rules:
 
 See [FINDINGS.md](./FINDINGS.md): Job Object works, but privilege removal alone leaves
 system write access; adding restricted SIDs makes `cmd.exe` exit `0xC0000142`. The pure
-`CreateRestrictedToken` path is **blocked**; next spike is AppContainer or low-integrity
-plus workspace ACL.
+`CreateRestrictedToken` path is **blocked**.
+
+## Second result: AppContainer works
+
+Run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\appcontainer.ps1
+```
+
+It creates a temporary AppContainer profile, grants the probe workspace to the Package
+SID, launches `cmd.exe` with `STARTUPINFOEX`, and verifies: workspace write ✅,
+`C:\Windows` write ❌, network ❌ (no `internetClient` capability).
+
+This is the direction for 4-01 M1. Production still needs a native helper (Node cannot
+construct `STARTUPINFOEX`/AppContainer tokens), deterministic ACL grant/remove, and
+combination with the Job Object.
