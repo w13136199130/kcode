@@ -16,7 +16,10 @@ afterAll(async () => {
 class FakeSandbox implements SandboxPort {
   readonly id = "srt" as const;
   readonly calls: SandboxRequest[] = [];
-  constructor(private readonly result: Partial<SandboxResult> = {}) {}
+  constructor(
+    private readonly result: Partial<SandboxResult> = {},
+    private readonly stream = false,
+  ) {}
 
   async available() {
     return { available: true, backend: this.id } as const;
@@ -24,6 +27,18 @@ class FakeSandbox implements SandboxPort {
 
   async run(request: SandboxRequest): Promise<SandboxResult> {
     this.calls.push(request);
+    if (this.stream) {
+      request.onOutput?.("streamed-line\n");
+      return {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        sandboxed: true,
+        backend: "srt",
+        ...this.result,
+      };
+    }
     return {
       exitCode: 0,
       stdout: "sandboxed-output\n",
@@ -48,6 +63,14 @@ describe("bash 沙箱接入（4-01）", () => {
     expect(result.sandbox).toMatchObject({ backend: "srt", sandboxed: true, mode: "workspace-write" });
     expect(sandbox.calls).toHaveLength(1);
     expect(sandbox.calls[0]?.command).toContain("__kcode_pwd_");
+  });
+
+  it("流式输出只 append 一次，不重复终态 stdout", async () => {
+    const sandbox = new FakeSandbox({}, true);
+    const bash = createBashTool({ sessionId: "s", sandbox });
+    const result = await bash.execute({ command: "echo stream" }, ctx());
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe("streamed-line\n");
   });
 
   it("沙箱拒绝路径 → ok=false 且带 denied 审计事实", async () => {

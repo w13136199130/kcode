@@ -23,6 +23,8 @@ export interface SandboxedBashOptions {
   artifactsDir: string | undefined;
   callId: string | undefined;
   outputLimits: Partial<OutputLimits> | undefined;
+  /** 流式进度（尾部 2k + 累计字符）；与 runShell 的 500ms 节流语义一致 */
+  onProgress?: (tail: string, total: number) => void;
 }
 
 export interface SandboxedBashOutcome {
@@ -70,16 +72,44 @@ export async function runSandboxedBash(opts: SandboxedBashOptions): Promise<Sand
       : undefined,
   );
 
-  const result = await opts.sandbox.run({
-    command: markCommandForSnapshot(opts.shellName, opts.command, nonce),
-    cwd: opts.workDir,
-    shell: opts.shellFile,
-    env: opts.env,
-    mode: opts.mode,
-    network: "deny",
-    timeoutMs: opts.timeoutMs,
-    ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-  });
+  const result = await (async () => {
+    let streamed = false;
+    let progressTimer: NodeJS.Timeout | undefined;
+    if (opts.onProgress !== undefined) {
+      let lastTotal = -1;
+      progressTimer = setInterval(() => {
+        const total = collector.totalChars;
+        if (total === lastTotal) return;
+        lastTotal = total;
+        opts.onProgress?.(collector.getText().slice(-2_000), total);
+      }, 500);
+      progressTimer.unref?.();
+    }
+    try {
+      const sandboxResult = await opts.sandbox.run({
+        command: markCommandForSnapshot(opts.shellName, opts.command, nonce),
+        cwd: opts.workDir,
+        shell: opts.shellFile,
+        env: opts.env,
+        mode: opts.mode,
+        network: "deny",
+        timeoutMs: opts.timeoutMs,
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+        onOutput: (chunk) => {
+          streamed = true;
+          collector.append(chunk);
+        },
+      });
+      // 不支持流式的后端只在终态返回；流式后端已经 append，避免重复。
+      if (!streamed) {
+        collector.append(sandboxResult.stdout);
+        collector.append(sandboxResult.stderr);
+      }
+      return sandboxResult;
+    } finally {
+      if (progressTimer !== undefined) clearInterval(progressTimer);
+    }
+  })();
 
   if (!result.sandboxed) {
     return {
@@ -93,8 +123,6 @@ export async function runSandboxedBash(opts: SandboxedBashOptions): Promise<Sand
     };
   }
 
-  collector.append(result.stdout);
-  collector.append(result.stderr);
   const snapshot = extractShellSnapshot(collector.getText(), nonce);
   const finished = await collector.finish((text) => extractShellSnapshot(text, nonce).output);
 

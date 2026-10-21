@@ -226,6 +226,7 @@ export function createBashTool(opts: BashToolOptions): Tool {
             artifactsDir: opts.artifactsDir,
             callId: ctx.callId,
             outputLimits: opts.outputLimits,
+            onProgress: ctx.onProgress,
           });
           if (outcome.nextCwd !== undefined) lastCwd = outcome.nextCwd ?? undefined;
           if (outcome.error !== undefined) {

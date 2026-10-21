@@ -138,7 +138,7 @@ packages/sandbox/
 
 - `router.ts`：`KCODE_SANDBOX` 解析、`auto` 顺序、后端不可用错误；
 - `policy.ts`：`policyFor()` 统一生成 `allowRead/allowWrite/denyRead/allowedHosts`，`toSrtConfig()` 只在这里翻译 srt 字段；MXC 以后写 `toMxcRequest()`，不改 tools；
-- `srt.ts`：`available()`（Windows + 安装状态，结果缓存）、`run()`（写 settings/包装脚本 → 调用 `srt` CLI → 输出归一化；不走库 `SandboxManager`，规避 persistent root 导致的 initialize 卡死）；同时从 stderr 提取 `denied`（路径拒绝）；
+- `srt.ts`：`available()`（Windows + 安装状态，结果缓存）、`run()`（写 settings/包装脚本 → 调用 `srt` CLI → 输出归一化；`onOutput` 把 stdout/stderr 增量推给 UI；不走库 `SandboxManager`，规避 persistent root 导致的 initialize 卡死）；同时从 stderr 提取 `denied`（路径拒绝）；
 - `bash` 结果带 `sandbox` 元数据，`ToolPipeline` 写入 `AuditRecord.sandbox`；
 - `/sandbox` 显示 setting/backend/mode/network/cwd/denyRead 与覆盖边界。
 - `mxc.ts`：`available()` 返回不可用原因，`run()` fail-closed；接 MXC 时只改这里；
@@ -276,7 +276,7 @@ $srtWin = Get-ChildItem node_modules\.pnpm -Recurse -Filter srt-win.exe |
 - Windows 子进程只拿 fresh profile + PATH/PATHEXT/代理，不继承 kcode 的全部 env；需要自定义 env 的工具暂不支持；
 - 默认不启用 `denyRead`；若启用 profile grant，必须自行评估敏感路径；
 - 只覆盖前台 bash（含 `!` 直执行）；后台任务明确拒绝；
-- 没有流式进度（`onProgress`）和 PTY；
+- 沙箱命令是流式 stdout/stderr（500ms 节流推 UI 尾部），但**没有 PTY/交互式终端**；
 - 没有网络 allowlist；
 - 网络拒绝目前主要靠 srt WFP/代理，不保证能像路径拒绝一样从 stderr 稳定解析出 `denied=network`；以命令实际失败为准；
 - 没有把 sandbox backend/denial 写入 `/audit`（后续）；

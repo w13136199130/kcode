@@ -160,10 +160,14 @@ export class SrtSandbox implements SandboxPort {
         };
         request.signal?.addEventListener("abort", onAbort, { once: true });
         child.stdout?.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString("utf8");
+          const text = chunk.toString("utf8");
+          stdout += text;
+          request.onOutput?.(text);
         });
         child.stderr?.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString("utf8");
+          const text = chunk.toString("utf8");
+          stderr += text;
+          request.onOutput?.(text);
         });
         child.on("error", (err) => {
           if (timer !== undefined) clearTimeout(timer);

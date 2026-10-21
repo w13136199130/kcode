@@ -20,6 +20,8 @@ export interface SandboxRequest {
   allowedHosts?: string[];
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** 流式输出增量（stdout/stderr 合并按到达顺序）；最终 stdout/stderr 仍完整返回 */
+  onOutput?: (chunk: string) => void;
 }
 
 export interface SandboxDenial {
