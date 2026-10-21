@@ -359,21 +359,39 @@ ${body}
             text: [
               "沙箱：关闭（默认）",
               "开启：先安装 srt（一次性 UAC），然后设置 KCODE_SANDBOX=srt：",
-              "  npx @anthropic-ai/sandbox-runtime windows-install",
-              "  $env:KCODE_SANDBOX=\"srt\"; kcode",
-              "当前仅覆盖 bash 前台命令；文件读写工具仍走权限/策略。",
+              "  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action install",
+              "  $env:KCODE_SANDBOX=\"srt\"; $env:KCODE_SANDBOX_MODE=\"workspace-write\"; kcode",
+              "当前仅覆盖 bash 前台命令（含 ! 直执行）；文件读写工具仍走权限/策略。",
             ].join("\n"),
           });
           return;
         }
         const port = createSandboxPort();
         const status = port === undefined ? { available: false, backend: "none" as const, reason: "未创建后端" } : await port.available();
+        if (!status.available) {
+          ctx.pushBlock({
+            kind: "info",
+            tone: "warn",
+            text: [
+              `沙箱：${setting} 不可用——${status.reason ?? "unknown"}`,
+              "安装/修复：powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action install",
+            ].join("\n"),
+          });
+          return;
+        }
+        const mode = process.env["KCODE_SANDBOX_MODE"] === "read-only" ? "read-only" : "workspace-write";
+        const denyRead = process.env["KCODE_SANDBOX_DENY_READ"]?.trim();
         ctx.pushBlock({
           kind: "info",
-          tone: status.available ? "ok" : "warn",
-          text: status.available
-            ? `沙箱：${status.backend} ✅（KCODE_SANDBOX=${setting}）`
-            : `沙箱：${setting} 不可用——${status.reason ?? "unknown"}\n安装：npx @anthropic-ai/sandbox-runtime windows-install`,
+          tone: "ok",
+          text: [
+            `沙箱：${status.backend} ✅（KCODE_SANDBOX=${setting}）`,
+            `模式：${mode} · 网络：deny · cwd：${ctx.props.cwd}`,
+            `denyRead：${denyRead === undefined || denyRead === "" ? "未启用（默认；如安装时授予了 profile read，可设 KCODE_SANDBOX_DENY_READ=default）" : denyRead}`,
+            "覆盖：bash 前台（含 ! 直执行）；后台任务会明确拒绝",
+            "未覆盖：read/write/edit、MCP/hooks、模型请求",
+            "审计：/audit 的记录会带 sandbox=<backend>/<mode> 与 denied=<kind>:<target>",
+          ].join("\n"),
         });
         return;
       }

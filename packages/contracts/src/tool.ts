@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SandboxExecutionInfo } from "./sandbox.js";
 
 export const PermissionDecision = z.enum(["allow", "ask", "deny"]);
 export type PermissionDecision = z.infer<typeof PermissionDecision>;
@@ -79,6 +80,8 @@ export interface ToolOutput {
    * 文本模型忽略。最多挂载 3 张（成本护栏）。
    */
   imagePaths?: string[];
+  /** 4-01：沙箱执行事实（仅 bash 前台沙箱路径填；审计/状态用，不进模型输出） */
+  sandbox?: SandboxExecutionInfo;
 }
 
 /** 统一 Tool 抽象（§5.4）：内置工具与 MCP 工具实现同一接口，permissions/hooks/审计只写一遍 */

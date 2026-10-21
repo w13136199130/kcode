@@ -32,6 +32,30 @@ function askEngine(): PermissionEngine {
 }
 
 describe("权限 ask 交互流（P1-4）", () => {
+  it("审计记录携带 sandbox 事实", async () => {
+    const audit = new MemoryAudit();
+    const pipeline = new ToolPipeline({ decide: async (): Promise<PermissionDecision> => "allow" }, noHooks, audit.sink, "sess_sandbox");
+    const tool: Tool = {
+      definition: writeDefinition,
+      execute: async () => ({
+        ok: true,
+        output: "ok",
+        sandbox: {
+          backend: "srt",
+          sandboxed: true,
+          mode: "workspace-write",
+          denied: { kind: "path", target: "C:\\Windows\\x.txt", operation: "write" },
+        },
+      }),
+    };
+    await pipeline.run(tool, {}, "c1");
+    expect(audit.records.at(-1)?.sandbox).toEqual({
+      backend: "srt",
+      sandboxed: true,
+      mode: "workspace-write",
+      denied: { kind: "path", target: "C:\\Windows\\x.txt", operation: "write" },
+    });
+  });
   it.each(["approval", "hook"])("在 %s 等待期间取消，即使批准也不得执行工具", async (stage) => {
     const controller = new AbortController();
     const received: string[] = [];

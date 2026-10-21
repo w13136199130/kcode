@@ -17,11 +17,25 @@ describe("formatAuditRecords", () => {
         detail: "user allowed",
       },
       { ts: 0, sessionId: "s", callId: "c2", tool: "read", decision: "deny" },
+      {
+        ts: 0,
+        sessionId: "s",
+        callId: "c3",
+        tool: "bash",
+        decision: "error",
+        sandbox: {
+          backend: "srt",
+          sandboxed: true,
+          mode: "workspace-write",
+          denied: { kind: "path", target: "C:\\Windows\\secret.txt", operation: "write" },
+        },
+      },
     ];
     const text = formatAuditRecords(records, "/tmp/audit.jsonl");
-    expect(text).toContain("最近 2 条");
+    expect(text).toContain("最近 3 条");
     expect(text).toContain("bash · ask-allowed scope=project · 12ms · user allowed");
     expect(text).toContain("read · deny");
+    expect(text).toContain("sandbox=srt/workspace-write denied=path:C:\\Windows\\secret.txt");
     expect(text).toContain("/tmp/audit.jsonl");
   });
 

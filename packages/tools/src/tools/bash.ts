@@ -229,20 +229,30 @@ export function createBashTool(opts: BashToolOptions): Tool {
           });
           if (outcome.nextCwd !== undefined) lastCwd = outcome.nextCwd ?? undefined;
           if (outcome.error !== undefined) {
-            return { ok: false, output: outcome.text, error: outcome.error };
+            return { ok: false, output: outcome.text, error: outcome.error, sandbox: outcome.sandbox };
+          }
+          if (outcome.sandbox.denied !== undefined) {
+            const d = outcome.sandbox.denied;
+            return {
+              ok: false,
+              output: outcome.text,
+              error: `沙箱拒绝（${d.kind}）：${d.target}`,
+              sandbox: outcome.sandbox,
+            };
           }
           if (outcome.timedOut) {
             return {
               ok: false,
               output: outcome.text,
               error: `命令超时（${Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000)}s），沙箱已终止；以上为已产生的输出`,
+              sandbox: outcome.sandbox,
             };
           }
           if (outcome.aborted) {
-            return { ok: false, output: outcome.text, error: "已被用户中断（沙箱命令已终止）" };
+            return { ok: false, output: outcome.text, error: "已被用户中断（沙箱命令已终止）", sandbox: outcome.sandbox };
           }
-          if (outcome.code === 0) return { ok: true, output: outcome.text };
-          return { ok: false, output: outcome.text, error: `exit code ${outcome.code}` };
+          if (outcome.code === 0) return { ok: true, output: outcome.text, sandbox: outcome.sandbox };
+          return { ok: false, output: outcome.text, error: `exit code ${outcome.code}`, sandbox: outcome.sandbox };
         } catch (err) {
           return { ok: false, output: "", error: err instanceof Error ? err.message : String(err) };
         }

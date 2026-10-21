@@ -45,8 +45,25 @@ describe("bash 沙箱接入（4-01）", () => {
     const result = await bash.execute({ command: "echo hi" }, ctx());
     expect(result.ok).toBe(true);
     expect(result.output).toContain("sandboxed-output");
+    expect(result.sandbox).toMatchObject({ backend: "srt", sandboxed: true, mode: "workspace-write" });
     expect(sandbox.calls).toHaveLength(1);
     expect(sandbox.calls[0]?.command).toContain("__kcode_pwd_");
+  });
+
+  it("沙箱拒绝路径 → ok=false 且带 denied 审计事实", async () => {
+    const sandbox = new FakeSandbox({
+      exitCode: 0,
+      denied: { kind: "path", target: "C:\\Windows\\secret.txt", operation: "write" },
+    });
+    const bash = createBashTool({ sessionId: "s", sandbox });
+    const result = await bash.execute({ command: "echo nope > C:\\Windows\\secret.txt" }, ctx());
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("沙箱拒绝");
+    expect(result.sandbox?.denied).toEqual({
+      kind: "path",
+      target: "C:\\Windows\\secret.txt",
+      operation: "write",
+    });
   });
 
   it("沙箱未生效时 fail-closed，不执行原命令", async () => {

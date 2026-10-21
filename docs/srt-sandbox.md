@@ -72,7 +72,8 @@ npx @anthropic-ai/sandbox-runtime windows-install
 # 开启（workspace-write，网络默认 deny）
 $env:KCODE_SANDBOX = "srt"
 $env:KCODE_SANDBOX_MODE = "workspace-write"
-pnpm --filter @kcode/cli start
+# 从仓库根启动并显式指定 cwd；pnpm --filter 默认进程 cwd 是 apps/cli
+pnpm --filter @kcode/cli start -- --cwd "$PWD"
 ```
 
 环境变量：
@@ -129,8 +130,10 @@ packages/sandbox/
 ```
 
 - `router.ts`：`KCODE_SANDBOX` 解析、`auto` 顺序、后端不可用错误；
-- `policy.ts`：`policyFor()` 统一生成 `allowWrite/denyRead/allowedHosts`，`toSrtConfig()` 只在这里翻译 srt 字段；MXC 以后写 `toMxcRequest()`，不改 tools；
-- `srt.ts`：`available()`（Windows + 安装状态，结果缓存）、`run()`（写 settings/包装脚本 → 调用 `srt` CLI → 输出归一化；不走库 `SandboxManager`，规避 persistent root 导致的 initialize 卡死）；
+- `policy.ts`：`policyFor()` 统一生成 `allowRead/allowWrite/denyRead/allowedHosts`，`toSrtConfig()` 只在这里翻译 srt 字段；MXC 以后写 `toMxcRequest()`，不改 tools；
+- `srt.ts`：`available()`（Windows + 安装状态，结果缓存）、`run()`（写 settings/包装脚本 → 调用 `srt` CLI → 输出归一化；不走库 `SandboxManager`，规避 persistent root 导致的 initialize 卡死）；同时从 stderr 提取 `denied`（路径拒绝）；
+- `bash` 结果带 `sandbox` 元数据，`ToolPipeline` 写入 `AuditRecord.sandbox`；
+- `/sandbox` 显示 setting/backend/mode/network/cwd/denyRead 与覆盖边界。
 - `mxc.ts`：`available()` 返回不可用原因，`run()` fail-closed；接 MXC 时只改这里；
 - `none.ts`：显式关闭的兜底。
 
@@ -205,6 +208,7 @@ MXC 前提：
 | 系统目录写 | srt/write-restricted token + ACL 拒绝 |
 | 敏感读 | 默认不额外 deny；`--skip-profile-grant` 下 profile 不可读；启用 profile grant 后可用 `KCODE_SANDBOX_DENY_READ` 收紧 |
 | 网络 | 默认 deny；allowlist 未接 |
+| 审计 | `ToolOutput.sandbox` → `AuditRecord.sandbox`；`/audit` 显示 `sandbox=<backend>/<mode>`，路径拒绝显示 `denied=path:<target>` |
 | Git dubious ownership | adapter 把工作区根写入 srt `git.safeDirectories`，由 srt 只给该命令注入 `GIT_CONFIG_*`；不改用户全局 git config |
 | 环境变量 | Windows srt 子进程使用 `srt-sandbox` 的 fresh profile 环境 + PATH/PATHEXT/代理 overlay；不继承 kcode 进程的全部 env（对 secret 有利，但依赖自定义 env 的工具可能失败） |
 | 沙箱不可用 | `SandboxResult.sandboxed=false` + 错误；不执行原命令 |
@@ -227,8 +231,9 @@ pnpm vitest run packages/sandbox/test/router.test.ts packages/tools/test/bash-sa
 3. 写 `C:\Windows\...` 失败；
 4. `curl https://example.com` 失败；
 5. `git status` / `node -v` / `pnpm -v` 可用；
-6. 退出后无残留后台进程；
-7. 关闭 `KCODE_SANDBOX` 后行为恢复原样。
+6. `/audit 10` 能看到 `sandbox=srt/workspace-write`，系统目录写失败带 `denied=path:`；
+7. 退出后无残留后台进程；
+8. 关闭 `KCODE_SANDBOX` 后行为恢复原样。
 
 ## 8. 故障排查
 
@@ -264,5 +269,6 @@ $srtWin = Get-ChildItem node_modules\.pnpm -Recurse -Filter srt-win.exe |
 - 只覆盖前台 bash（含 `!` 直执行）；后台任务明确拒绝；
 - 没有流式进度（`onProgress`）和 PTY；
 - 没有网络 allowlist；
+- 网络拒绝目前主要靠 srt WFP/代理，不保证能像路径拒绝一样从 stderr 稳定解析出 `denied=network`；以命令实际失败为准；
 - 没有把 sandbox backend/denial 写入 `/audit`（后续）；
 - 没有自研沙箱；AppContainer spike 只作为技术验证/fallback，不产品化。

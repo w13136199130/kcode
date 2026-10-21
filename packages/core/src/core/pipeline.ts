@@ -4,6 +4,7 @@ import type {
   PermissionAsker,
   PermissionEngine,
   PermissionMode,
+  SandboxExecutionInfo,
   SessionEvent,
   Tool,
   ToolOutput,
@@ -27,6 +28,8 @@ export interface AuditRecord {
   mode?: PermissionMode;
   /** 3-29：子代理审计记录归属的父会话 */
   parentSessionId?: string;
+  /** 4-01：沙箱执行事实（backend/sandboxed/mode/denied） */
+  sandbox?: SandboxExecutionInfo;
 }
 
 export type AuditSink = (record: AuditRecord) => void;
@@ -230,6 +233,7 @@ export class ToolPipeline {
       decision: result.ok ? "executed" : "error",
       detail: result.error,
       durationMs: Math.max(0, this.now() - startedAt),
+      ...(result.sandbox !== undefined ? { sandbox: result.sandbox } : {}),
     });
     return result;
   }

@@ -28,6 +28,14 @@ export interface SandboxDenial {
   operation?: "read" | "write" | "connect";
 }
 
+/** 工具结果带给审计的沙箱事实：不改变命令输出，只让 /audit 能区分是否真的在沙箱里 */
+export interface SandboxExecutionInfo {
+  backend: SandboxBackendId;
+  sandboxed: boolean;
+  mode?: SandboxMode;
+  denied?: SandboxDenial;
+}
+
 export interface SandboxResult {
   exitCode: number;
   stdout: string;

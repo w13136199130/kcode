@@ -1,5 +1,5 @@
 import { join, isAbsolute, relative, resolve } from "node:path";
-import type { SandboxMode, SandboxPort } from "@kcode/contracts";
+import type { SandboxExecutionInfo, SandboxMode, SandboxPort, SandboxResult } from "@kcode/contracts";
 import { OutputCollector, type OutputLimits } from "./output-collector.js";
 import { extractShellSnapshot, markCommandForSnapshot } from "./shell-snapshot.js";
 
@@ -33,6 +33,17 @@ export interface SandboxedBashOutcome {
   /** undefined = 无快照；null = 越界重置；string = 新持久目录 */
   nextCwd: string | null | undefined;
   error?: string;
+  /** 4-01：给 ToolOutput/审计的沙箱事实 */
+  sandbox: SandboxExecutionInfo;
+}
+
+function sandboxInfo(result: SandboxResult, mode: SandboxMode): SandboxExecutionInfo {
+  return {
+    backend: result.backend,
+    sandboxed: result.sandboxed,
+    mode,
+    ...(result.denied !== undefined ? { denied: result.denied } : {}),
+  };
 }
 
 /** 与 bash.ts 同口径的项目边界判断（避免 helper ↔ bash 循环依赖） */
@@ -78,6 +89,7 @@ export async function runSandboxedBash(opts: SandboxedBashOptions): Promise<Sand
       aborted: false,
       nextCwd: undefined,
       error: `沙箱未生效，已拒绝执行（${result.backend}）：${result.stderr || "unknown"}`,
+      sandbox: sandboxInfo(result, opts.mode),
     };
   }
 
@@ -104,5 +116,6 @@ export async function runSandboxedBash(opts: SandboxedBashOptions): Promise<Sand
     timedOut: result.timedOut,
     aborted: opts.signal?.aborted === true,
     nextCwd,
+    sandbox: sandboxInfo(result, opts.mode),
   };
 }

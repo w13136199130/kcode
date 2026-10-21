@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type {
   SandboxAvailability,
+  SandboxDenial,
   SandboxPort,
   SandboxRequest,
   SandboxResult,
@@ -61,6 +62,18 @@ function gitRoot(cwd: string): string {
     if (parent === current) return resolve(cwd);
     current = parent;
   }
+}
+
+/** srt CLI 只给退出码/原始 stderr；从拒绝文案中提取可审计的最小事实。 */
+function detectDenial(stderr: string): SandboxDenial | undefined {
+  if (/UnauthorizedAccessException|Access is denied|拒绝访问|Permission denied|EACCES|EPERM/i.test(stderr)) {
+    const target = /([A-Za-z]:\\[^\r\n"']+?)(?=[^\x00-\x7F]|["'\r\n])/.exec(stderr)?.[1]?.trim();
+    return { kind: "path", target: target ?? "path denied by sandbox", operation: "write" };
+  }
+  if (/curl:\s*\((?:5|6|7|28|56)\)|Could not resolve|network is unreachable|proxy.*(?:denied|blocked)|sandbox_violations/i.test(stderr)) {
+    return { kind: "network", target: "network denied by sandbox", operation: "connect" };
+  }
+  return undefined;
 }
 
 export class SrtSandbox implements SandboxPort {
@@ -167,6 +180,7 @@ export class SrtSandbox implements SandboxPort {
         child.on("close", (code) => {
           if (timer !== undefined) clearTimeout(timer);
           request.signal?.removeEventListener("abort", onAbort);
+          const denial = detectDenial(stderr);
           resolve({
             exitCode: code ?? -1,
             stdout,
@@ -174,6 +188,7 @@ export class SrtSandbox implements SandboxPort {
             timedOut,
             sandboxed: true,
             backend: "srt",
+            ...(denial !== undefined ? { denied: denial } : {}),
           });
         });
       });

@@ -270,13 +270,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Act
 ```powershell
 $env:KCODE_SANDBOX="srt"
 $env:KCODE_SANDBOX_MODE="workspace-write"
-pnpm --filter @kcode/cli start
+# pnpm --filter 默认 cwd 是 apps/cli；从仓库根显式指定项目根
+pnpm --filter @kcode/cli start -- --cwd "$PWD"
 ```
 
 3. `/sandbox` 应显示 `srt ✅`；
 4. 让模型执行 `echo ok > sandbox-write.txt` 成功；写 `C:\Windows\...` 失败；`curl https://example.com` 失败；
-5. 再测 `git status`、`node -v`、`pnpm -v`；若被 ACL 挡，先记录具体命令，不要关闭沙箱掩盖；
-6. 关闭 `KCODE_SANDBOX` 后行为恢复；验收/回滚：
+5. `/audit 10` 应能看到 bash 记录的 `sandbox=srt/workspace-write`；系统目录写失败应带 `denied=path:`（网络拒绝可能只在命令输出里，不保证结构化 denied）；
+6. 再测 `git status`、`node -v`、`pnpm -v`；若被 ACL 挡，先记录具体命令，不要关闭沙箱掩盖；
+7. 关闭 `KCODE_SANDBOX` 后行为恢复；验收/回滚：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action verify
