@@ -452,6 +452,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
       prompt: opts.askUser,
       registry: bashTasks,
       ...(sandbox !== undefined ? { sandbox, sandboxMode } : {}),
+      diagnostics: process.env["KCODE_DIAGNOSTICS"] === "auto" ? "auto" : "off",
       onTodoUpdate: (todos) => {
         todoState = todos;
       },

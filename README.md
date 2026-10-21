@@ -143,7 +143,9 @@ Any prompt containing a trigger word auto-loads the skill body into the turn (sh
 
 3-18 起：`disable-model-invocation: true` 强制仅手动，`allowed-tools` 解析并展示（执行期工具约束留后续）；**project/plugin 来源技能一律手动**（不进系统提示、不自动触发、模型 `skill` 工具会被拒），用户 `/skill` 仍可加载。`description` 支持 `|`/`>` 多行与引号。
 
-**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`task`（派生子代理 · spawn subagents: `general-purpose` 通用 / `explore` 只读搜索 / `.kcode/agents/*.md` 自定义 · custom agent files）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
+**内置工具 | Built-in tools**：`read` / `glob` / `grep`（捆绑 ripgrep · bundled ripgrep）、`diagnostics`（本地 tsc/eslint/pyright 诊断 · local diagnostics）、`write` / `edit`（写入确认 + 模糊匹配 · confirmed writes with fuzzy matching）、`bash`（超时/后台任务、cd 跨调用持久 · timeout, background tasks, persistent working directory）、`task`（派生子代理 · spawn subagents: `general-purpose` 通用 / `explore` 只读搜索 / `.kcode/agents/*.md` 自定义 · custom agent files）、`todo`（任务面板 · task panel）、`ask_user`（结构化选择题 · structured questions）、`sessions`（历史会话查阅 · session history）。会话事件 JSONL 落盘 `~/.kcode/cli/sessions/`。
+
+`KCODE_DIAGNOSTICS=auto` 时，`write` / `edit` / `apply_patch` 成功后会运行一次项目本地诊断，以 `<diagnostics>` 追加到工具结果；默认 `off`，避免每次编辑都跑全量 tsc。
 
 `todo` 清单每轮以 `<todo_state>` 回注模型（压缩/续接后仍可见）；后台控制面 `task_output` / `task_stop` / `task_list` / `task_wait` 对 bash 后台任务与后台子代理共用，长命令在途时看门狗放宽到 610s，避免被不活动判定误杀。
 

@@ -309,6 +309,38 @@ pnpm --filter @kcode/cli start -- --cwd "$PWD"
 
 这个模式与 `KCODE_SANDBOX_MODE` 正交：前者管所有工具，后者只管 srt 的 bash 写权限。
 
+### 3.17 诊断工具（4-03）
+
+显式工具：
+
+```text
+让模型调用 diagnostics
+```
+
+应返回 `[tsc exit=...]` / `[eslint exit=...]` / `[pyright exit=...]` 与诊断正文；没有本地配置时返回“未检测到可用的诊断命令”，不会 npx 下载。
+
+自动回灌：
+
+```powershell
+$env:KCODE_DIAGNOSTICS = "auto"
+pnpm --filter @kcode/cli start -- --cwd "$PWD"
+```
+
+让模型修改一个带类型错误的 `.ts` 文件；write/edit 成功后，工具结果尾部应出现：
+
+```text
+<diagnostics>
+── tsc @ ... ──
+src/a.ts(1,1): error TS...
+</diagnostics>
+```
+
+自动化：
+
+```powershell
+pnpm vitest run packages/tools/test/diagnostics.test.ts
+```
+
 真实适配器（需已安装；一次性，opt-in）：
 
 ```powershell

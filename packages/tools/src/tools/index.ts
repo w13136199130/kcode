@@ -10,6 +10,7 @@ import { createTaskTools } from "./task-tools.js";
 import { createTodoTool } from "./todo.js";
 import { createAskUserTool } from "./ask-user.js";
 import { extractTool } from "./extract.js";
+import { diagnosticsTool, withDiagnostics } from "./diagnostics.js";
 
 export { readTool } from "./read.js";
 export { atomicWriteText } from "./atomic-write.js";
@@ -27,12 +28,13 @@ export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";
 export { buildAskPreview, renderDiff, type AskPreview } from "./ask-preview.js";
 export { extractTool, parsePageRange } from "./extract.js";
+export { diagnosticsTool, detectDiagnostics, runDiagnostics, withDiagnostics } from "./diagnostics.js";
 export { webFetchTool, webSearchTool, createWebTools, resolveSearchBackend, type WebToolOptions, type SearchBackend } from "./web.js";
 // doctor 自检需要确认捆绑 rg 的落点：经包公共出口转出，避免 apps 直接依赖 @vscode/ripgrep
 export { rgPath } from "@vscode/ripgrep";
 
 /** P1 只读三件套（§9）：read / glob / grep（捆绑 ripgrep），全部 readOnly → 循环内自动并发 */
-export const readOnlyTools: Tool[] = [readTool, globTool, grepTool, extractTool];
+export const readOnlyTools: Tool[] = [readTool, globTool, grepTool, extractTool, diagnosticsTool];
 
 /** P1-4 写入三件套（默认预设下走 ask 确认） */
 export const writableTools: Tool[] = [writeTool, editTool, applyPatchTool];
@@ -46,12 +48,19 @@ export interface SessionToolOptions extends BashToolOptions {
   prompt?: UserPromptPort;
   /** 3-13：todo 最新清单回调（loop 注入 `<todo_state>`） */
   onTodoUpdate?: (todos: TodoItem[]) => void;
+  /** 4-03：编辑后自动跑本地诊断；默认 off，auto 显式开启 */
+  diagnostics?: "off" | "auto";
 }
 
 /** 会话工具全集：含 bash / todo / ask_user（会话态挂在会话上）+ 后台任务控制（注册表注入时） */
 export function createSessionTools(opts: SessionToolOptions): Tool[] {
+  const mutation = new Set(["write", "edit", "apply_patch"]);
+  const builtins =
+    opts.diagnostics === "auto"
+      ? builtinTools.map((tool) => (mutation.has(tool.definition.name) ? withDiagnostics(tool) : tool))
+      : builtinTools;
   return [
-    ...builtinTools,
+    ...builtins,
     createBashTool(opts),
     createTodoTool({ sessionId: opts.sessionId, sink: opts.sink, ...(opts.onTodoUpdate !== undefined ? { onUpdate: opts.onTodoUpdate } : {}) }),
     createAskUserTool({ prompt: opts.prompt }),
