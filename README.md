@@ -119,6 +119,10 @@ In the REPL: `/plan` toggles plan mode (read-only research → switch back after
 
 **终端兼容与安全 | Terminal safety**：不可信文本（模型回复/工具输出/粘贴内容/文件名/审批命令）渲染前剥离 ESC/OSC/CSI 控制序列，恶意内容不能改窗口标题或写剪贴板；自家 OSC8 文件链接在剥离后重新生成。`NO_COLOR=1` 关闭颜色；`KCODE_PLAIN=1` 关闭颜色并把状态符换成 ASCII（CI/日志友好）；`KCODE_THEME=light` 切亮色主题（白底可读，`KCODE_THEME=dark` 为显式暗色）；`KCODE_LINKS=0/1` 强制关/开文件链接。暗/亮两套语义色已做 WCAG AA 对比度审计（普通文本 ≥4.5:1，见 `packages/design/test/contrast.test.ts`）。
 
+> ⚠️ `KCODE_THEME=light` **只切换 kcode 的前景色，不改变终端背景**。请先把终端配置的 color scheme 切成浅色（Windows Terminal：设置 → 配置文件 → 外观 → 配色方案，如 One Half Light / Solarized Light）；在深色背景上使用 light 会得到深蓝字压黑底，既不好看也不满足对比度。
+
+
+
 **试试技能自动触发 | Try skill auto-trigger** —— 建一个**用户级**技能目录（`~/.kcode/skills/<name>/SKILL.md`；项目/插件技能默认手动，需 `/skill <name>` 显式加载）：
 Create a user-level skill directory and mention a trigger word in your prompt:
 

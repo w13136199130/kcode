@@ -3,14 +3,16 @@ import { colorsDisabled, plainGlyphs, terminalColor } from "@kcode/design";
 /** 语义色 → Ink 颜色（正文前景返回 undefined = 继承终端前景色） */
 export const c = terminalColor;
 
-/** 亮色主题下 ANSI 名字面的深色替代（markdown 语法色/灰阶等） */
+/** 亮色主题下 ANSI 名字面的深色替代（markdown 语法色/灰阶等）
+ *  4-03 后续：cyan→teal、blue 提亮一档，避免白底上整屏标题/关键字都是深蓝；
+ *  仍满足白底 AA（见 design/test/contrast.test.ts）。 */
 const LIGHT_RAW: Record<string, string> = {
-  cyan: "#0369a1",
+  cyan: "#0e7490",
   green: "#15803d",
   yellow: "#b45309",
-  magenta: "#6d28d9",
-  blue: "#1d4ed8",
-  red: "#b91c1c",
+  magenta: "#7c3aed",
+  blue: "#2563eb",
+  red: "#dc2626",
   gray: "#64748b",
   grey: "#64748b",
 };

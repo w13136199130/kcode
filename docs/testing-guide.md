@@ -217,6 +217,8 @@ $env:KCODE_THEME="dark";  pnpm --filter @kcode/cli start   # 深底可读（默�
 $env:KCODE_PLAIN="1";     pnpm --filter @kcode/cli start   # ASCII + 无色
 ```
 
+> `KCODE_THEME=light` 只切前景色，不切终端背景。测 light 前先把终端 color scheme 设为浅色（One Half Light / Solarized Light），否则深蓝字会在黑底上发暗。
+
 重点看：状态栏、工具失败卡、diff +/-、审批面板的提示色；浅色下不应出现浅黄/浅绿低对比文字。
 
 ### 3.13 Ctrl+K 命令面板（3-36）

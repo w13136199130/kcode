@@ -21,7 +21,7 @@ afterEach(() => {
 describe("终端降级开关", () => {
   it("KCODE_THEME=light：ANSI 名字面量映射到白底可读的深色", () => {
     process.env["KCODE_THEME"] = "light";
-    expect(rawColor("cyan")).toBe("#0369a1");
+    expect(rawColor("cyan")).toBe("#0e7490");
     expect(rawColor("green")).toBe("#15803d");
     expect(rawColor("gray")).toBe("#64748b");
     expect(rawColor("#c4b5fd")).toBe("#c4b5fd"); // 非 ANSI 名字面量不动

@@ -29,7 +29,7 @@ describe("设计令牌与终端映射", () => {
     expect(terminalColor("success", { NO_COLOR: "" })).toBe("#86efac"); // 空值按规范不生效
     expect(terminalColor("brand", { KCODE_PLAIN: "1" })).toBeUndefined();
     expect(terminalColor("success", { KCODE_THEME: "light" })).toBe("#15803d");
-    expect(terminalColor("brand", { KCODE_THEME: "light" })).toBe("#1d4ed8");
+    expect(terminalColor("brand", { KCODE_THEME: "light" })).toBe("#0e7490");
     // light 与无色开关组合仍以无色优先
     expect(terminalColor("success", { KCODE_THEME: "light", NO_COLOR: "1" })).toBeUndefined();
   });
