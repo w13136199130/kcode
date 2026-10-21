@@ -12,6 +12,7 @@ import {
   parseJsonlPrefix,
   rebuildHistory,
   renameSession,
+  searchSessions,
 } from "../src/index.js";
 
 let root: string;
@@ -220,6 +221,28 @@ describe("D1 会话标题/删除", () => {
       await deleteSession(dir, id);
       expect(await listSessions(dir)).toEqual([]);
       await expect(renameSession(dir, "../evil", "x")).rejects.toThrow(/不合法/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("跨会话全文搜索返回 sessionId/行号/snippet，并限制每会话条数", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kcode-search-"));
+    try {
+      const id = "sess_search";
+      await writeFile(
+        join(dir, `${id}.jsonl`),
+        ev({ v: 1, type: "session_start", ts: 0, sessionId: id, model: "m" }) +
+          ev({ v: 1, type: "user_message", ts: 0, sessionId: id, content: "部署失败怎么排查" }) +
+          ev({ v: 1, type: "assistant_message", ts: 0, sessionId: id, content: "先看部署日志" }),
+      );
+      await renameSession(dir, id, "部署排查");
+      const hits = await searchSessions(dir, "部署");
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]).toMatchObject({ sessionId: id, title: "部署排查" });
+      expect(hits[0]?.snippet).toContain("部署");
+      expect(hits.every((h) => h.line > 0)).toBe(true);
+      expect(await searchSessions(dir, "不存在的关键词")).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

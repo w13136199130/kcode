@@ -44,7 +44,7 @@ import { createSandboxPort } from "@kcode/sandbox";
 import { LlmSummarizer } from "@kcode/platform";
 import { LazyLlmProvider } from "./lazy-llm.js";
 import { newId, workspaceKey } from "@kcode/shared";
-import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx, BackgroundTaskRegistry } from "@kcode/tools";
+import { connectMcpServers, createSessionTools, createWebTools, currentShellInfo, resolveInCtx, BackgroundTaskRegistry, buildRepoMap } from "@kcode/tools";
 import { buildTaskTool } from "./subagent.js";
 import { buildPlanSubmitTool, type PlanVerdict } from "./plan-submit.js";
 import { buildSkillTool } from "./skill-tool.js";
@@ -363,12 +363,23 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     );
   }
   const subagentLine = `- 大范围搜索/多文件调研/可独立的子任务用 task 工具派生子代理（隔离上下文，只回传结论，不占用本会话历史）；可用类型：general-purpose（通用）、explore（只读搜索）${customAgents.length > 0 ? `、${customAgents.map((a) => `${a.name}（${a.description}）`).join("、")}` : ""}`;
+  // 4-04：仓库结构摘要进系统提示（按字符预算截断）；默认 auto，KCODE_REPO_MAP=off 可关。
+  const repoMap =
+    process.env["KCODE_REPO_MAP"] === "off"
+      ? ""
+      : await buildRepoMap(opts.cwd, {
+          maxChars: Number.parseInt(process.env["KCODE_REPO_MAP_CHARS"] ?? "6000", 10) || 6000,
+        });
   const basePrompt = `${SYSTEM_PROMPT}
 ${subagentLine}
 
 <env>
 OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
-</env>`;
+</env>${repoMap.trim() === "" ? "" : `
+
+<repo_map>
+${repoMap}
+</repo_map>`}`;
 
   // 3-16：插件权限只允许收紧（ask/deny），多插件冲突 deny 优先；包在既有引擎外
   const pluginPermissionRules = new Map<string, "ask" | "deny">();

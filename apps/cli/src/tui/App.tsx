@@ -43,6 +43,8 @@ export interface KcodeAppProps {
   images?: string[];
   /** 续接来源（会话 id / 前缀 / latest，本地从 JSONL 解析重建） */
   resumeFrom?: string;
+  /** 4-05：从历史会话 fork 新分支（保留旧会话） */
+  forkFrom?: string;
   /** 独立验收入口可指定输入历史，避免混入日常会话。 */
   historyFile?: string;
   /** 项目配置的默认权限档（2-06；fullAccess 不会从这里进入） */
@@ -440,7 +442,7 @@ export function KcodeApp(props: KcodeAppProps) {
   });
 
   // 会话生命周期（初始装配 + /resume 换建，N2-3 外迁 state/lifecycle.ts）
-  const { switchSession } = useSessionLifecycle({
+  const { switchSession, forkSession } = useSessionLifecycle({
     props,
     ui,
     stream,
@@ -601,6 +603,7 @@ export function KcodeApp(props: KcodeAppProps) {
         setResumePicker,
         setPermissionsPanel,
         switchSession,
+        forkSession,
         openRewindPicker,
         openDiffBrowser,
         runOccupied,

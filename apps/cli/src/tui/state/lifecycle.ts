@@ -3,8 +3,9 @@ import type { PermissionAsker, SessionEvent, UserPromptPort } from "@kcode/contr
 import type { Block, UiStore } from "@kcode/ui";
 import type { Runtime } from "../../bootstrap.js";
 import { loadInputHistory } from "../../history-store.js";
-import { effectiveEvents, loadSessionEvents, type QueuedCommand } from "@kcode/runtime";
+import { effectiveEvents, listSessions, loadSessionEvents, type QueuedCommand } from "@kcode/runtime";
 import { join } from "node:path";
+import { workspaceKey } from "@kcode/shared";
 import { replayBlocks } from "./replay.js";
 import type { LocalSessionOptions, SessionHandle } from "../../session.js";
 import type { CommandInfo } from "../input/builtin-commands.js";
@@ -18,6 +19,7 @@ export interface LifecycleDeps {
     cwd: string;
     historyFile?: string;
     resumeFrom?: string;
+    forkFrom?: string;
     oneShot?: string;
     images?: string[];
     model: string;
@@ -50,7 +52,10 @@ export interface LifecycleDeps {
  * 会话生命周期（N2-3 外迁）：挂载时装配初始会话（resume/一次性提问/命令合并），
  * /resume 换建续接会话。事件/增量/交互回调直连引擎，排队镜像经 commandQueue.onChange。
  */
-export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resumeFrom: string): void } {
+export function useSessionLifecycle(deps: LifecycleDeps): {
+  switchSession(resumeFrom: string): void;
+  forkSession(source?: string): void;
+} {
   const { props, ui, stream, createSession, sessionRef, handleEvent, asker, askUser, onPlanApproval, pushBlock } = deps;
   const onQueueChange = (items: readonly QueuedCommand[]): void => {
     // 3-33：队列面板需要完整快照；queuedCount 由 setQueuedItems 同步维护
@@ -67,7 +72,8 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
           cwd: props.cwd,
           initialMode: deps.mode,
           disallowedTools: props.disallowedTools,
-          resumeFrom: props.resumeFrom,
+          resumeFrom: props.forkFrom ?? props.resumeFrom,
+          ...(props.forkFrom !== undefined ? { fork: true } : {}),
           onEvent: (e) => {
             if (!cancelled) handleEvent(e);
           },
@@ -102,10 +108,22 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
         deps.inputHistory.current = (await loadInputHistory(props.historyFile)).slice(-50);
         pushBlock({ kind: "banner", model: props.model === "" ? "未配置模型" : props.model, cwd: props.cwd });
         // 3-01：resume 后从 JSONL 重建最近转写（模型历史已由 compose 注入，UI 不再空白）
-        if (props.resumeFrom !== undefined && !cancelled) {
+        // 4-05：fork 显示源会话转写；新 JSONL 从空分支开始。
+        if ((props.resumeFrom !== undefined || props.forkFrom !== undefined) && !cancelled) {
           try {
-            const jsonl = join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
-            const events = effectiveEvents(await loadSessionEvents(jsonl));
+            let replayPath = join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
+            if (props.forkFrom !== undefined) {
+              const summaries = await listSessions(join(props.runtime.kcodeHomeDir, "cli", "sessions"));
+              const scoped = summaries.filter(
+                (s) => s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === "",
+              );
+              const source =
+                props.forkFrom === "latest"
+                  ? scoped[0]
+                  : summaries.find((s) => s.sessionId === props.forkFrom || s.sessionId.startsWith(props.forkFrom!));
+              if (source !== undefined) replayPath = source.filePath;
+            }
+            const events = effectiveEvents(await loadSessionEvents(replayPath));
             for (const block of replayBlocks(events)) pushBlock(block);
           } catch (err) {
             pushBlock({
@@ -177,26 +195,39 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
   }, [deps.retryToken]);
 
   /** /resume：换建一个续接旧会话历史的新会话并切换为当前会话（旧转写保留在上方作上下文） */
-  const switchSession = (resumeFrom: string): void => {
+  const switchTo = (resumeFrom: string, fork: boolean): void => {
     if (ui.getState().busy) {
-      pushBlock({ kind: "info", tone: "warn", text: "运行中不能续接会话（等本轮完成或 Esc 中断）" });
+      pushBlock({ kind: "info", tone: "warn", text: runBusyText(fork) });
       return;
     }
     // 换会话语义：旧会话的排队输入不带走（防悬挂；计数经旧队列 onChange 归零）
     const stale = sessionRef.current?.commandQueue.clear() ?? 0;
     if (stale > 0) {
-      pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（续接不带旧排队）` });
+      pushBlock({ kind: "info", tone: "warn", text: `已清空 ${stale} 条排队输入（${fork ? "fork" : "续接"}不带旧排队）` });
     }
     deps.beginWork();
     const previous = sessionRef.current;
     void (async () => {
       try {
+        const sessionsDir = join(props.runtime.kcodeHomeDir, "cli", "sessions");
+        const summaries = fork ? await listSessions(sessionsDir) : [];
+        const scoped = summaries.filter(
+          (s) => s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === "",
+        );
+        const source =
+          fork
+            ? resumeFrom === "latest"
+              ? scoped[0]
+              : summaries.find((s) => s.sessionId === resumeFrom || s.sessionId.startsWith(resumeFrom))
+            : undefined;
+        if (fork && source === undefined) throw new Error(`未找到要 fork 的会话「${resumeFrom}」`);
         const handle = await createSession({
           runtime: props.runtime,
           model: deps.modelLabel,
           cwd: props.cwd,
           initialMode: deps.mode,
-          resumeFrom,
+          resumeFrom: fork ? source!.sessionId : resumeFrom,
+          ...(fork ? { fork: true } : {}),
           onEvent: handleEvent,
           onDelta: stream.appendDelta,
           onReasoning: stream.appendReasoning,
@@ -224,23 +255,29 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
         }
         ui.getState().resetTranscript();
         try {
-          const jsonl = join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
-          for (const block of replayBlocks(effectiveEvents(await loadSessionEvents(jsonl)))) {
+          // fork 显示源会话转写；普通 resume 显示新 JSONL（同一文件追加）
+          const replayPath =
+            fork && source !== undefined
+              ? source.filePath
+              : join(props.runtime.kcodeHomeDir, "cli", "sessions", `${handle.sessionId}.jsonl`);
+          for (const block of replayBlocks(effectiveEvents(await loadSessionEvents(replayPath)))) {
             pushBlock(block);
           }
         } catch {
-          // 续接历史不可读时至少保持新会话可用
+          // 历史不可读时至少保持新会话可用
         }
         pushBlock({
           kind: "info",
           tone: "ok",
-          text: `⭄ 已切换到续接会话 ${handle.sessionId.slice(0, 16)}…（模型 ${deps.modelLabel}）`,
+          text: fork
+            ? `⭄ 已 fork 为 ${handle.sessionId.slice(0, 16)}…（来源 ${source!.sessionId.slice(0, 16)}…；历史带入新分支，旧会话保留）`
+            : `⭄ 已切换到续接会话 ${handle.sessionId.slice(0, 16)}…（模型 ${deps.modelLabel}）`,
         });
       } catch (err) {
         pushBlock({
           kind: "info",
           tone: "warn",
-          text: `✗ 续接失败：${err instanceof Error ? err.message : String(err)}`,
+          text: `✗ ${fork ? "fork" : "续接"}失败：${err instanceof Error ? err.message : String(err)}`,
         });
       } finally {
         ui.getState().finish();
@@ -248,5 +285,22 @@ export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resume
     })();
   };
 
-  return { switchSession };
+  const switchSession = (resumeFrom: string): void => {
+    switchTo(resumeFrom, false);
+  };
+
+  const forkSession = (source?: string): void => {
+    const target = source ?? sessionRef.current?.sessionId;
+    if (target === undefined) {
+      pushBlock({ kind: "info", tone: "warn", text: "当前没有可 fork 的会话" });
+      return;
+    }
+    switchTo(target, true);
+  };
+
+  return { switchSession, forkSession };
+}
+
+function runBusyText(fork: boolean): string {
+  return `运行中不能${fork ? "fork" : "续接"}会话（等本轮完成或 Esc 中断）`;
 }

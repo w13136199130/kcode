@@ -451,6 +451,7 @@ async function main(): Promise<void> {  const [, , ...rest] = process.argv;
       oneShot={oneShot}
       images={args.images.length > 0 ? args.images : undefined}
       resumeFrom={args.resume}
+      forkFrom={args.fork}
       initialMode={initialMode}
       disallowedTools={args.disallowedTools}
       initialLogin={loginRequested}

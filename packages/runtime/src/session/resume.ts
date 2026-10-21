@@ -104,3 +104,47 @@ export async function listSessions(sessionsDir: string): Promise<SessionSummary[
 export async function loadSessionEvents(filePath: string): Promise<SessionEvent[]> {
   return parseJsonlPrefix(await readFile(filePath, "utf8"));
 }
+
+export interface SessionSearchHit {
+  sessionId: string;
+  title?: string;
+  workspaceKey: string;
+  line: number;
+  snippet: string;
+}
+
+/** 跨会话全文搜索：直接查 JSONL 文本，返回命中的会话/行；每会话最多 3 条。 */
+export async function searchSessions(
+  sessionsDir: string,
+  query: string,
+  limit = 20,
+): Promise<SessionSearchHit[]> {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return [];
+  const summaries = await listSessions(sessionsDir);
+  const hits: SessionSearchHit[] = [];
+  for (const summary of summaries) {
+    if (hits.length >= limit) break;
+    let text: string;
+    try {
+      text = await readFile(summary.filePath, "utf8");
+    } catch {
+      continue;
+    }
+    let found = 0;
+    for (const [index, line] of text.split(/\r?\n/).entries()) {
+      if (line.toLowerCase().includes(needle)) {
+        hits.push({
+          sessionId: summary.sessionId,
+          ...(summary.title !== undefined ? { title: summary.title } : {}),
+          workspaceKey: summary.workspaceKey,
+          line: index + 1,
+          snippet: line.slice(0, 240),
+        });
+        found += 1;
+        if (found >= 3 || hits.length >= limit) break;
+      }
+    }
+  }
+  return hits;
+}

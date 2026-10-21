@@ -38,6 +38,8 @@ export interface CliArgs {
   /** --image / --attach 附件路径（v1 attach=图片，与 image 同管线） */
   images: string[];
   resume?: string;
+  /** 4-05：--fork <id|latest>：从历史会话 fork 新会话（不写旧 JSONL） */
+  fork?: string;
   mode?: PermissionMode;
   /** --model <provider/model>：单次运行覆盖（N3F-5 第四层，优先级最高；TUI 与 headless 同一生效点） */
   model?: string;
@@ -75,6 +77,7 @@ export function usageText(): string {
     "  -p, --prompt <text>          单次提问（与位置参数提示词二选一）",
     "  -c, --continue               续接当前工作区最近会话（= --resume latest）",
     "  -r, --resume <会话id|latest>  续接指定会话",
+    "      --fork <会话id|latest>   从会话 fork 新分支（旧会话保留）",
     "  -i, --image <路径>            附加图片（可多次）",
     "      --attach <路径>           附件（v1 为图片，等价 --image；文档抽取走会话内 extract 工具）",
     "      --mode <档>               初始权限档：plan | default | acceptEdits | fullAccess",
@@ -142,6 +145,10 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
       case "-r":
       case "--resume":
         args.resume = valueOf(argv, i, arg);
+        i += 1;
+        break;
+      case "--fork":
+        args.fork = valueOf(argv, i, arg);
         i += 1;
         break;
       case "--mode": {

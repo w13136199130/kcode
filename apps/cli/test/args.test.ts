@@ -50,6 +50,7 @@ describe("parseCliArgs（N3C-1 参数解析）", () => {
     expect(parseCliArgs(["-c"]).resume).toBe("latest");
     expect(parseCliArgs(["--continue"]).resume).toBe("latest");
     expect(parseCliArgs(["-r", "sess_abc"]).resume).toBe("sess_abc");
+    expect(parseCliArgs(["--fork", "sess_abc"]).fork).toBe("sess_abc");
   });
 
   it("-i/--image/--attach 同入附件管线", () => {

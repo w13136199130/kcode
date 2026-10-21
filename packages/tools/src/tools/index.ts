@@ -11,6 +11,7 @@ import { createTodoTool } from "./todo.js";
 import { createAskUserTool } from "./ask-user.js";
 import { extractTool } from "./extract.js";
 import { diagnosticsTool, withDiagnostics } from "./diagnostics.js";
+import { repoMapTool } from "./repo-map.js";
 
 export { readTool } from "./read.js";
 export { atomicWriteText } from "./atomic-write.js";
@@ -28,13 +29,14 @@ export { createAskUserTool } from "./ask-user.js";
 export { resolveInCtx, displayPath } from "./paths.js";
 export { buildAskPreview, renderDiff, type AskPreview } from "./ask-preview.js";
 export { extractTool, parsePageRange } from "./extract.js";
-export { diagnosticsTool, detectDiagnostics, runDiagnostics, withDiagnostics } from "./diagnostics.js";
+export { diagnosticsTool, detectDiagnostics, parseDiagnostics, runDiagnostics, withDiagnostics } from "./diagnostics.js";
+export { buildRepoMap, repoMapTool, type RepoMapOptions } from "./repo-map.js";
 export { webFetchTool, webSearchTool, createWebTools, resolveSearchBackend, type WebToolOptions, type SearchBackend } from "./web.js";
 // doctor 自检需要确认捆绑 rg 的落点：经包公共出口转出，避免 apps 直接依赖 @vscode/ripgrep
 export { rgPath } from "@vscode/ripgrep";
 
 /** P1 只读三件套（§9）：read / glob / grep（捆绑 ripgrep），全部 readOnly → 循环内自动并发 */
-export const readOnlyTools: Tool[] = [readTool, globTool, grepTool, extractTool, diagnosticsTool];
+export const readOnlyTools: Tool[] = [readTool, globTool, grepTool, extractTool, diagnosticsTool, repoMapTool];
 
 /** P1-4 写入三件套（默认预设下走 ask 确认） */
 export const writableTools: Tool[] = [writeTool, editTool, applyPatchTool];

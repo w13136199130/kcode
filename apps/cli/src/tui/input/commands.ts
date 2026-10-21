@@ -73,6 +73,10 @@ export interface DispatchContext {
     reply: (labels: string[]) => void;
   }): void;
   onQueueChange(items: readonly QueuedCommand[]): void;
+  /** 4-05：fork 当前/指定会话（历史带入新 JSONL，旧会话保留） */
+  forkSession(source?: string): void;
+  /** 4-05：跨会话全文搜索 */
+  searchSessions?(query: string): Promise<{ sessionId: string; title?: string; line: number; snippet: string }[]>;
   /** 3-33：恢复暂停的队列（空闲时立即开始排空；忙时本轮结束后继续） */
   resumeQueue?: () => void;
   /** /terminal：打开普通 PTY（明示不受 srt 保护） */
@@ -270,14 +274,51 @@ ${body}
         return;
       }
       if (name === "sessions") {
+        const [sub = "", ...subArgs] = args.trim().split(/\s+/).filter((part) => part !== "");
+        if (sub === "rm" || sub === "delete") {
+          const id = subArgs[0];
+          if (id === undefined) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/sessions rm <会话id>" });
+            return;
+          }
+          try {
+            await ctx.session.deleteSession(id);
+            ctx.pushBlock({ kind: "info", tone: "ok", text: `已删除会话 ${id}（当前会话不可删除）` });
+          } catch (err) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: `删除失败：${err instanceof Error ? err.message : String(err)}` });
+          }
+          return;
+        }
         const sessions = await ctx.session.listSessions().catch(() => null);
         ctx.pushBlock({
           kind: "info",
           text:
             sessions === null || sessions.length === 0
               ? "（暂无历史会话）"
-              : `当前项目最近会话（重启后 kcode --resume <id 前缀> 续接）：\n${sessions
+              : `当前项目最近会话（重启后 kcode --resume <id 前缀> 续接；/sessions rm <id> 删除）：\n${sessions
                   .map((s) => `· ${s.sessionId.slice(0, 16)}… · ${s.turns} 轮 · ${s.title ?? s.preview ?? "（空）"}`)
+                  .join("\n")}`,
+        });
+        return;
+      }
+      if (name === "fork") {
+        ctx.forkSession(args.trim() === "" ? undefined : args.trim());
+        return;
+      }
+      if (name === "search") {
+        const query = args.trim();
+        if (query === "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/search <关键词>" });
+          return;
+        }
+        const hits = await ctx.session.searchSessions(query).catch(() => null);
+        ctx.pushBlock({
+          kind: "info",
+          text:
+            hits === null || hits.length === 0
+              ? `（未找到包含「${query}」的会话）`
+              : `会话搜索「${query}」（${hits.length} 条）：\n${hits
+                  .map((h) => `· ${h.sessionId.slice(0, 16)}… · ${h.title ?? "（无标题）"} · L${h.line} · ${h.snippet}`)
                   .join("\n")}`,
         });
         return;

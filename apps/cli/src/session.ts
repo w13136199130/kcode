@@ -25,10 +25,12 @@ import {
   listSessions,
   loadSessionEvents,
   renameSession,
+  deleteSession,
+  searchSessions as searchSessionTexts,
   type QueuedCommand,
   type RuntimeCommandQueue,
 } from "@kcode/runtime";
-import { workspaceKey } from "@kcode/shared";
+import { newId, workspaceKey } from "@kcode/shared";
 import type { Runtime } from "./bootstrap.js";
 
 /**
@@ -64,6 +66,16 @@ export interface SessionHandle {
   listSessions(): Promise<{ sessionId: string; preview: string; turns: number; title?: string }[]>;
   /** 3-04：给当前会话设置标题（sidecar；空串清除） */
   rename(title: string): Promise<void>;
+  /** 4-05：删除历史会话（调用方拒绝当前活动会话） */
+  deleteSession(sessionId: string): Promise<void>;
+  /** 4-05：跨会话全文搜索 */
+  searchSessions(query: string, limit?: number): Promise<{
+    sessionId: string;
+    title?: string;
+    workspaceKey: string;
+    line: number;
+    snippet: string;
+  }[]>;
   /** 3-06：当前会话的有效事件流（含工具全文；rewind/compact 已生效） */
   exportEvents(): Promise<SessionEvent[]>;
   listCommands(): {
@@ -135,6 +147,8 @@ export interface LocalSessionOptions {
   cwd: string;
   /** 续接来源：会话 id / 前缀 / "latest"（本地解析与重建历史） */
   resumeFrom?: string;
+  /** 4-05：fork 时用新 sessionId 写入新 JSONL，历史只作为初始消息带入 */
+  fork?: boolean;
   onEvent?: (event: SessionEvent) => void;
   onDelta?: (delta: string) => void;
   /** 思考过程增量（reasoning 模型）：灰色斜体实时渲染 */
@@ -237,8 +251,9 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
     model: opts.model,
     cwd: opts.cwd,
     kcodeHomeDir,
-    // 续写源会话：不透传 sessionId 会新建 JSONL，二次 `-c` 只剩本次新事件（丢历史）
-    sessionId: resume?.sessionId ?? opts.sessionId,
+    // 续写源会话：不透传 sessionId 会新建 JSONL，二次 `-c` 只剩本次新事件（丢历史）。
+    // fork 例外：强制新 sessionId，历史只作为 initialHistory 带入。
+    sessionId: opts.fork === true ? (opts.sessionId ?? newId("sess")) : (resume?.sessionId ?? opts.sessionId),
     resumeFrom: resume?.messages,
     resumeUsage: resume?.usage,
     resumeTodos: resume?.todos,
@@ -380,6 +395,12 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
         }));
     },
     rename: (title) => renameSession(join(kcodeHomeDir, "cli", "sessions"), composed.sessionId, title),
+    deleteSession: async (sessionId) => {
+      if (sessionId === composed.sessionId) throw new Error("不能删除当前活动会话");
+      await deleteSession(join(kcodeHomeDir, "cli", "sessions"), sessionId);
+    },
+    searchSessions: (query, limit) =>
+      searchSessionTexts(join(kcodeHomeDir, "cli", "sessions"), query, limit),
     exportEvents: async () => effectiveEvents(await loadSessionEvents(composed.jsonlPath)),
     listCommands: () => composed.listCommands(),
     expandCommand: (name, args) => composed.expandCommand(name, args),

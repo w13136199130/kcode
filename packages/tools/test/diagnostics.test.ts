@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Tool } from "@kcode/contracts";
-import { detectDiagnostics, runDiagnostics, withDiagnostics } from "../src/index.js";
-
+import { detectDiagnostics, parseDiagnostics, runDiagnostics, withDiagnostics } from "../src/index.js";
 let root: string;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "kcode-diag-"));
@@ -12,7 +11,7 @@ beforeAll(async () => {
   await writeFile(join(root, "tsconfig.json"), "{}", "utf8");
   await writeFile(
     join(root, "node_modules", "typescript", "bin", "tsc"),
-    'process.stdout.write("src/a.ts(1,1): error TS1000: fake\\n"); process.exit(1);',
+    'process.stdout.write("src/a.ts(1,1): error TS1000: fake\\nsrc/b.ts(2,2): error TS2000: other\\n"); process.exit(1);',
     "utf8",
   );
 });
@@ -32,6 +31,41 @@ describe("diagnostics（4-03）", () => {
     expect(result.ran).toBe(true);
     expect(result.output).toContain("[tsc exit=1]");
     expect(result.output).toContain("TS1000");
+  });
+
+  it("filterPaths 只显示改动文件，隐藏其它文件的条数", async () => {
+    const result = await runDiagnostics({ cwd: root, filterPaths: [join(root, "src", "a.ts")], timeoutMs: 10_000 });
+    expect(result.output).toContain("a.ts:1:1");
+    expect(result.output).toContain("TS1000");
+    expect(result.output).not.toContain("TS2000");
+    expect(result.output).toContain("项目其它文件 1 条已过滤");
+  });
+
+  it("pyright JSON 解析为 1-based 行列", () => {
+    const parsed = parseDiagnostics(
+      "pyright",
+      JSON.stringify({
+        generalDiagnostics: [
+          {
+            file: "C:\\p\\a.py",
+            severity: "error",
+            message: "bad type",
+            range: { start: { line: 2, character: 4 } },
+          },
+        ],
+      }),
+      root,
+    );
+    expect(parsed).toEqual([
+      {
+        tool: "pyright",
+        file: "C:\\p\\a.py",
+        line: 3,
+        column: 5,
+        severity: "error",
+        message: "bad type",
+      },
+    ]);
   });
 
   it("mutation 工具成功后追加 <diagnostics>，失败不追加", async () => {

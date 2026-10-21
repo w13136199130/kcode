@@ -330,15 +330,56 @@ pnpm --filter @kcode/cli start -- --cwd "$PWD"
 
 ```text
 <diagnostics>
-── tsc @ ... ──
-src/a.ts(1,1): error TS...
+── [tsc exit=1] @ ...
+C:\...\a.ts:1:1 error: TS...: ...
+（项目其它文件 N 条已过滤）
 </diagnostics>
+```
+
+也可以显式指定单个文件（只显示该文件诊断）：
+
+```text
+diagnostics path=src/a.ts
 ```
 
 自动化：
 
 ```powershell
 pnpm vitest run packages/tools/test/diagnostics.test.ts
+```
+
+### 3.18 repo map（4-04）
+
+1. 启动后让模型回答“这个仓库有哪些模块/入口”，观察是否直接引用 repo map，而不是先盲搜；
+2. 显式调用：
+
+```text
+repo_map
+```
+
+应返回目录/文件/符号摘要；`repo_map path=src maxChars=2000 refresh=true` 可限范围/预算并绕过 30s 缓存；
+3. `KCODE_REPO_MAP=off` 重启后系统提示不再注入 `<repo_map>`；
+4. repo map 默认忽略 `node_modules/.git/dist/build/.next/coverage`。
+
+自动化：
+
+```powershell
+pnpm vitest run packages/tools/test/repo-map.test.ts
+```
+
+### 3.19 会话 fork/搜索（4-05）
+
+1. `/fork`：当前会话历史带入新分支，新 sessionId/新 JSONL，原会话保留；
+2. `/fork latest` 或 `/fork <id 前缀>`：从历史会话开分支；
+3. `kcode --fork latest`：启动时直接 fork；
+4. `/search 部署`：跨会话 JSONL 搜索，显示 sessionId、标题、行号、snippet；
+5. `/sessions rm <id>`：删除历史；删除当前会话应被拒绝；
+6. `/rename 标题`：已有能力，搜索结果的 title 应反映新标题。
+
+自动化：
+
+```powershell
+pnpm vitest run packages/runtime/test/resume.test.ts apps/cli/test/session-fork.test.ts apps/cli/test/args.test.ts
 ```
 
 真实适配器（需已安装；一次性，opt-in）：
