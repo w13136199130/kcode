@@ -99,7 +99,9 @@ export interface SessionHandle {
   /** 3-29：审计日志路径（/audit） */
   auditPath(): string;
   /** /rewind 回退点清单（每个 user_message 一项） */
-  rewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
+  rewindPoints(): Promise<{ eventIndex: number; preview: string; text: string; ts: number; fileChanges: number }[]>;
+  /** 4-06：回退到该提问之前并用 text 重发（恢复检查点 + 截断后续） */
+  retryAt(eventIndex: number, text: string): Promise<{ restoredFiles: number; droppedEvents: number } | string>;
   /** 回退到某提问之前（恢复文件快照 + 截断对话）；失败返回错误信息 */
   rewind(eventIndex: number): Promise<string | null>;
   /** 3-23：本会话改动（检查点基线 → 当前磁盘，供 /diff 审查） */
@@ -418,6 +420,15 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
       try {
         await composed.rewind(eventIndex);
         return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    },
+    retryAt: async (eventIndex, text) => {
+      try {
+        const result = await composed.rewind(eventIndex);
+        await composed.loop.run(text);
+        return result;
       } catch (err) {
         return err instanceof Error ? err.message : String(err);
       }

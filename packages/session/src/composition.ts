@@ -51,6 +51,7 @@ import { buildSkillTool } from "./skill-tool.js";
 import { buildSendMessageTool } from "./agent-messaging.js";
 import { SubagentRegistry } from "./subagent-registry.js";
 import { loadMcpConfigs, loadAgentsMd, normalizeDisallowedTools, applyDisallowedTools } from "./composition-helpers.js";
+import { createMemoryTool, createRulesTool, loadProjectMemory, loadRules, renderAlwaysRules, renderRuleIndex } from "./rules.js";
 import { CheckpointStore, listCheckpointChanges, withFileCheckpoints } from "./checkpoints.js";
 import { rewindTo } from "./rewind.js";
 import { runUserBash } from "./user-bash.js";
@@ -101,8 +102,8 @@ export interface ComposedSession {
   >;
   /** 按文件路径回退到本会话首次修改前；paths 省略 = 全部 */
   revertChanges(paths?: string[]): Promise<{ restoredFiles: number }>;
-  /** /rewind 回退点清单（每个 user_message 一项；fileChanges = 其后的写/编辑次数） */
-  listRewindPoints(): Promise<{ eventIndex: number; preview: string; ts: number; fileChanges: number }[]>;
+  /** /rewind 回退点清单（每个 user_message 一项；fileChanges = 其后的写/编辑次数；text = 完整提问） */
+  listRewindPoints(): Promise<{ eventIndex: number; preview: string; text: string; ts: number; fileChanges: number }[]>;
   /** 回退到某个 user_message 之前：恢复文件快照（逆序）+ 以事件重建截断历史；运行中拒绝 */
   rewind(eventIndex: number): Promise<{ restoredFiles: number; droppedEvents: number }>;
   /** /compact 手动压缩 */
@@ -323,6 +324,25 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     });
   };
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir, { includeProject: projectTrusted });
+  // 4-07：用户/项目规则 + 项目自动记忆；项目规则与 AGENTS.md 同样受 trust 门控。
+  const rules =
+    process.env["KCODE_RULES"] === "off"
+      ? []
+      : await loadRules({ cwd: opts.cwd, kcodeHomeDir: opts.kcodeHomeDir, trusted: projectTrusted });
+  const memory =
+    process.env["KCODE_MEMORY"] === "off"
+      ? undefined
+      : await loadProjectMemory(opts.kcodeHomeDir, opts.cwd);
+  const rulesBudget = Number.parseInt(process.env["KCODE_RULES_CHARS"] ?? "6000", 10) || 6000;
+  const alwaysRules = renderAlwaysRules(rules, rulesBudget);
+  const ruleIndex = renderRuleIndex(rules).slice(0, 3000);
+  const rulesBlock =
+    rules.length === 0
+      ? ""
+      : `<rules>${alwaysRules === "" ? "" : `\n${alwaysRules}`}${
+          ruleIndex === "" ? "" : `\n\n按路径规则索引（用 rules path=<文件> 读取正文）：\n${ruleIndex}`
+        }\n</rules>`;
+  const memoryBlock = memory === undefined ? "" : `<memory>\n${memory}\n</memory>`;
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
   const shell = await currentShellInfo();
 
@@ -337,7 +357,7 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   });
   if (!projectTrusted) {
     opts.onNotice?.(
-      "项目未被信任：AGENTS.md、.kcode/skills、.kcode/agents、.kcode/commands 未装载（输入 /trust 信任本项目后新会话生效）",
+      "项目未被信任：AGENTS.md、.kcode/rules、.kcode/skills、.kcode/agents、.kcode/commands 未装载（输入 /trust 信任本项目后新会话生效）",
     );
   }
   const plugins = extensionRoots.plugins;
@@ -375,7 +395,7 @@ ${subagentLine}
 
 <env>
 OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
-</env>${repoMap.trim() === "" ? "" : `
+</env>${rulesBlock === "" ? "" : `\n${rulesBlock}`}${memoryBlock === "" ? "" : `\n${memoryBlock}`}${repoMap.trim() === "" ? "" : `
 
 <repo_map>
 ${repoMap}
@@ -471,6 +491,8 @@ ${repoMap}
     createSessionsTool({ sessionsDir: join(opts.kcodeHomeDir, "cli", "sessions") }),
     // Skill 显式工具：模型按名读技能正文（渐进加载的显式通道，与自动触发/手动 /skill 共存）
     buildSkillTool({ skills, sink, sessionId }),
+    createRulesTool({ rules, cwd: opts.cwd }),
+    createMemoryTool({ kcodeHomeDir: opts.kcodeHomeDir, cwd: opts.cwd }),
     ...createWebTools(),
     ...mcpSessions.flatMap((s) => s.tools),
     ...pluginMcpSessions.flatMap((s) => s.tools),
@@ -699,13 +721,14 @@ ${plan}`);
     listRewindPoints: async () => {
       // 只列**有效前缀**内的提问：已回退掉的轮次不应再出现在回退点清单里
       const events = effectiveEvents(await loadSessionEvents(jsonlPath));
-      const points: { eventIndex: number; preview: string; ts: number; fileChanges: number }[] = [];
+      const points: { eventIndex: number; preview: string; text: string; ts: number; fileChanges: number }[] = [];
       for (let i = 0; i < events.length; i++) {
         const event = events[i]!;
         if (event.type === "user_message") {
           points.push({
             eventIndex: i,
             preview: event.content.slice(0, 40),
+            text: event.content,
             ts: event.ts,
             fileChanges: 0,
           });

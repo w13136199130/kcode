@@ -20,6 +20,8 @@ export const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "fork", desc: "从当前/指定会话 fork 新分支（旧会话保留）", argsHint: "[latest | 会话 id 前缀]（空 = 当前会话）" },
   { name: "search", desc: "跨会话全文搜索", argsHint: "<关键词>" },
   { name: "rewind", desc: "回退到之前某轮提问（恢复文件+截断对话，双击 Esc 直达）", argsHint: "（无参数：打开回退点菜单）" },
+  { name: "retry", desc: "回退到指定轮次并重发原提问", argsHint: "<轮次>（/retry 空 = 列出轮次）" },
+  { name: "edit", desc: "回退到指定轮次、编辑提问并重发", argsHint: "<轮次> <新内容>" },
   { name: "diff", desc: "审查本会话的文件改动（changed files + hunks），逐文件回退", argsHint: "[文件]（空 = 全部改动）" },
   { name: "compact", desc: "手动压缩历史（保留任务锚点与近期上下文）", argsHint: "（无参数）" },
   { name: "context", desc: "查看上下文 token 占用与压缩阈值", argsHint: "（无参数）" },

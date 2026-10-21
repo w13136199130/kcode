@@ -794,6 +794,52 @@ ${hooks
         ctx.openRewindPicker();
         return;
       }
+      if (name === "retry" || name === "edit") {
+        if (ctx.ui.getState().busy) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "运行中不能编辑/重发（等本轮完成或 Esc 中断）" });
+          return;
+        }
+        const points = await ctx.session.rewindPoints().catch(() => null);
+        if (points === null || points.length === 0) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "没有可编辑/重发的提问点" });
+          return;
+        }
+        const raw = args.trim();
+        if (raw === "") {
+          ctx.pushBlock({
+            kind: "info",
+            text: `用法：/${name} <轮次>${
+              name === "edit" ? " <新内容>" : ""
+            }\n可编辑/重发点：\n${points.map((p, i) => `${i + 1}. ${p.preview || "（空）"}`).join("\n")}`,
+          });
+          return;
+        }
+        const [indexText, ...rest] = raw.split(/\s+/);
+        const index = Number.parseInt(indexText ?? "", 10);
+        const point = Number.isInteger(index) ? points[index - 1] : undefined;
+        if (point === undefined) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: `轮次无效：${indexText ?? ""}（/retry 查看清单）` });
+          return;
+        }
+        const text = name === "edit" ? rest.join(" ").trim() : point.text;
+        if (text === "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "编辑内容不能为空" });
+          return;
+        }
+        await ctx.runOccupied(ctx.session, text, async () => {
+          const result = await ctx.session.retryAt(point.eventIndex, text);
+          ctx.pushBlock(
+            typeof result === "string"
+              ? { kind: "info", tone: "warn", text: `✗ ${name === "edit" ? "编辑重发" : "重试"}失败：${result}` }
+              : {
+                  kind: "info",
+                  tone: "ok",
+                  text: `⏪ 已回退并${name === "edit" ? "编辑重发" : "重发"}第 ${index} 轮（恢复 ${result.restoredFiles} 个文件，截断 ${result.droppedEvents} 个事件）`,
+                },
+          );
+        });
+        return;
+      }
       if (name === "diff") {
         // 3-23：本会话改动审查（检查点基线 vs 当前磁盘），面板内逐文件回退
         ctx.openDiffBrowser(args === "" ? undefined : args);

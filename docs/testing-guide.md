@@ -382,6 +382,75 @@ pnpm vitest run packages/tools/test/repo-map.test.ts
 pnpm vitest run packages/runtime/test/resume.test.ts apps/cli/test/session-fork.test.ts apps/cli/test/args.test.ts
 ```
 
+### 3.20 消息级编辑/重发（4-06）
+
+1. `/retry`（无参数）列出当前会话可编辑/重发的提问轮次；
+2. `/retry 2`：回退到第 2 轮提问之前（恢复文件检查点、截断后续事件），再发送原提问；
+3. `/edit 2 新的问题`：回退后发送编辑后的内容；
+4. 运行中应拒绝；回退后 `/rewind` 清单应只保留有效前缀；
+5. 检查点行为与 `/rewind` 相同：该轮之后的写/编辑文件会恢复。
+
+自动化（消息索引/截断由现有 rewind 覆盖）：
+
+```powershell
+pnpm vitest run packages/session/test/plan-rewind.test.ts apps/cli/test/session-fork.test.ts
+```
+
+### 3.21 Rules / 项目记忆（4-07）
+
+1. 用户规则：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.kcode\rules"
+@"
+---
+alwaysApply: true
+---
+回答用中文，先读代码再改。
+"@ | Set-Content "$env:USERPROFILE\.kcode\rules\global.md"
+```
+
+重启后系统提示应包含该规则；`/rules` 不是命令，让模型调用 `rules` 工具查看索引。
+
+2. 项目路径规则：
+
+```powershell
+New-Item -ItemType Directory -Force .kcode\rules
+@"
+---
+description: React 组件规范
+paths:
+  - "src/components/**/*.tsx"
+---
+组件使用命名导出。
+"@ | Set-Content .kcode\rules\react.md
+```
+
+项目必须已 `/trust`；让模型调用：
+
+```text
+rules path=src/components/Button.tsx
+```
+
+应只返回命中规则，不命中时返回“没有命中”。
+
+3. 项目记忆：
+
+```text
+memory action=add text=提交前先跑 lint
+memory action=list
+```
+
+记忆写入 `~/.kcode/projects/<key>/memory/notes.md`；新会话启动应自动注入 `<memory>`。
+
+4. `KCODE_RULES=off` / `KCODE_MEMORY=off` 重启后对应块消失；未 trust 项目不应加载 `.kcode/rules`。
+
+自动化：
+
+```powershell
+pnpm vitest run packages/session/test/rules.test.ts
+```
+
 真实适配器（需已安装；一次性，opt-in）：
 
 ```powershell
