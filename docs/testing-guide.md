@@ -289,7 +289,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Act
 
 ```powershell
 pnpm vitest run packages/sandbox/test/router.test.ts packages/sandbox/test/policy.test.ts packages/tools/test/bash-sandbox.test.ts
+pnpm vitest run apps/cli/test/terminal-panel.test.tsx
 ```
+
+`/terminal` 打开交互终端（Ctrl+] 退出）：MXC 可用时是受保护 PTY；srt 下明确回退普通 PTY，不受 srt 保护，不要用它执行不可信代码。
 
 真实适配器（需已安装；一次性，opt-in）：
 

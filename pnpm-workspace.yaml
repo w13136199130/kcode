@@ -14,3 +14,5 @@ allowBuilds:
   "electron-builder": true
   app-builder-bin: true
   electron-winstaller: true
+  koffi: false
+  node-pty: false

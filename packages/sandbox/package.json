@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.81",
-    "@kcode/contracts": "workspace:*"
+    "@kcode/contracts": "workspace:*",
+    "@lydell/node-pty": "1.2.0-beta.15"
   },
   "devDependencies": {
+    "@microsoft/mxc-sdk": "1.0.1",
     "typescript": "^5.7.0"
   }
 }

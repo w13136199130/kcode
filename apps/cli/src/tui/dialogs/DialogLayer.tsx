@@ -4,6 +4,8 @@ import type { LoginWizard } from "./wizard-state.js";
 import type { AskState, DiffBrowserState, QuestionState, PlanApprovalState } from "../state/interactions.js";
 import { LoginWizardPanel } from "./LoginWizardPanel.js";
 import { DiffBrowserPanel } from "./DiffBrowser.js";
+import { TerminalPanel } from "../terminal/TerminalPanel.js";
+import type { SandboxPtySession } from "@kcode/sandbox";
 import {
   AskPanel,
   FullAccessConfirmPanel,
@@ -34,8 +36,19 @@ export function DialogLayer(props: {
   fullAccessConfirm: boolean;
   loginWizard: LoginWizard;
   modelPicker: { options: MenuOption[] } | null;
+  terminal: { session: SandboxPtySession; title: string; protectedMode: boolean } | null;
+  onCloseTerminal(): void;
   children: ReactNode;
 }) {
+  if (props.terminal !== null) {
+    return (
+      <TerminalPanel
+        session={props.terminal.session}
+        protectedMode={props.terminal.protectedMode}
+        onClose={props.onCloseTerminal}
+      />
+    );
+  }
   if (props.ask !== null) {
     return <AskPanel ask={props.ask} />;
   }

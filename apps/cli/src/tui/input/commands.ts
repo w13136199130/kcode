@@ -75,6 +75,8 @@ export interface DispatchContext {
   onQueueChange(items: readonly QueuedCommand[]): void;
   /** 3-33：恢复暂停的队列（空闲时立即开始排空；忙时本轮结束后继续） */
   resumeQueue?: () => void;
+  /** /terminal：打开普通 PTY（明示不受 srt 保护） */
+  startTerminal?(): Promise<void>;
 }
 
 /**
@@ -351,6 +353,18 @@ ${body}
         ctx.pushBlock({ kind: "info", text: formatAuditRecords(records, path) });
         return;
       }
+      if (name === "terminal") {
+        if (args.trim() !== "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/terminal（打开普通 PTY；Ctrl+] 退出）" });
+          return;
+        }
+        if (ctx.startTerminal === undefined) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "当前运行方式不支持 PTY 终端" });
+          return;
+        }
+        await ctx.startTerminal();
+        return;
+      }
       if (name === "sandbox") {
         const sub = args.trim();
         if (sub === "install" || sub === "install grant") {
@@ -422,6 +436,7 @@ ${body}
             `denyRead：${denyRead === undefined || denyRead === "" ? "未启用（默认；如安装时授予了 profile read，可设 KCODE_SANDBOX_DENY_READ=default）" : denyRead}`,
             "覆盖：bash 前台（含 ! 直执行）；后台任务会明确拒绝",
             "未覆盖：read/write/edit、MCP/hooks、模型请求",
+            "PTY：/terminal 是普通 PTY，不受 srt 保护（srt Windows exec 非交互）",
             "审计：/audit 的记录会带 sandbox=<backend>/<mode> 与 denied=<kind>:<target>",
           ].join("\n"),
         });

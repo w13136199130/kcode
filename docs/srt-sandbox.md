@@ -73,6 +73,9 @@ pnpm --filter @kcode/sandbox exec srt windows-uninstall
 # 默认关闭；查看状态
 /sandbox
 
+# 普通 PTY（不受 srt 保护；Ctrl+] 退出）
+/terminal
+
 # 安装 srt
 npx @anthropic-ai/sandbox-runtime windows-install
 
@@ -141,7 +144,7 @@ packages/sandbox/
 - `srt.ts`：`available()`（Windows + 安装状态，结果缓存）、`run()`（写 settings/包装脚本 → 调用 `srt` CLI → 输出归一化；`onOutput` 把 stdout/stderr 增量推给 UI；不走库 `SandboxManager`，规避 persistent root 导致的 initialize 卡死）；同时从 stderr 提取 `denied`（路径拒绝）；
 - `bash` 结果带 `sandbox` 元数据，`ToolPipeline` 写入 `AuditRecord.sandbox`；
 - `/sandbox` 显示 setting/backend/mode/network/cwd/denyRead 与覆盖边界。
-- `mxc.ts`：`available()` 返回不可用原因，`run()` fail-closed；接 MXC 时只改这里；
+- `mxc.ts`：MXC 1.x adapter（`run/spawn` 路径，Node >=24；未在当前 Node 22 主机实测）；
 - `none.ts`：显式关闭的兜底。
 
 默认 `denyRead` 为空：安装脚本默认 `--skip-profile-grant`，沙箱账户本来就读不到用户 profile，不需要再逐条 deny；若你显式启用了 profile grant，可设 `KCODE_SANDBOX_DENY_READ=default`（或分号列表）补敏感路径。srt alpha 在部分机器上对 denyRead 的 ACL stamp 可能很慢，先小范围验证。
@@ -185,7 +188,27 @@ createSessionTools({ ..., sandbox, sandboxMode });
 - 无参数：显示 setting/backend/mode/network/cwd/denyRead/覆盖边界；
 - 不负责实际执行；执行仍由 bash 工具走 Router。
 
-## 5. 新增 MXC 时要改什么
+## 5. MXC 适配器
+
+`packages/sandbox/src/backends/mxc.ts` 已接入 MXC v1 的 `spawn`：
+
+- `getPlatformSupport()` 检查主机；
+- `ContainerRequest.filesystem.readwritePaths/readonlyPaths/deniedPaths`；
+- `network.egress.default = "deny"`；
+- `ui.disable = true`；
+- `standardOutput/standardError` 流式转发到 `onOutput`；
+- `MxcProcess.wait()` 的 `exitCode/timedOut/warnings` 映射回 `SandboxResult`。
+
+当前限制：
+
+- MXC 要求 **Node >=24**；本机 Node 22 会显示不可用，不加载 native SDK；
+- `@microsoft/mxc-sdk` 放在 `packages/sandbox` 的 devDependencies，仅用于类型检查/Node 24 环境；
+- 尚未在真实 MXC 主机做文件/网络/PTY 验收；
+- MXC 的 PTY (`spawnWithPty`) 已接入 `/terminal`：MXC 可用时 `/terminal` 是受保护 PTY；srt 下仍回退普通 PTY 并显式提示。
+
+启用顺序：`KCODE_SANDBOX=auto` 时 MXC 可用优先，否则 srt；`KCODE_SANDBOX=mxc` 则只选 MXC。
+
+## 5.1 新增 MXC 时要改什么
 
 只新增/修改：
 
@@ -204,9 +227,9 @@ packages/sandbox/src/router.ts         ← auto 已预留 MXC 优先
 
 MXC 前提：
 
-- Node ≥24.21；
+- Node >=24（MXC SDK 1.0.1 engines）；
 - `getPlatformSupport().isSupported`；
-- 包体积/原生依赖可接受（约 108MB）；
+- 包体积/原生依赖（约 38MB tarball + koffi）；当前 koffi/node-pty build scripts 在 workspace 中被显式关闭，Node 24 测试机需按需批准；
 - 先跑 conformance（工作区写、系统拒绝、网络拒绝、超时、进程树）。
 
 ## 6. 安全语义
@@ -277,6 +300,7 @@ $srtWin = Get-ChildItem node_modules\.pnpm -Recurse -Filter srt-win.exe |
 - 默认不启用 `denyRead`；若启用 profile grant，必须自行评估敏感路径；
 - 只覆盖前台 bash（含 `!` 直执行）；后台任务明确拒绝；
 - 沙箱命令是流式 stdout/stderr（500ms 节流推 UI 尾部），但**没有 PTY/交互式终端**；
+- srt Windows `exec` 使用非交互 desktop + UI lockdown，不能承载交互 stdin；`/terminal` 因此运行**普通 PTY，不受 srt 保护**，只用于受信任的本地交互；
 - 没有网络 allowlist；
 - 网络拒绝目前主要靠 srt WFP/代理，不保证能像路径拒绝一样从 stderr 稳定解析出 `denied=network`；以命令实际失败为准；
 - 没有把 sandbox backend/denial 写入 `/audit`（后续）；

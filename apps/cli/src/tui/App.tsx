@@ -19,6 +19,7 @@ import { useSessionLifecycle } from "./state/lifecycle.js";
 import { InputArea } from "./input/InputArea.js";
 import { runDispatch } from "./input/commands.js";
 import { DialogLayer } from "./dialogs/DialogLayer.js";
+import { createSandboxPort, sandboxSetting, startSandboxPty, type SandboxPtySession } from "@kcode/sandbox";
 import type { RewindPoint } from "./dialogs/panels.js";
 import { StatusLine, StatusBar } from "./status/StatusLine.js";
 import { TranscriptView } from "./transcript/TranscriptView.js";
@@ -98,6 +99,8 @@ export function KcodeApp(props: KcodeAppProps) {
   const [mode, setMode] = useState<PermissionMode>(props.initialMode ?? "default");
   const [modelLabel, setModelLabel] = useState(props.model === "" ? "未配置" : props.model);
   const [fullAccessConfirm, setFullAccessConfirm] = useState(false);
+  /** /terminal：优先 MXC 受保护 PTY；srt 不支持交互 stdin，回退普通 PTY 并明示 */
+  const [terminal, setTerminal] = useState<{ session: SandboxPtySession; title: string; protectedMode: boolean } | null>(null);
   /** /permissions 面板：当前项目持久放行清单与清空确认 */
   const [permissionsPanel, setPermissionsPanel] = useState<string[] | null>(null);
   /** /resume 会话选择菜单：选项与会话 id 对齐（末位为取消） */
@@ -261,7 +264,8 @@ export function KcodeApp(props: KcodeAppProps) {
     resumePicker !== null ||
     rewindPicker !== null ||
     diffBrowser !== null ||
-    planApproval !== null;
+    planApproval !== null ||
+    terminal !== null;
 
   /** /rewind：取回退点并打开选择菜单（空闲时才可用） */
   const openRewindPicker = (): void => {
@@ -530,6 +534,45 @@ export function KcodeApp(props: KcodeAppProps) {
     void saveInputHistory(inputHistory.current, props.historyFile);
   };
 
+  /** /terminal：MXC 可用时使用受保护 PTY；srt 明确回退普通 PTY。 */
+  const startTerminal = async (): Promise<void> => {
+    if (terminal !== null) return;
+    try {
+      const setting = sandboxSetting();
+      let backend: "mxc" | "plain" = "plain";
+      let warning = "";
+      if (setting !== "off") {
+        const status = await createSandboxPort()?.available();
+        if (status?.available === true && status.backend === "mxc") {
+          backend = "mxc";
+        } else if (setting === "mxc") {
+          throw new Error(`MXC 不可用：${status?.reason ?? "unknown"}`);
+        } else if (status?.backend === "srt") {
+          warning = "srt Windows exec 不支持交互 stdin；/terminal 以普通 PTY 启动，不受 srt 保护。";
+        }
+      }
+      const windows = process.platform === "win32";
+      const session = await startSandboxPty({
+        backend,
+        cwd: props.cwd,
+        shellFile: windows ? "powershell.exe" : "bash",
+        shellName: windows ? "powershell" : "bash",
+        mode: "workspace-write",
+        cols: process.stdout.columns ?? 100,
+        rows: process.stdout.rows ?? 30,
+        env: process.env,
+      });
+      if (warning !== "") pushBlock({ kind: "info", tone: "warn", text: warning });
+      setTerminal({ session, title: backend === "mxc" ? "MXC" : "PTY", protectedMode: backend === "mxc" });
+    } catch (err) {
+      pushBlock({
+        kind: "info",
+        tone: "warn",
+        text: `PTY 启动失败：${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
+
   /** 分发一条输入（submit 直达或排空递归）：解析与执行在 input/commands.ts（N2-3 外迁） */
   const dispatch = async (text: string, images?: string[]): Promise<void> => {
     const session = sessionRef.current;
@@ -570,6 +613,7 @@ export function KcodeApp(props: KcodeAppProps) {
         onPlanApproval,
         onQueueChange: (items) => ui.getState().setQueuedItems(items.map((item) => ({ ...item }))),
         resumeQueue,
+        startTerminal,
       },
       text,
       images,
@@ -691,7 +735,11 @@ export function KcodeApp(props: KcodeAppProps) {
           fullAccessConfirm={fullAccessConfirm}
           loginWizard={loginWizard}
           modelPicker={modelPicker}
-        >
+          terminal={terminal}
+          onCloseTerminal={() => {
+            terminal?.session.kill();
+            setTerminal(null);
+          }}        >
           {/* N2-2：输入区常驻——busy 中提交进入排队而非丢弃；N3C-4②：浏览器打开时被顶替 */}
           <InputArea
             ui={ui}
