@@ -32,7 +32,14 @@ srt 的 Windows 模型：
 - 工作区显式 ACL；
 - HTTP/SOCKS 代理做域名 allowlist。
 
-安装（一次性 UAC，机器级；推荐先用 `-SkipProfileGrant` 的默认脚本）：
+TUI 内也可以安装/修复：
+
+```text
+/sandbox install          # 默认 skip-profile-grant；已安装则直接提示，不重复 UAC
+/sandbox install grant    # 显式授予 profile read（不推荐默认使用）
+```
+
+安装/验收脚本：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/srt-sandbox.ps1 -Action install
@@ -173,7 +180,9 @@ createSessionTools({ ..., sandbox, sandboxMode });
 `/sandbox`：
 
 - `off`：显示默认关闭 + 安装/开启指引；
-- `srt`：调用 `available()` 显示可用/不可用原因；
+- `install`：调用 `installSandbox()`（默认 skip-profile-grant；已安装则提示，不重复 UAC）；
+- `install grant`：显式授予 profile read；
+- 无参数：显示 setting/backend/mode/network/cwd/denyRead/覆盖边界；
 - 不负责实际执行；执行仍由 bash 工具走 Router。
 
 ## 5. 新增 MXC 时要改什么

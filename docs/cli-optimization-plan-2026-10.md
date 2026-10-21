@@ -262,7 +262,7 @@
 
 | ID | 方向 | 动作 | 验收 | 人日 |
 |---|---|---|---|---|
-| 4-01 | **Windows 沙箱（srt 接入，⚠️ M1 骨架）**：不自研沙箱；`SandboxPort` + `@kcode/sandbox` Router；srt adapter 走 `srt` CLI（settings/包装脚本，规避库 persistent-root 卡死；自动注入 git safe.directory）；bash 前台接入，沙箱不可用 fail-closed；后台任务明确拒绝；`/sandbox` 显示模式/边界；`/audit` 带 `sandbox=backend/mode` 与 `denied`；MXC 仅留 adapter 占位。默认 `off`，需一次 srt `windows-install`。下一步：安装入口、流式、MXC 平移 | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 3–5（M1，不含生产化） |
+| 4-01 | **Windows 沙箱（srt 接入，⚠️ M1 骨架）**：不自研沙箱；`SandboxPort` + `@kcode/sandbox` Router；srt adapter 走 `srt` CLI（settings/包装脚本，规避库 persistent-root 卡死；自动注入 git safe.directory）；bash 前台接入，沙箱不可用 fail-closed；后台任务明确拒绝；`/sandbox` 显示模式/边界并支持 `install`；`/audit` 带 `sandbox=backend/mode` 与 `denied`；MXC 仅留 adapter 占位。默认 `off`。下一步：流式/PTY、MXC 平移 | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 3–5（M1，不含生产化） |
 | 4-02 | **策略文件**（✅）：`.kcode/policy.json` v1：allow/ask/deny + commandPrefix/pathPrefix + priority；bash/PowerShell 文本前缀（分段/包装剥离）；deny 覆盖任何模式、allow 需 `/trust`、解析失败 fail-closed | 能声明"永不执行 rm -rf / del /s / git push --force" | 4 |
 | 4-03 | **LSP/diagnostics** | 编辑后收集 tsc/eslint/pyright 诊断，作为工具结果回灌；`diagnostics` 工具 | 改完文件能立即看到类型错误，不必模型自己跑全量 | 6–8 |
 | 4-04 | **repo map** | tree-sitter 或 rg + 结构摘要；按 token 预算注入 | 大仓问答/定位不再靠盲搜 | 6–8 |

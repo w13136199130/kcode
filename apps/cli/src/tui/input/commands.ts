@@ -20,7 +20,7 @@ import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
 import { formatCostUsage } from "./cost.js";
 import { formatAuditRecords } from "./audit-view.js";
-import { createSandboxPort, sandboxSetting } from "@kcode/sandbox";
+import { createSandboxPort, installSandbox, sandboxSetting } from "@kcode/sandbox";
 import { lastAssistantText, lastCodeBlock } from "./copy.js";
 import { copyTextToClipboard } from "../terminal/clipboard-text.js";
 import { stripEscapes } from "../terminal/sanitize.js";
@@ -352,6 +352,38 @@ ${body}
         return;
       }
       if (name === "sandbox") {
+        const sub = args.trim();
+        if (sub === "install" || sub === "install grant") {
+          if (sub === "install") {
+            const existing = await createSandboxPort({ KCODE_SANDBOX: "srt" })?.available();
+            if (existing?.available === true) {
+              ctx.pushBlock({
+                kind: "info",
+                tone: "ok",
+                text: "srt 已安装；无需重复安装。查看状态：/sandbox；需要 profile read 时用 /sandbox install grant。",
+              });
+              return;
+            }
+          }
+          ctx.pushBlock({
+            kind: "info",
+            text:
+              sub === "install grant"
+                ? "开始安装 srt Windows 沙箱（授予 profile read；会弹一次 UAC）……"
+                : "开始安装 srt Windows 沙箱（默认 skip-profile-grant；会弹一次 UAC）……",
+          });
+          const result = await installSandbox({ grantProfile: sub === "install grant" });
+          ctx.pushBlock({
+            kind: "info",
+            tone: result.ok ? "ok" : result.cancelled === true ? "warn" : "deny",
+            text: result.message,
+          });
+          return;
+        }
+        if (sub !== "") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/sandbox [install|install grant]" });
+          return;
+        }
         const setting = sandboxSetting();
         if (setting === "off") {
           ctx.pushBlock({
