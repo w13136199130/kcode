@@ -40,6 +40,18 @@ describe("RuntimeCommandQueue（N2-2 简化版准入队列）", () => {
     expect(q.tryReserve()).toBe(true);
   });
 
+  it("3-33 removeAt：按界面序号删除并通知；越界不动", () => {
+    const { q, sizes } = notified();
+    q.enqueue("a");
+    q.enqueue("b");
+    q.enqueue("c");
+    expect(q.removeAt(1)?.text).toBe("b");
+    expect(q.snapshot().map((x) => x.text)).toEqual(["a", "c"]);
+    expect(q.removeAt(9)).toBeUndefined();
+    expect(q.removeAt(-1)).toBeUndefined();
+    expect(sizes).toEqual([1, 2, 3, 2]);
+  });
+
   it("clear：清空并返回条数（中断语义——取消即不续跑）", () => {
     const q = new RuntimeCommandQueue();
     q.enqueue("a");

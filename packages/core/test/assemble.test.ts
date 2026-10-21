@@ -3,7 +3,6 @@ import type { ChatMessage, SkillMeta, ToolDefinition } from "@kcode/contracts";
 import { assembleMessages } from "../src/context/assemble.js";
 import { DEFAULT_BUDGET } from "../src/context/budget.js";
 import {
-  COMPACTION_KEEP_TAIL,
   COMPACTION_MIN_MESSAGES,
   applyCompaction,
   planCompaction,
@@ -82,12 +81,14 @@ describe("上下文压缩方案", () => {
     ];
     const plan = planCompaction(history, tiny);
     expect(plan).not.toBeNull();
-    expect(plan?.keepTail).toHaveLength(COMPACTION_KEEP_TAIL);
-    expect(plan?.toSummarize).toHaveLength(history.length - COMPACTION_KEEP_TAIL);
+    // N0：切点对齐 user 轮次边界——13 条中 initial=3 落在 assistant，向右落到 user（index 4）
+    expect(plan?.keepTail).toHaveLength(9);
+    expect(plan?.keepTail[0]?.role).toBe("user");
+    expect(plan?.toSummarize).toHaveLength(4);
     expect(plan?.taskAnchor?.content).toBe("任务目标");
 
     const applied = applyCompaction(plan!, "【摘要】ok");
-    expect(applied.dropped).toBe(history.length - COMPACTION_KEEP_TAIL);
+    expect(applied.dropped).toBe(4);
     expect(applied.history[0]?.content).toBe("任务目标");
     expect(applied.history[1]).toMatchObject({ role: "assistant", content: "【摘要】ok" });
     expect(applied.history.at(-1)).toBe(history.at(-1));

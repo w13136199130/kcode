@@ -5,7 +5,8 @@ import { c } from "../theme/theme.js";
 import { truncateVisual } from "../terminal/width.js";
 import { markdownToLines } from "../transcript/markdown.js";
 import { OptionsMenu, type MenuOption } from "./OptionsMenu.js";
-import { formatGrantPattern, suggestGrant } from "@kcode/extensions";
+import { suggestGrant } from "@kcode/extensions";
+import { askScopeLabels } from "./ask-labels.js";
 import { DiffPreview } from "./DiffPreview.js";
 import { stripEscapes } from "../terminal/sanitize.js";
 import type { CliServices } from "../state/services.js";
@@ -25,14 +26,9 @@ export function AskPanel(props: { ask: AskState }) {
   // N3I-5：bash/edit/write 的「本项目」档自动升级为参数级并展示将保存的规则
   // （zcode 单键体验：不给第五选项，规则范围在选项文案里看得见）
   const suggestion = suggestGrant({ tool: ask.call.tool, args: ask.call.args });
-  const projectLabel =
-    suggestion !== null
-      ? `允许此类，本项目不再询问 · ${formatGrantPattern(suggestion)}`
-      : "允许，本项目不再询问（持久）";
-  const sessionLabel =
-    suggestion !== null
-      ? `允许此类，本会话不再询问 · ${formatGrantPattern(suggestion)}`
-      : "允许，本会话不再询问";
+  const labels = askScopeLabels(suggestion);
+  const sessionLabel = labels.session;
+  const projectLabel = labels.project;
   const args = ask.call.args as { command?: unknown; path?: unknown } | null;
   const command = typeof args?.command === "string" ? args.command : null;
   const previewPath =
@@ -50,6 +46,13 @@ export function AskPanel(props: { ask: AskState }) {
         <Text wrap="wrap">{`  ${stripEscapes(JSON.stringify(ask.call.args, null, 2))}`}</Text>
       )}
       {ask.call.preview !== undefined && <DiffPreview preview={ask.call.preview} />}
+      {labels.rule !== null ? (
+        <Box marginLeft={2} marginBottom={0}>
+          <Text color={c("foregroundSubtle")} wrap="truncate-end">
+            将保存规则：{labels.rule}
+          </Text>
+        </Box>
+      ) : null}
       <OptionsMenu
         cancelLabel="Esc = 拒绝"
         // 2-20：危险操作默认停在「拒绝」，直接 Enter 不会误放行

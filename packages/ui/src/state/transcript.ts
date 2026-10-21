@@ -81,6 +81,8 @@ export interface TranscriptSlice {
   pendingImages: string[];
   /** 历史搜索覆盖层开关（N3C-4⑥ Ctrl+R）；query/cursor 是覆盖层局部态 */
   historySearchOpen: boolean;
+  /** 3-36：Ctrl+K 命令面板开关（query/cursor 由面板局部态持有） */
+  paletteOpen: boolean;
 
   pushBlock(block: Block): void;
   /** 3-25：请求把全部已定稿块重新推入 Static（Ctrl+O 切换展开度后重放） */
@@ -115,6 +117,9 @@ export interface TranscriptSlice {
   /** 历史搜索覆盖层 */
   openHistorySearch(): void;
   closeHistorySearch(): void;
+  /** 3-36：命令面板（Ctrl+K） */
+  openPalette(): void;
+  closePalette(): void;
   resetTranscript(): void;
 }
 
@@ -142,6 +147,7 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   taskBrowser: { open: false, cursor: 0, expandedId: null },
   pendingImages: [],
   historySearchOpen: false,
+  paletteOpen: false,
   pushBlock: (block) => set((state) => ({ blocks: [...state.blocks, block] })),
   replayTranscript: () => set((state) => ({ renderEpoch: state.renderEpoch + 1 })),
   appendStream: (delta) => set((state) => ({ streamText: state.streamText + delta })),
@@ -211,6 +217,8 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
   clearPendingImages: () => set({ pendingImages: [] }),
   openHistorySearch: () => set({ historySearchOpen: true }),
   closeHistorySearch: () => set({ historySearchOpen: false }),
+  openPalette: () => set({ paletteOpen: true }),
+  closePalette: () => set({ paletteOpen: false }),
   resetTranscript: () =>
     set((state) => ({
       blocks: [],
@@ -224,5 +232,6 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       taskBrowser: { open: false, cursor: 0, expandedId: null },
       pendingImages: [],
       historySearchOpen: false,
+      paletteOpen: false,
     })),
 });

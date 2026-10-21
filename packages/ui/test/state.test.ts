@@ -84,6 +84,17 @@ describe("UI 语义 store（N2-3：run-status + transcript 双 slice）", () => 
     expect(s.getState().renderEpoch).toBe(2);
   });
 
+  it("3-36：命令面板开/关；resetTranscript 一并关闭", () => {
+    const s = createUiStore();
+    s.getState().openPalette();
+    expect(s.getState().paletteOpen).toBe(true);
+    s.getState().closePalette();
+    expect(s.getState().paletteOpen).toBe(false);
+    s.getState().openPalette();
+    s.getState().resetTranscript();
+    expect(s.getState().paletteOpen).toBe(false);
+  });
+
   it("工厂隔离：两个 store 实例互不串态", () => {
     const a = createUiStore();
     const b = createUiStore();

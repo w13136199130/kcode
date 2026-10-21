@@ -160,19 +160,32 @@ describe("B3：loop 集成", () => {
     expect(COMPACTION_KEEP_TAIL).toBe(10);
   });
 
-  it("压缩切分不拆调用组：保留区起点回退到 assistant 调用，无孤立 tool result", () => {
-    const history: ChatMessage[] = [{ role: "user", content: "任务" }];
-    // 4 组「assistant(toolCalls) + 两个 tool 结果」，共 13 条；默认起点 13-10=3 恰好落在 tool 上
-    for (let i = 1; i <= 4; i++) {
-      history.push({ role: "assistant", content: "", toolCalls: [{ callId: `c${i}`, tool: "t", args: {} }] });
-      history.push({ role: "tool", content: `r${i}a`, toolCallId: `c${i}`, name: "t" });
-      history.push({ role: "tool", content: `r${i}b`, toolCallId: `c${i}`, name: "t" });
-    }
+  it("压缩切分不拆调用组：单轮历史不压缩；多轮时切点落在 user 边界", () => {
+    const group = (i: number): ChatMessage[] => [
+      { role: "assistant", content: "", toolCalls: [{ callId: `c${i}`, tool: "t", args: {} }] },
+      { role: "tool", content: `r${i}a`, toolCallId: `c${i}`, name: "t" },
+      { role: "tool", content: `r${i}b`, toolCallId: `c${i}`, name: "t" },
+    ];
+    // 单轮（一个 user + 4 组工具调用）：无法按 user 对齐，退化到工具对边界（不能永不压缩）
+    const single: ChatMessage[] = [{ role: "user", content: "任务" }];
+    for (let i = 1; i <= 4; i++) single.push(...group(i));
+    const singlePlan = planCompaction(single, { ...DEFAULT_BUDGET, history: 1 }, true);
+    expect(singlePlan).not.toBeNull();
+    expect(singlePlan!.keepTail[0]?.role).not.toBe("tool");
+
+    // 多轮：切点须落在 user 开头，且摘要区不残留半个工具组
+    const history: ChatMessage[] = [
+      { role: "user", content: "任务一" },
+      ...group(1),
+      { role: "user", content: "任务二" },
+      ...group(2),
+      { role: "user", content: "任务三" },
+      ...group(3),
+    ];
     const plan = planCompaction(history, { ...DEFAULT_BUDGET, history: 1 }, true);
     expect(plan).not.toBeNull();
-    // 保留区起点不得是 tool（否则其 assistant(toolCalls) 被拆到待摘要区，形成孤立结果）
-    expect(plan!.keepTail[0]?.role).not.toBe("tool");
-    expect(plan!.keepTail[0]).toMatchObject({ role: "assistant" });
+    expect(plan!.keepTail[0]).toMatchObject({ role: "user" });
+    expect(plan!.toSummarize.at(-1)?.role).toBe("tool"); // 完整工具组留在摘要区
   });
 
   it("历史过短（≤ 保留区）时返回 null：不制造孤立 tool result", () => {

@@ -53,7 +53,8 @@ export interface LifecycleDeps {
 export function useSessionLifecycle(deps: LifecycleDeps): { switchSession(resumeFrom: string): void } {
   const { props, ui, stream, createSession, sessionRef, handleEvent, asker, askUser, onPlanApproval, pushBlock } = deps;
   const onQueueChange = (items: readonly QueuedCommand[]): void => {
-    ui.getState().setQueuedCount(items.length);
+    // 3-33：队列面板需要完整快照；queuedCount 由 setQueuedItems 同步维护
+    ui.getState().setQueuedItems(items.map((item) => ({ ...item })));
   };
 
   useEffect(() => {

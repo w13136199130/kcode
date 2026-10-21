@@ -113,7 +113,7 @@ describe("BlockView 版式（对标主流 CLI）", () => {
     const frame = lastFrame() ?? "";
     expect(frame).toContain("TAIL");
     expect(frame).not.toContain("HEAD");
-    expect(frame).toContain("仅显示末尾 12 行 · Ctrl+B 查看全部");
+    expect(frame).toContain("仅显示末尾 12 行 · Ctrl+O 展开 / Ctrl+B 查看全部");
   });
 
   it("3-26：工具/助手/用户文本里的 OSC/CSI 不会出现在渲染帧", () => {

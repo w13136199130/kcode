@@ -12,6 +12,7 @@ import { c } from "./theme/theme.js";
 import { MODE_META } from "./theme/modes.js";
 import { appendInputLog } from "./terminal/input-log.js";
 import { useKeybinds } from "./terminal/keybinds.js";
+import { useInputListenerLimit } from "./terminal/input-limit.js";
 import { useTerminalTitle } from "./terminal/title.js";
 import { useAttentionBell, useCompletionBell } from "./terminal/notify.js";
 import { useSessionLifecycle } from "./state/lifecycle.js";
@@ -75,6 +76,7 @@ function FatalScreen(props: { message: string }) {
 
 /** kcode 主界面：流式输出、工具状态、菜单式确认（diff 预览）、Todo 面板、结构化提问、四档权限模式 */
 export function KcodeApp(props: KcodeAppProps) {
+  useInputListenerLimit();
   const { exit } = useApp();
   /** UI 语义 store（N2-3）：运行状态 + 转写双 slice；同步判定走 getState（store 即时生效，无闭包过期） */
   const ui = useRef(createUiStore()).current;
@@ -220,10 +222,15 @@ export function KcodeApp(props: KcodeAppProps) {
     abortSent.current = true;
     ui.getState().setCancelling(true);
     ui.getState().setNotice("正在取消，等待当前操作退出…");
-    // N2-2：中断即清空排队输入——取消当前轮后不应自动续跑后续提交
-    const cleared = sessionRef.current?.commandQueue.clear() ?? 0;
-    if (cleared > 0) {
-      pushBlock({ kind: "info", tone: "warn", text: `已清空 ${cleared} 条排队输入（中断不续跑）` });
+    // N2-2/3-33：中断不静默清空队列——暂停待执行项，由 /queue run|clear 显式处理
+    const queued = sessionRef.current?.commandQueue.size ?? 0;
+    if (queued > 0) {
+      ui.getState().setQueuePaused(true);
+      pushBlock({
+        kind: "info",
+        tone: "warn",
+        text: `⎋ 已中断本轮；队列保留 ${queued} 条（/queue run 继续 · /queue clear 清空）`,
+      });
     }
     // 先发取消，再结算本地交互，避免拒绝回复先到达后触发下一次模型调用。
     sessionRef.current?.abort();
@@ -351,6 +358,13 @@ export function KcodeApp(props: KcodeAppProps) {
     pushBlock({ kind: "info", text: `⇄ 已切换：${MODE_META[next].label}（${MODE_META[next].hint}）` });
   };
 
+  /** 3-36：命令面板的“切换权限模式”动作（与 Shift+Tab 同一循环，fullAccess 仍走显式确认） */
+  const cycleMode = (): void => {
+    const order: PermissionMode[] = ["plan", "default", "acceptEdits"];
+    const index = order.indexOf(mode);
+    applyMode(order[(index + 1) % order.length] ?? "default");
+  };
+
   /**
    * 退出：先关会话（停后台 bash/子代理、等当前 run 结算、关 MCP），再卸载 Ink。
    * close 内部有 2s 上限；不能让 exit() 先发生，否则子进程/会话文件尾部会丢。
@@ -444,11 +458,22 @@ export function KcodeApp(props: KcodeAppProps) {
     retryToken,
   });
 
-  /** N2-2：本轮结束即取下一条排队输入递归执行；队列空则停（中断路径已 clear，取消不续跑） */
+  /** N2-2：本轮结束即取下一条排队输入递归执行；队列空则停（3-33：暂停态不自动续跑） */
   const drainQueue = async (): Promise<void> => {
+    if (ui.getState().queuePaused) {
+      return;
+    }
     const next = sessionRef.current?.commandQueue.dequeue();
     if (next !== undefined) {
       await dispatch(next.text);
+    }
+  };
+
+  /** 3-33：/queue run——恢复队列；空闲时立即开始排空 */
+  const resumeQueue = (): void => {
+    ui.getState().setQueuePaused(false);
+    if (!ui.getState().busy && sessionRef.current !== null) {
+      void drainQueue();
     }
   };
 
@@ -459,7 +484,6 @@ export function KcodeApp(props: KcodeAppProps) {
   const runOccupied = async (session: SessionHandle, text: string, work: () => Promise<unknown>): Promise<void> => {
     if (!session.commandQueue.tryReserve()) {
       session.commandQueue.enqueue(text);
-      pushBlock({ kind: "info", text: `⧗ 已排队（第 ${session.commandQueue.size} 位）` });
       return;
     }
     beginWork();
@@ -483,12 +507,16 @@ export function KcodeApp(props: KcodeAppProps) {
       return;
     }
     if (ui.getState().busy) {
+      // 3-33：/queue 管理命令在运行中即时执行（其余输入才排队；否则清空/删除队列无从操作）
+      if (/^\/queue(?:\s|$)/i.test(text)) {
+        setInput("");
+        await dispatch(text);
+        return;
+      }
       const session = sessionRef.current;
       session.commandQueue.enqueue(text);
       setInput("");
       saveHistory(text);
-      const preview = text.length > 60 ? `${text.slice(0, 60)}…` : text;
-      pushBlock({ kind: "info", text: `⧗ 本轮运行中，已排队（第 ${session.commandQueue.size} 位）：${preview}——Esc/Ctrl+C 中断将清空排队` });
       return;
     }
     // 守卫全部通过才清附件：exit/空输入不应丢掉已贴的图
@@ -540,7 +568,8 @@ export function KcodeApp(props: KcodeAppProps) {
         asker,
         askUser,
         onPlanApproval,
-        onQueueChange: (items) => ui.getState().setQueuedCount(items.length),
+        onQueueChange: (items) => ui.getState().setQueuedItems(items.map((item) => ({ ...item }))),
+        resumeQueue,
       },
       text,
       images,
@@ -677,6 +706,8 @@ export function KcodeApp(props: KcodeAppProps) {
             {...(sessionRef.current?.jsonlPath !== undefined ? { jsonlPath: sessionRef.current.jsonlPath } : {})}
             loadToolOutput={(callId) => sessionRef.current?.toolResultOutput?.(callId) ?? Promise.resolve(null)}
             onCjkCommit={pingRepaint}
+            onCycleMode={cycleMode}
+            onInterrupt={interruptRun}
           />
         </DialogLayer>
         <StatusBar

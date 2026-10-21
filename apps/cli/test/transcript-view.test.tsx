@@ -68,4 +68,24 @@ describe("TranscriptView Live/Static 边界（3-25）", () => {
     expect(instance.frames.join("")).toContain("新会话第一条");
     instance.unmount();
   }, 10_000);
+
+  it("3-34 失败工具卡未按 Ctrl+O 也默认展示末尾输出", async () => {
+    const store = createUiStore();
+    const lines = Array.from({ length: 20 }, (_, i) => `line-${i + 1}`);
+    store.getState().pushBlock({
+      kind: "tool",
+      callId: "fail1",
+      tool: "bash",
+      argsPreview: "npm test",
+      status: "failed",
+      output: lines.join("\n"),
+      summary: "exit 1",
+    });
+    const instance = render(<TranscriptView ui={store} verbose={false} tick={0} />);
+    await sleep(100);
+    const text = instance.frames.join("");
+    expect(text).toContain("line-20");
+    expect(text).toContain("仅显示末尾 6 行");
+    instance.unmount();
+  }, 10_000);
 });

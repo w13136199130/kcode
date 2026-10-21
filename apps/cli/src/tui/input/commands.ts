@@ -20,6 +20,9 @@ import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
 import { formatCostUsage } from "./cost.js";
 import { formatAuditRecords } from "./audit-view.js";
+import { lastAssistantText, lastCodeBlock } from "./copy.js";
+import { copyTextToClipboard } from "../terminal/clipboard-text.js";
+import { stripEscapes } from "../terminal/sanitize.js";
 import type { AuditRecord } from "@kcode/core";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
 
@@ -69,6 +72,8 @@ export interface DispatchContext {
     reply: (labels: string[]) => void;
   }): void;
   onQueueChange(items: readonly QueuedCommand[]): void;
+  /** 3-33：恢复暂停的队列（空闲时立即开始排空；忙时本轮结束后继续） */
+  resumeQueue?: () => void;
 }
 
 /**
@@ -343,6 +348,96 @@ ${body}
             }
           });
         ctx.pushBlock({ kind: "info", text: formatAuditRecords(records, path) });
+        return;
+      }
+      if (name === "queue") {
+        const queue = ctx.session.commandQueue;
+        const [sub = "", ...rest] = args.trim().split(/\s+/).filter((part) => part !== "");
+        const list = (): void => {
+          const items = queue.snapshot();
+          if (items.length === 0) {
+            ctx.pushBlock({ kind: "info", text: "（队列为空）" });
+            return;
+          }
+          const paused = ctx.ui.getState().queuePaused;
+          const lines = items.map((item, index) => {
+            const preview = stripEscapes(item.text.replace(/\s+/g, " ")).slice(0, 100);
+            return `${index + 1}. ${preview}`;
+          });
+          ctx.pushBlock({
+            kind: "info",
+            text: `⧗ 排队 ${items.length} 条${paused ? "（已暂停）" : "（本轮结束后自动执行）"}：\n${lines.join("\n")}\n/queue run 继续 · /queue rm <序号> 删除 · /queue clear 清空`,
+          });
+        };
+        if (sub === "" || sub === "list") {
+          list();
+          return;
+        }
+        if (sub === "run" || sub === "resume") {
+          ctx.resumeQueue?.();
+          ctx.ui.getState().setQueuePaused(false);
+          ctx.pushBlock({
+            kind: "info",
+            text: queue.size === 0 ? "队列为空，已恢复正常提交" : `▶ 队列已恢复（${queue.size} 条）`,
+          });
+          return;
+        }
+        if (sub === "clear") {
+          const cleared = queue.clear();
+          ctx.ui.getState().setQueuePaused(false);
+          ctx.pushBlock({ kind: "info", text: cleared === 0 ? "（队列为空）" : `已清空 ${cleared} 条排队输入` });
+          return;
+        }
+        if (sub === "rm" || sub === "remove") {
+          const index = Number.parseInt(rest[0] ?? "", 10);
+          if (!Number.isFinite(index) || index <= 0) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/queue rm <序号>（/queue 查看序号）" });
+            return;
+          }
+          const removed = queue.removeAt(index - 1);
+          if (removed === undefined) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: `序号 ${index} 不存在（当前 ${queue.size} 条）` });
+            return;
+          }
+          ctx.pushBlock({ kind: "info", text: `已删除排队第 ${index} 条：${stripEscapes(removed.text).slice(0, 60)}` });
+          return;
+        }
+        ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/queue [list|run|clear|rm <序号>]" });
+        return;
+      }
+      if (name === "copy") {
+        const target = args.trim().toLowerCase();
+        if (target !== "" && target !== "last" && target !== "code") {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "用法：/copy [code]（空 = 最近回复；code = 最近代码块）" });
+          return;
+        }
+        if (target === "code") {
+          const found = lastCodeBlock(ctx.ui.getState().blocks);
+          if (found === null) {
+            ctx.pushBlock({ kind: "info", tone: "warn", text: "最近回复里没有代码块" });
+            return;
+          }
+          const ok = copyTextToClipboard(found.code);
+          ctx.pushBlock({
+            kind: "info",
+            tone: ok ? "ok" : "warn",
+            text: ok
+              ? `已复制代码块${found.lang !== "" ? `（${found.lang}）` : ""}：${found.code.split("\n").length} 行`
+              : "复制失败（剪贴板不可用；可在工具面板按 c 或手动选择）",
+          });
+          return;
+        }
+        const text = lastAssistantText(ctx.ui.getState().blocks);
+        if (text === null) {
+          ctx.pushBlock({ kind: "info", tone: "warn", text: "还没有可复制的助手回复" });
+          return;
+        }
+        const ok = copyTextToClipboard(text);
+        ctx.pushBlock({
+          kind: "info",
+          tone: ok ? "ok" : "warn",
+          text: ok ? `已复制最近回复（${text.length} 字符）` : "复制失败（剪贴板不可用）",
+        });
         return;
       }
       if (name === "clear") {

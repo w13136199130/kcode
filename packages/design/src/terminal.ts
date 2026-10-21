@@ -8,7 +8,7 @@ import type { SemanticColor } from "./tokens.js";
 export const TERMINAL_COLORS: Record<SemanticColor, string | undefined> = {
   foreground: undefined,
   foregroundSubtle: "#94a3b8",
-  brand: "cyan",
+  brand: "#22d3ee",
   // ANSI magenta 在 Windows Terminal 渲染成 ~#800080 深紫（截图反馈"太深"）；
   // CC 选中菜单描述/面板标题是淡薰衣草紫——hex 恒定
   accent: "#c4b5fd",
@@ -16,11 +16,12 @@ export const TERMINAL_COLORS: Record<SemanticColor, string | undefined> = {
   warning: "#fbbf24",
   destructive: "#fca5a5",
   info: "#7dd3fc",
-  diffAdded: "green",
-  diffRemoved: "red",
-  diffContext: "gray",
-  interactionAsk: "yellow",
-  interactionConfirm: "green",
+  // 3-35：diff/交互状态也固定 hex（ANSI red/green 随终端主题浮动，红在深底可能低于 4.5:1）
+  diffAdded: "#86efac",
+  diffRemoved: "#fca5a5",
+  diffContext: "#94a3b8",
+  interactionAsk: "#fbbf24",
+  interactionConfirm: "#86efac",
 };
 
 /** 语义令牌 → 无色回退符号（无色终端/色盲用户可辨状态） */

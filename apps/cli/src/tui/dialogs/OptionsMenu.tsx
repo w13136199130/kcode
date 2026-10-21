@@ -85,7 +85,12 @@ export function OptionsMenu(props: {
         const marker =
           props.multi === true ? (checked.has(idx) ? "☒" : "☐") : highlighted ? "❯" : " ";
         return (
-          <Text key={o.key + String(idx)} color={highlighted ? c("brand") : undefined} bold={highlighted}>
+          <Text
+            key={o.key + String(idx)}
+            color={highlighted ? c("brand") : undefined}
+            bold={highlighted}
+            wrap="truncate-end"
+          >
             {marker} {idx + 1}. {stripEscapes(o.label)}
           </Text>
         );

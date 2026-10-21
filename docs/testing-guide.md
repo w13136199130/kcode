@@ -177,6 +177,82 @@ $env:NO_COLOR="1"; $env:KCODE_PLAIN="1"; pnpm --filter @kcode/cli start
 
 状态符应为 ASCII、无颜色；粘贴含 ESC/OSC 的文本不会改窗口标题或写剪贴板（自动化见 `sanitize.test.ts` / `terminal-degrade.test.ts`）。
 
+### 3.10 排队输入（3-33）
+
+1. 发起一轮长任务（或任务进行中），连续输入 `q2`、`q3`；
+2. 输入框上方应出现 `⧗ 排队 N 条` 面板，逐条显示预览；
+3. 按 Esc：应提示“队列保留 N 条”，队列进入“已暂停”，不会自动续跑；
+4. 输入 `/queue` 查看、`/queue rm 1` 删除、`/queue run` 恢复执行、`/queue clear` 清空。
+
+自动化回归：
+
+```powershell
+pnpm vitest run apps/cli/test/queue.test.tsx packages/runtime/test/command-queue.test.ts
+```
+
+### 3.11 复制与失败输出（3-34）
+
+1. 让模型输出一段带代码围栏的回复；
+2. `/copy` 应提示复制最近回复；`/copy code` 应提示复制代码块（含语言与行数）；
+3. 触发一个失败工具（如 `bash` 跑不存在的命令）：失败卡应直接显示末尾 6 行错误，无需 Ctrl+O；Ctrl+O 展开 12 行，Ctrl+B 看完整输出。
+
+自动化回归：
+
+```powershell
+pnpm vitest run apps/cli/test/copy.test.ts apps/cli/test/transcript-view.test.tsx apps/cli/test/transcript.test.tsx
+pnpm vitest run packages/core/test/compaction-boundary.test.ts
+```
+
+### 3.12 配色/对比度（3-35）
+
+```powershell
+pnpm vitest run packages/design/test/contrast.test.ts packages/design/test/tokens.test.ts
+```
+
+自动校验暗色（#0c0c0c 底）与亮色（#ffffff 底）所有语义色 ≥ 4.5:1，且状态色必须为确定性 hex。手工检查：
+
+```powershell
+$env:KCODE_THEME="light"; pnpm --filter @kcode/cli start   # 白底可读
+$env:KCODE_THEME="dark";  pnpm --filter @kcode/cli start   # 深底可读（默认）
+$env:KCODE_PLAIN="1";     pnpm --filter @kcode/cli start   # ASCII + 无色
+```
+
+重点看：状态栏、工具失败卡、diff +/-、审批面板的提示色；浅色下不应出现浅黄/浅绿低对比文字。
+
+### 3.13 Ctrl+K 命令面板（3-36）
+
+1. 空闲输入区按 `Ctrl+K`，应弹出“命令面板”；
+2. 输入 `copy` 过滤到 `/copy`，`↑↓` 切换、`Enter` 执行（无参数命令直接执行；需要参数的命令回填 `/name `）；
+3. 输入 `工具` 应命中“打开工具浏览器”等键动作；
+4. `Esc` 或再按 `Ctrl+K` 关闭。
+
+自动化回归：
+
+```powershell
+pnpm vitest run apps/cli/test/command-palette.test.tsx
+```
+
+### 3.14 项目策略文件（4-02）
+
+1. 在项目根建 `.kcode/policy.json`：
+
+```json
+{ "version": 1, "rules": [
+  { "tool": "bash", "commandPrefix": ["rm -rf /", "git push --force", "del /s"], "decision": "deny", "priority": 100 }
+] }
+```
+
+2. 新会话应提示“已加载项目策略 N 条”；
+3. 让模型执行 `bash` `rm -rf /`（或直接问）应返回 permission denied，命令不执行；
+4. 复合命令 `echo ok && rm -rf /`、`sudo -u root rm -rf /` 也应被拒绝；
+5. 把 JSON 改坏后新会话应 fail-closed（全部工具拒绝）并提示修复；删除文件恢复正常。
+
+自动化回归：
+
+```powershell
+pnpm vitest run packages/extensions/test/policy.test.ts packages/session/test/policy-wiring.test.ts
+```
+
 ## 4. 结果怎么看
 
 - 自动化通过但手工异常：优先抓 `~/.kcode/cli/sessions/<id>.jsonl` 与 `~/.kcode/cli/audit/<id>.jsonl`；

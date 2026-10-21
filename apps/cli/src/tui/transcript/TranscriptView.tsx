@@ -2,7 +2,7 @@ import { Box, Static, Text } from "ink";
 import { useStore } from "zustand";
 import type { UiStore } from "@kcode/ui";
 import { BlockView, TodoPanel, type Block } from "./Transcript.js";
-import { rawColor } from "../theme/theme.js";
+import { c } from "../theme/theme.js";
 
 /**
  * 转写区（N2-3 外迁，3-25 修正 Live/Static 边界）：
@@ -45,7 +45,7 @@ export function TranscriptView(props: { ui: UiStore; verbose: boolean; tick: num
       ))}
       {reasoningText !== "" && (
         <Box marginLeft={2}>
-          <Text color={rawColor("gray")} italic wrap="truncate-end">
+          <Text color={c("foregroundSubtle")} italic wrap="truncate-end">
             ✻ {reasoningText.split("\n").at(-1)?.slice(-100) ?? ""}
           </Text>
         </Box>

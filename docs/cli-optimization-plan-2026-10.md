@@ -3,7 +3,7 @@
 > 配套参考：[竞品基线](./cli-agent-benchmark-2026.md) · [ZCode 架构对标](./zcode-benchmark.md) · [威胁模型](./threat-model.md)
 > 范围：本文是**唯一执行文档**（CLI 主线 + 共享层 + 桌面冻结边界）。`apps/cli` 与 `apps/desktop` 共享 `packages/*` 与同一会话语义；CLI 是主产品，桌面 D3 冻结。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**。最近一次全量：**152 files / 780 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
+> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（running 工具及其后块留在活区、Ctrl+O 清屏重放、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**；追加 **3-33 队列可视 + 安全中断**、**3-34 输出可操作 + N0 收尾**、**3-35 配色对比度审计**、**3-36 Ctrl+K 命令面板**、**3-37 审批菜单文案收敛**；**阶段四 4-02 策略文件完成**。最近一次全量：**160 files / 814 passed / 1 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 尚未在 Actions 首跑。
 
 > **产品化优先令（2026-10-20）**：CLI 是主产品，桌面 D3 冻结，只保留共享层类型兼容；先完成 CLI 阶段二尾巴与阶段三 P0，再恢复桌面。阶段三内部按“生命周期可靠性 → 编码闭环 → TUI 摩擦 → 扩展深水区”排序，不再按原表从 3-01 顺序平铺。详见下方「阶段三产品化重排」。
 
@@ -18,7 +18,7 @@
 | 5 | **P1-D 扩展**：3-15→3-16→3-17→3-18→3-19→3-21→3-13→3-14 | **P1-D 全部完成**；下一步 P2-E 3-29 审计 | 扩展边界与 `/trust` 一致 |
 | 6 | **P2-E 治理**：3-29→3-30→3-32→3-31 | **P2-E 全部完成** | 文档/审计有证据 |
 
-**立即下一步**：P2-E 全部完成（3-29/3-30/3-32/3-31）。P0/P1/P2 计划项已收口；下一步进入**阶段四**（Windows 沙箱、策略文件、LSP、fork/命名/搜索、auto memory）或按 0.4 使用数据选做。Windows CI 需推送仓库后首跑。D3 仍冻结。
+**立即下一步**：P0/P1/P2 计划项已收口，阶段四 **4-02 策略文件已完成**（JSON、deny/ask/allow、命令/路径前缀、fail-closed，见 §4）。下一步建议 **4-01 Windows 原生沙箱**（15–20 人日，原型 + 生产化）或按 0.4 使用数据选 4-03/4-04。Windows CI 需推送仓库后首跑。D3 仍冻结。
 
 **桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。
 
@@ -238,6 +238,11 @@
 | 3-30 | **保留策略**（✅）：会话按年龄/数量保留最新；孤儿产物/检查点/审计清理；产物体积与审计总量超限从最旧淘汰；过期子代理会话清理；`kcode sessions vacuum [--dry-run] [--max-sessions/--max-age-days/--max-artifact-mb/--max-audit-mb]`；`rm` 级联删产物/检查点/审计 | `runtime/session/retention.ts`、`sessions-command.ts` | 长期使用磁盘不失控 | 1.5 |
 | 3-31 | **文档对账**（✅）：DESIGN 增状态图例 + §0.1 落地状态索引（阶段→✅/⚠️/⏳/❄→测试/入口）；全部“已落地”断言带三态标记；`gates:check` 校验 DESIGN/README 本地链接存在 + “已落地”未带标记即 fail；修正技能来源/hash 过时结论 | `DESIGN.md`、`scripts/gates-check.mjs` | 不再出现"文档说完成、代码没有" | 2 |
 | 3-32 | **Windows CI 扩展**（✅）：Windows job 从 6 个 smoke 文件扩为**全量 `pnpm test`**（Ink 交互渲染、真实路径/CRLF、DPAPI keychain、剪贴板、bash 进程树、host lease）+ desktop E2E；Linux 门禁补 `pnpm build`；turbo `.turbo` 缓存、concurrency 取消旧跑、job 超时 | `.github/workflows/ci.yml` | Windows 回归可发现 | 1 |
+| 3-33 | **队列可视 + 安全中断**（✅）：输入框上方常驻队列面板（预览/计数）；Esc 中断保留队列并暂停（不静默清空）；`/queue [list|run|clear|rm <序号>]`；运行中 `/queue` 即时执行 | `runtime/command-queue.ts`、`ui/run-status.ts`、`tui/input/QueuePanel.tsx`、`App.tsx`、`commands.ts` | 运行中提交不丢失；中断与队列解耦 | 2 |
+| 3-34 | **输出可操作 + N0 收尾**（✅）：`/copy` 复制最近回复、`/copy code` 复制最近代码块；失败工具卡默认展开末尾 6 行；压缩切点优先 user 完整轮次（单轮长任务退化工具对边界），消除 N0 ⚠️ | `tui/input/copy.ts`、`Transcript.tsx`、`core/context/compact.ts` | 复制/排错不用手动选；压缩不拆轮次 | 2 |
+| 3-35 | **配色/对比度审计**（✅）：暗/亮语义色全量 WCAG AA ≥4.5:1；dark 调色板去 ANSI 名改确定性 hex（brand/diff/interaction）；`rawColor("gray")` 收敛为 `foregroundSubtle`；`KCODE_THEME=dark` 显式支持 | `design/terminal.ts`、`design/contrast.ts`、`StatusLine.tsx`、`TranscriptView.tsx` | 浅/深终端都清晰可读 | 1 |
+| 3-36 | **Ctrl+K 命令面板**（✅）：内置/自定义命令 + 键动作统一动作表；模糊子序列过滤、最近使用排序、↑↓/Enter/Esc；无参数命令直接执行，需参数命令回填 | `tui/input/CommandPalette.tsx`、`InputArea.tsx`、`keybinds.ts`、`ui/transcript.ts` | 不用背命令名也能找到操作 | 2 |
+| 3-37 | **审批菜单规则文案收敛**（✅）：复合/多行命令不再把整段规则重复进两个选项；规则单行截断展示，选项只讲“此命令/此类”范围；菜单项强制单行 | `tui/dialogs/ask-labels.ts`、`panels.tsx`、`OptionsMenu.tsx` | 长命令审批不再撑爆菜单 | 0.5 |
 
 **小计：约 58 人日。** 3 人并行约 4 周；1 人约 11–12 周。若只有 1 人，按 3-01/3-03/3-07/3-08/3-09/3-10/3-20/3-22/3-25/3-26/3-31 排序，其余延后。
 
@@ -258,7 +263,7 @@
 | ID | 方向 | 动作 | 验收 | 人日 |
 |---|---|---|---|---|
 | 4-01 | **Windows 原生沙箱** | restricted token + job object；read-only / workspace-write 两档；网络默认关；沙箱升级审批 once/session/policy | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 15–20（原型+生产化） |
-| 4-02 | **策略文件** | `.kcode/policy.toml` 或 JSON：allow/ask/deny + commandPrefix + priority；PowerShell/bash 双语法 | 能声明"永不执行 rm -rf / del /s / git push --force" | 4 |
+| 4-02 | **策略文件**（✅）：`.kcode/policy.json` v1：allow/ask/deny + commandPrefix/pathPrefix + priority；bash/PowerShell 文本前缀（分段/包装剥离）；deny 覆盖任何模式、allow 需 `/trust`、解析失败 fail-closed | 能声明"永不执行 rm -rf / del /s / git push --force" | 4 |
 | 4-03 | **LSP/diagnostics** | 编辑后收集 tsc/eslint/pyright 诊断，作为工具结果回灌；`diagnostics` 工具 | 改完文件能立即看到类型错误，不必模型自己跑全量 | 6–8 |
 | 4-04 | **repo map** | tree-sitter 或 rg + 结构摘要；按 token 预算注入 | 大仓问答/定位不再靠盲搜 | 6–8 |
 | 4-05 | **会话 fork/命名/搜索** | `--fork`、`/rename`、跨会话全文搜索、删除/归档 | 能从任意一轮开分支；能找回历史 | 5–7 |
@@ -331,6 +336,12 @@
 | `retention` | 年龄/数量/总量三重配额；dry-run 不改盘；孤儿与 rm 级联清理 | 三 |
 | `ci-windows` | Windows 全量测试含 Ink/DPAPI/clipboard；Linux build；turbo 缓存 | 三 |
 | `docs-reconcile` | DESIGN 三态图例/索引；本地链接存在；“已落地”必须带 ✅/⚠️ | 三 |
+| `queue-visible` | 排队面板快照；Esc 保留+暂停不续跑；/queue run/clear/rm | 三 |
+| `output-copy` | /copy 回复与代码块；失败卡默认末尾；压缩 user 边界 | 三 |
+| `color-contrast` | 暗/亮语义色 ≥4.5:1；dark 去 ANSI；gray 收敛 foregroundSubtle | 三 |
+| `command-palette` | Ctrl+K 过滤/选择/执行；无参数直跑、需参数回填；Esc/Ctrl+K 关闭 | 三 |
+| `ask-labels` | 精确/前缀规则文案；多行命令压单行；选项不含完整命令 | 三 |
+| `policy-file` | deny/ask/allow 优先级；复合/包装命令；未信任 allow 忽略；坏文件 fail-closed | 四 |
 | `static-running-tool` | 排队提示不冻结工具卡 | 三 |
 | `terminal-escape` | OSC/ESC 被剥离 | 三 |
 | `sandbox-windows` | 沙箱内写边界/网络 | 四 |
@@ -399,7 +410,7 @@
 
 - CLI 阶段一 1-01~1-11；阶段二 2-01~2-24（脚本化契约 + 安全最小集 + 审批闭环 + 通知/模式同步 + 生成式 /help）。
 - 桌面 D0/D1/D2：onboarding、host config RPC、队列、时间线、会话标题/删除、单实例/窗口状态、Composer slash/@、审批键盘/真实 diff/changed files/任务面板。
-- 验证基线：152 test files / 780 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
+- 验证基线：160 test files / 814 passed / 1 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
 
 ### 当前 P0（按序）
 

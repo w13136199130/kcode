@@ -41,11 +41,33 @@ export function planCompaction(
   if ((!force && !over) || history.length < COMPACTION_MIN_MESSAGES) {
     return null;
   }
-  // 保留区起点默认取末尾 KEEP_TAIL 条；若落在 tool 消息上，向左回退到它所属的
-  // assistant(toolCalls)，避免把工具结果与其调用拆到两个区，产生孤立 tool result。
-  let split = Math.max(0, history.length - COMPACTION_KEEP_TAIL);
-  while (split > 0 && history[split]?.role === "tool") {
-    split--;
+  // 保留区起点默认取末尾 KEEP_TAIL 条。3-13/N0：必须落在**完整轮次**边界上——
+  // 轮次以 user 消息开始；优先向右找最近的 user（把整个近期轮次留给原文），
+  // 没有后续 user 时向左找最近 user（保住最后一轮完整），避免 keepTail 从
+  // assistant/tool 中间开始、或摘要区以半个工具对结束。
+  const initial = Math.max(0, history.length - COMPACTION_KEEP_TAIL);
+  let split = history.findIndex((message, index) => index >= initial && message.role === "user");
+  if (split === -1) {
+    // 没有后续 user：若存在更早的 user 轮次，向左保住最后一轮完整；
+    // 只有单个 user（单轮长任务，如 -p 一次任务跑几十个工具步）时不能因此永不压缩，
+    // 退化到旧规则：只保证工具调用/结果不被拆开。
+    let lastUser = -1;
+    for (let index = Math.min(initial, history.length - 1); index >= 0; index--) {
+      if (history[index]?.role === "user") {
+        lastUser = index;
+        break;
+      }
+    }
+    if (lastUser > 0) {
+      split = lastUser;
+    }
+  }
+  if (split === -1) {
+    // 没有可用轮次边界（单轮/异常回放历史）：退回旧规则，至少不拆 tool 对
+    split = initial;
+    while (split > 0 && history[split]?.role === "tool") {
+      split--;
+    }
   }
   const toSummarize = history.slice(0, split);
   if (toSummarize.length === 0) {

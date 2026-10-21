@@ -75,6 +75,8 @@ export function formatToolPreview(tool: string, args: unknown): string {
 }
 /** verbose 态工具输出最多渲染行数 */
 const VERBOSE_TOOL_LINES = 12;
+/** 3-34：失败工具卡未展开时也显示末尾行数（错误通常在尾部） */
+const FAILED_TOOL_LINES = 6;
 /** 思考块展开态最多渲染行数 */
 const VERBOSE_REASONING_LINES = 30;
 
@@ -225,13 +227,15 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           {timing}
         </Text>
       </Text>
-      {props.verbose === true && block.output !== undefined && block.output !== "" ? (
+      {(props.verbose === true || block.status === "failed") && block.output !== undefined && block.output !== "" ? (
         <Box flexDirection="column" marginLeft={2}>
           {(() => {
             const lines = block.output.split("\n");
-            // 3-22：失败输出默认显示末尾——构建/测试错误集中在尾部，头部往往只是启动噪音
+            // 3-22/3-34：失败输出默认显示末尾——构建/测试错误集中在尾部；
+            // 未展开态只给 6 行提示，Ctrl+O/Ctrl+B 看全部。
             const tailMode = block.status === "failed";
-            const shown = tailMode ? lines.slice(-VERBOSE_TOOL_LINES) : lines.slice(0, VERBOSE_TOOL_LINES);
+            const limit = props.verbose === true ? VERBOSE_TOOL_LINES : FAILED_TOOL_LINES;
+            const shown = tailMode ? lines.slice(-limit) : lines.slice(0, limit);
             const hidden = lines.length - shown.length;
             return (
               <>
@@ -244,7 +248,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
                 {hidden > 0 ? (
                   <Text color={c("foregroundSubtle")}>
                     {tailMode
-                      ? `  …（仅显示末尾 ${VERBOSE_TOOL_LINES} 行 · Ctrl+B 查看全部）`
+                      ? `  …（仅显示末尾 ${limit} 行 · Ctrl+O 展开 / Ctrl+B 查看全部）`
                       : `  …（共 ${lines.length} 行 · Ctrl+B 查看全部）`}
                   </Text>
                 ) : null}

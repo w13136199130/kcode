@@ -5,6 +5,8 @@ import { useInput, useStdin } from "ink";
 import { useStore } from "zustand";
 import type { UiStore } from "@kcode/ui";
 import { InputBox } from "./InputBox.js";
+import { QueuePanel } from "./QueuePanel.js";
+import { CommandPalette, type PaletteAction } from "./CommandPalette.js";
 import type { CommandInfo } from "./builtin-commands.js";
 import { ToolBrowser } from "../transcript/ToolBrowser.js";
 import { TaskBrowser } from "../tasks/TaskBrowser.js";
@@ -40,14 +42,19 @@ export function InputArea(props: {
   /** 3-22：按 callId 读完整工具输出（块内仅 2k 预览） */
   loadToolOutput?: (callId: string) => Promise<string | null>;
   onCjkCommit(): void;
+  /** 3-36：命令面板动作（模式循环/中断由 App 注入） */
+  onCycleMode?(): void;
+  onInterrupt?(): void;
 }) {
   const browserOpen = useStore(props.ui, (s) => s.toolBrowser.open);
   const taskBrowserOpen = useStore(props.ui, (s) => s.taskBrowser.open);
   const historySearchOpen = useStore(props.ui, (s) => s.historySearchOpen);
+  const paletteOpen = useStore(props.ui, (s) => s.paletteOpen);
   const pendingImages = useStore(props.ui, (s) => s.pendingImages);
   const busy = useStore(props.ui, (s) => s.busy);
   const { setRawMode } = useStdin();
-  const inputActive = props.interactive && props.ready && !browserOpen && !taskBrowserOpen && !historySearchOpen;
+  const inputActive =
+    props.interactive && props.ready && !browserOpen && !taskBrowserOpen && !historySearchOpen && !paletteOpen;
 
   // 3-24：外部编辑长输入迁到 Ctrl+G（Ctrl+E 让位给行尾），仅空闲可用
   // （spawnSync 阻塞事件循环，运行中会冻结流式渲染）
@@ -82,6 +89,16 @@ export function InputArea(props: {
     { isActive: inputActive },
   );
 
+  // 3-36：Ctrl+K 命令面板（内置命令 + 自定义命令 + 键动作，模糊过滤）
+  useInput(
+    (ch, key) => {
+      if (key.ctrl && ch === "k") {
+        props.ui.getState().openPalette();
+      }
+    },
+    { isActive: inputActive },
+  );
+
   // Ctrl+V 剪贴板贴图：终端不会传图片数据，经系统 API 读剪贴板落盘为附件
   useInput(
     (ch, key) => {
@@ -104,6 +121,70 @@ export function InputArea(props: {
     { isActive: inputActive },
   );
 
+  if (paletteOpen) {
+    const noArg = (hint: string | undefined): boolean =>
+      hint === undefined || hint.startsWith("（无参数") || hint.startsWith("(无参数");
+    const actions: PaletteAction[] = [
+      {
+        id: "action:tools",
+        label: "打开工具浏览器",
+        description: "长输出分页 / 搜索 / 复制（Ctrl+B）",
+        kind: "动作",
+        run: () => props.ui.getState().openToolBrowser(),
+      },
+      {
+        id: "action:tasks",
+        label: "打开后台任务",
+        description: "运行中任务、日志尾部与停止（Ctrl+T）",
+        kind: "动作",
+        run: () => props.ui.getState().openTaskBrowser(),
+      },
+      {
+        id: "action:history",
+        label: "历史输入搜索",
+        description: "跨会话输入历史（Ctrl+R）",
+        kind: "动作",
+        run: () => props.ui.getState().openHistorySearch(),
+      },
+      ...(props.onCycleMode !== undefined
+        ? [
+            {
+              id: "action:mode",
+              label: "切换权限模式",
+              description: "plan / default / acceptEdits（Shift+Tab）",
+              kind: "动作" as const,
+              run: () => props.onCycleMode?.(),
+            },
+          ]
+        : []),
+      ...(busy && props.onInterrupt !== undefined
+        ? [
+            {
+              id: "action:interrupt",
+              label: "中断当前运行",
+              description: "停止本轮（队列保留）",
+              kind: "动作" as const,
+              run: () => props.onInterrupt?.(),
+            },
+          ]
+        : []),
+      ...props.commands.map((command) => ({
+        id: `cmd:${command.name}`,
+        label: `/${command.name}`,
+        description: command.desc,
+        ...(command.argsHint !== undefined ? { hint: command.argsHint } : {}),
+        kind: "命令" as const,
+        run: () => {
+          if (noArg(command.argsHint) && !props.ui.getState().busy) {
+            props.onSubmit(`/${command.name}`);
+          } else {
+            props.onChange(`/${command.name} `);
+          }
+        },
+      })),
+    ];
+    return <CommandPalette actions={actions} onClose={() => props.ui.getState().closePalette()} />;
+  }
   if (taskBrowserOpen) {
     return <TaskBrowser ui={props.ui} />;
   }
@@ -127,6 +208,7 @@ export function InputArea(props: {
   }
   return (
     <Fragment>
+      <QueuePanel ui={props.ui} />
       {pendingImages.length > 0 && (
         <Box marginLeft={2}>
           <Text color={c("warning")}>📎 {pendingImages.length} 张图片附件将随下一条消息发送（Ctrl+V 继续添加）</Text>

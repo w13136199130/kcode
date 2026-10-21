@@ -19,7 +19,7 @@
 
 kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约/治理/身份/日志/令牌、N2 平台抽象/排队/UI 拆包/发行链）与通道前三项（N3-1 host 宿主、N3-2 凭证边界、N3-3 Web+中继）均已 ✅ 落地**（2026-09-29 复核）。剩余主线四处：
 
-1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份 ✅ 已落地；待复核项：手动 `/compact` 是否落盘、压缩切片是否按完整轮次（§2.3）。
+1. **会话一致性收尾（N0，P0）**：检查点持久化与 workspace 身份 ✅ 已落地；手动 `/compact` 已落盘、压缩切片按完整轮次 ✅（`compaction-boundary.test.ts`，§2.3）。
 2. **CLI 入口层与 TUI 交互补全（N3C，P1 快赢批，§8.4b）**：headless flag 组（`-p/--mode/--json` 等）、`doctor`、管理子命令、状态栏常驻信息与逐卡展开等交互件——用户最可感、成本最低、无依赖可插队的一批。
 3. **CLI 桌面前收尾（N3I，P1，§8.4f；2026-10-08 自查驱动）**：原子写、放行参数级粒度、hooks 一期、token 预算、会话导出等 9 项——N3-4 开工前的内功收口 + 0.2.0 发版节点。
 4. **通道收尾（N3-4/5）**：Desktop Electron 主线（**0.2.0 已发，N3-4 设计定稿 §8.4g，开工中**，2026-10-09）与插件加载期 hash 校验。
@@ -29,7 +29,7 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 
 | 阶段 | 状态 | 证据（测试/入口）与缺口 |
 |---|---|---|
-| N0 会话一致性 | ⚠️ | [checkpoints](packages/session/src/checkpoints.ts) · [resume test](packages/session/test/rewind-persistence.test.ts)；压缩切片按完整轮次仍待复核（§2.3） |
+| N0 会话一致性 | ✅ | [checkpoints](packages/session/src/checkpoints.ts) · [resume test](packages/session/test/rewind-persistence.test.ts) · [compaction boundary](packages/core/test/compaction-boundary.test.ts) |
 | N1 契约/治理/身份/日志/令牌 | ✅ | [gates](scripts/gates-check.mjs) · [CI](.github/workflows/ci.yml) · [contracts](packages/contracts/src/index.ts) |
 | N2 平台抽象/排队/UI 拆包/发行链 | ✅ | [queue](packages/runtime/src/session/command-queue.ts) · [ui](packages/ui/src/index.ts) · [release](apps/cli/scripts/release.mjs) |
 | N3-1 host 宿主 | ✅ | [host](apps/host/src/main.ts) · [host tests](apps/host/test/host.test.ts) |
@@ -40,8 +40,8 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 | N3C CLI 入口层/TUI 快赢批 | ✅ | [args](apps/cli/src/args.ts) · [headless test](apps/cli/test/headless.test.ts) |
 | N3D 子代理异步化 | ✅ | [subagent](packages/session/src/subagent.ts) · [background test](packages/session/test/subagent-background.test.ts) |
 | N3E 执行层体验批 | ✅ | [retry](packages/platform/src/providers/retry.ts) · [update test](apps/cli/test/update.test.ts) |
-| N3F/G 终端打磨 + 输入补全 | ✅ | [sanitize](apps/cli/src/tui/terminal/sanitize.ts) · [input test](apps/cli/test/input-editing.test.tsx) |
-| N3H 深度交互 | ⏳ | 未开始（§8.4e） |
+| N3F/G 终端打磨 + 输入补全 | ✅ | [sanitize](apps/cli/src/tui/terminal/sanitize.ts) · [input test](apps/cli/test/input-editing.test.tsx) · [contrast](packages/design/test/contrast.test.ts) |
+| N3H 深度交互 | ⚠️ | N3H-3 命令面板 ✅（[palette](apps/cli/src/tui/input/CommandPalette.tsx) · [test](apps/cli/test/command-palette.test.tsx)）；rewind 三分粒度/statusline/计划编辑器未开始 |
 | N3I CLI 内功收口 | ✅ | [hooks](packages/extensions/test/hooks.test.ts) · [budget](packages/core/test/budget-gate.test.ts) · [audit](packages/session/test/audit-log.test.ts) |
 | P1-D 扩展深水区（3-15~3-14） | ✅ | [plan](docs/cli-optimization-plan-2026-10.md) · [plugins](packages/extensions/test/plugins.test.ts) · [mcp](packages/tools/test/mcp.test.ts) |
 | P2-E 治理（3-29/3-30/3-32/3-31） | ✅ | [audit](packages/session/test/audit-log.test.ts) · [retention](packages/runtime/test/retention.test.ts) · [CI](.github/workflows/ci.yml) |
@@ -367,8 +367,8 @@ export interface IPlatformService {
 |---|---|---|
 | B1 配置/上下文 → 端点解析 | 伪装端点窃 key | 双作用域 schema + 受众绑定 **已实现** |
 | B2 keychain → 进程内存 → 出境 | 明文 key 外发 | AES-256-GCM/DPAPI **已实现**；key 明文与工具同进程 = 残余风险（N3-2 收敛到 host 修复） |
-| B3 不可信内容 → 模型 → 工具 | 提示注入越权 | 规则引擎默认 deny + 权限三态 + 只读档不可穿透 **已实现**；无 OS 沙箱 **目标** |
-| B4 进程 → 命令执行 | 任意命令 | 权限确认 + 超时 + 进程树清理 + /trust 门控 **已实现** |
+| B3 不可信内容 → 模型 → 工具 | 提示注入越权 | 规则引擎默认 deny + 权限三态 + 项目策略只收紧 + 只读档不可穿透 **已实现**；无 OS 沙箱 **目标** |
+| B4 进程 → 命令执行 | 任意命令 | 权限确认 + 项目策略 deny（含 `!` 直执行）+ 超时 + 进程树清理 + /trust 门控 **已实现** |
 | B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash 校验（N3-5：篡改拒载）**已实现**；Sigstore 签名 **目标（N4-4）** |
 
 **已知边界（诚实声明）**：提示注入未解；无 OS 级沙箱（"工具执行前确认"≠沙箱）；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能来源策略已由 3-18 收口（project/plugin 默认手动）；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块不原地重绘——Ctrl+O 以清屏 + `renderEpoch` 重放切换展开度；原地编辑消息/内联进度卡类交互仍只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。

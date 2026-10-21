@@ -1,7 +1,7 @@
 import { Text } from "ink";
 import type { PermissionMode } from "@kcode/contracts";
 import type { UsageStats } from "@kcode/ui";
-import { c, glyph, rawColor } from "../theme/theme.js";
+import { c, glyph } from "../theme/theme.js";
 import { MODE_META } from "../theme/modes.js";
 import { stripEscapes } from "../terminal/sanitize.js";
 
@@ -21,7 +21,7 @@ export function StatusLine(props: {
   const tools = props.toolNames ?? [];
   const activity = tools.length > 0 ? tools.slice(0, 3).join(", ") : props.label;
   return (
-    <Text color={rawColor("gray")}>
+    <Text color={c("foregroundSubtle")}>
       {`  ${glyph("✻", "*")} `}
       {activity}
       {props.elapsed}…{props.queuedCount > 0 ? <Text color={c("warning")}> · queued {props.queuedCount}</Text> : null}

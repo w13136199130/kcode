@@ -63,6 +63,16 @@ export class RuntimeCommandQueue {
     return item;
   }
 
+  /** 3-33：按界面索引删除排队项（0 基）；命中返回被删项，越界返回 undefined */
+  removeAt(index: number): QueuedCommand | undefined {
+    if (!Number.isInteger(index) || index < 0 || index >= this.items.length) {
+      return undefined;
+    }
+    const [removed] = this.items.splice(index, 1);
+    this.onChange?.([...this.items]);
+    return removed;
+  }
+
   /** 清空待执行项，返回清除数（中断时调用：取消即不续跑） */
   clear(): number {
     const cleared = this.items.length;

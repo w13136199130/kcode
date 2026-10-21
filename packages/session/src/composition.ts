@@ -34,6 +34,8 @@ import {
   buildExtensionRoots,
   isProjectTrusted,
   loadHookConfigs,
+  loadPolicy,
+  PolicyPermissionEngine,
 } from "@kcode/extensions";
 import { SessionRunner, RuntimeCommandQueue, type QueuedCommand, JsonlSessionSink, createSessionsTool, loadSessionEvents, effectiveEvents } from "@kcode/runtime";
 import { LlmSummarizer } from "@kcode/platform";
@@ -266,6 +268,44 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
     opts.cwd,
     join(opts.kcodeHomeDir, "trusted-projects.json"),
   );
+  // 4-02：项目策略文件（.kcode/policy.json）。deny/ask 在未信任项目也生效；
+  // allow 只在 /trust 后生效（项目文件不能自授放行）。解析失败 fail-closed。
+  const policy = await loadPolicy(opts.cwd, projectTrusted);
+  if (policy.exists) {
+    if (policy.errors.length > 0) {
+      opts.onNotice?.(
+        `项目策略无效（${policy.path}）：${policy.errors.join("；")}——已 fail-closed，全部工具拒绝`,
+      );
+    } else if (policy.rules.length > 0) {
+      opts.onNotice?.(
+        `已加载项目策略 ${policy.rules.length} 条（${policy.path}）——deny/ask 优先于当前权限档`,
+      );
+    }
+    if (policy.ignoredAllow > 0) {
+      opts.onNotice?.(
+        `项目策略有 ${policy.ignoredAllow} 条 allow 未生效：项目未受信任（/trust 后新会话生效）`,
+      );
+    }
+  }
+  const withPolicy = (engine: PermissionEngine): PermissionEngine =>
+    new PolicyPermissionEngine(engine, policy);
+  // `!命令` 是用户显式直执行（不询问权限），但策略 deny 仍应拦住“永不执行”的命令。
+  const allowEngineForPolicy: PermissionEngine = { decide: () => "allow" };
+  const policyOnly = new PolicyPermissionEngine(allowEngineForPolicy, policy);
+  const runPolicyBash = async (
+    command: string,
+    timeoutMs: number | undefined,
+    optsForBash: { sessionId: string; kcodeHomeDir: string; cwd: string; onNotice?: (message: string) => void },
+  ): Promise<{ ok: boolean; output: string; error?: string; durationMs: number }> => {
+    const verdict = await policyOnly.decide(
+      { name: "bash", description: "", parameters: {}, readOnly: false },
+      { command },
+    );
+    if (verdict === "deny") {
+      return { ok: false, output: "", error: "项目策略拒绝该命令（policy deny）", durationMs: 0 };
+    }
+    return runUserBash(command, timeoutMs, optsForBash);
+  };
   const agentsMd = await loadAgentsMd(opts.cwd, opts.kcodeHomeDir, { includeProject: projectTrusted });
   // 运行环境块（对标 Claude Code <env> 注入）：模型不再猜 shell 方言/平台，避免补偿式重试
   const shell = await currentShellInfo();
@@ -326,7 +366,8 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
   }
   const withPluginRules = (engine: PermissionEngine): PermissionEngine =>
     pluginPermissionRules.size > 0 ? new PluginPermissionEngine(engine, pluginPermissionRules) : engine;
-  const permissions = withPluginRules(basePermissions);
+  // 插件规则在外层：插件 deny 不能被项目策略 allow 打穿；策略在内层：可覆盖会话 grant。
+  const permissions = withPluginRules(withPolicy(basePermissions));
 
   const skills = await FsSkillLibrary.open(extensionRoots.skillRoots, opts.onNotice);
   const baseHookConfigs = await loadHookConfigs({
@@ -426,7 +467,7 @@ OS=${process.platform} · shell=${shell.dialect} · cwd=${opts.cwd}
     audit: auditSink,
     // 3-19：子代理权限档由声明决定（plan/default/acceptEdits）；插件限制规则继续叠加
     permissionFor: (mode) =>
-      withPluginRules(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode)),
+      withPluginRules(withPolicy(new SensitivePathPermissionEngine(new ModePermissionEngine(mode), () => mode))),
     parentMode: () => sessionMode,
     asker,
     agents,
@@ -583,7 +624,7 @@ ${plan}`);
     // 3-17：`!` 行经用户直执行通道（不问权限、独立 artifacts），输出回填模板
     expandCommand: (name, args) =>
       commands.expand(name, args, async (command) => {
-        const result = await runUserBash(command, 30_000, {
+        const result = await runPolicyBash(command, 30_000, {
           sessionId,
           kcodeHomeDir: opts.kcodeHomeDir,
           cwd: opts.cwd,
@@ -688,7 +729,7 @@ ${plan}`);
         failClosed: h.failClosed,
       })),
     runBash: (command, timeoutMs) =>
-      runUserBash(command, timeoutMs, {
+      runPolicyBash(command, timeoutMs, {
         sessionId,
         kcodeHomeDir: opts.kcodeHomeDir,
         cwd: opts.cwd,

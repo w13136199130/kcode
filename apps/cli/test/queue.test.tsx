@@ -125,14 +125,14 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     await t.eventually("等待模型响应");
     await t.settle(150);
 
-    // 运行中连发三条：不丢弃，逐条入队（busy 行排队数 1→2→3；提示块进 Static 滚动区）
+    // 运行中连发三条：不丢弃，逐条入队（输入框上方队列面板 1→2→3）
     await t.enter("q2");
-    await t.eventuallySaw("已排队（第 1 位）");
+    await t.eventually("排队 1 条");
     await t.eventually("queued 1");
     await t.enter("q3");
-    await t.eventually("queued 2");
+    await t.eventually("排队 2 条");
     await t.enter("q4");
-    await t.eventually("queued 3");
+    await t.eventually("排队 3 条");
     expect(t.run).toHaveBeenCalledTimes(1);
 
     // 放行 first → q2 立即接棒；逐个放行，顺序保持 FIFO
@@ -161,9 +161,9 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     t.stdin.write("\r");
     await t.settle(120);
     t.stdin.write("\r");
-    await t.eventuallySaw("已排队（第 1 位）");
+    await t.eventually("排队 1 条");
     await t.enter("after");
-    await t.eventually("queued 2");
+    await t.eventually("排队 2 条");
 
     t.finish(0); // first 完成 → 排空执行 /clear → 新会话 → "after" 属旧上下文，被清掉
     await t.eventuallySaw("已清空 1 条排队输入");
@@ -199,21 +199,61 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     expect(t.closes.flatMap((c) => c.mock.calls)).toHaveLength(1);
   }, T);
 
-  it("中断（Esc）清空排队输入：取消当前轮后不自动续跑", async () => {
+  it("3-33 中断（Esc）保留队列并暂停：/queue run 恢复后续跑", async () => {
     const t = await setup();
     await t.enter("first");
     await t.eventually("等待模型响应");
     await t.settle(150);
     await t.enter("q2");
-    await t.eventuallySaw("已排队（第 1 位）");
+    await t.eventually("排队 1 条");
     await t.enter("q3");
-    await t.eventually("queued 2");
+    await t.eventually("排队 2 条");
 
     t.stdin.write("\x1b"); // Esc：中断当前轮
-    await t.eventuallySaw("已清空 2 条排队输入");
+    await t.eventuallySaw("队列保留 2 条");
     t.finish(0, "aborted");
     await t.eventually("> █");
     await t.settle(300);
-    expect(t.run).toHaveBeenCalledTimes(1); // q2/q3 未被续跑
+    expect(t.run).toHaveBeenCalledTimes(1); // 暂停态不自动续跑
+    await t.eventually("排队 2 条");
+    await t.eventually("已暂停");
+
+    // /queue run：恢复并按序执行 q2/q3
+    t.stdin.write("/queue run");
+    await t.eventually("/queue run█");
+    t.stdin.write("\r");
+    await t.settle(120);
+    t.stdin.write("\r");
+    await vi.waitFor(() => expect(t.run).toHaveBeenCalledTimes(2), { timeout: 3000, interval: 50 });
+    t.finish(1);
+    await vi.waitFor(() => expect(t.run).toHaveBeenCalledTimes(3), { timeout: 3000, interval: 50 });
+    t.finish(2);
+    await t.settle(200);
+    expect(t.run.mock.calls.map((c) => c[0])).toEqual(["first", "q2", "q3"]);
+  }, T);
+
+  it("3-33 /queue clear 与 /queue rm 可管理排队项", async () => {
+    const t = await setup();
+    await t.enter("first");
+    await t.eventually("等待模型响应");
+    await t.enter("a");
+    await t.eventually("排队 1 条");
+    await t.enter("b");
+    await t.eventually("排队 2 条");
+
+    // 运行中 /queue 即时执行（不自身入队）
+    t.stdin.write("/queue rm 1");
+    await t.eventually("/queue rm 1█");
+    t.stdin.write("\r");
+    await t.settle(250);
+    await t.eventually("排队 1 条");
+    expect(t.run).toHaveBeenCalledTimes(1);
+
+    t.stdin.write("/queue clear");
+    await t.eventually("/queue clear█");
+    t.stdin.write("\r");
+    await t.settle(250);
+    await t.eventuallySaw("已清空 1 条排队输入");
+    expect(t.run).toHaveBeenCalledTimes(1);
   }, T);
 });

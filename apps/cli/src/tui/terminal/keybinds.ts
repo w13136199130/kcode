@@ -51,15 +51,18 @@ export function useKeybinds(deps: {
   const escHintTimer = useRef<NodeJS.Timeout | undefined>(undefined);
   // 任一覆盖层打开时其余键位让行（同一时刻只有一个键位层生效；两浏览器互斥由 slice 保证）
   const overlayActive = (): boolean => {
-    const { toolBrowser, taskBrowser, historySearchOpen } = deps.ui.getState();
-    return toolBrowser.open || taskBrowser.open || historySearchOpen;
+    const { toolBrowser, taskBrowser, historySearchOpen, paletteOpen } = deps.ui.getState();
+    return toolBrowser.open || taskBrowser.open || historySearchOpen || paletteOpen;
   };
 
-  // Esc：浏览器打开时仅关闭浏览器；历史搜索自己处理 Esc（这里只让行）；busy 时中断（菜单占用时 Esc 归菜单）；空闲双击 → /rewind
+  // Esc：浏览器打开时仅关闭浏览器；历史搜索/命令面板自己处理 Esc（这里只让行）；busy 时中断（菜单占用时 Esc 归菜单）；空闲双击 → /rewind
   useInput(
     (_ch, key) => {
       if (!key.escape) return;
       const state = deps.ui.getState();
+      if (state.paletteOpen) {
+        return; // CommandPalette 自己消费 Esc
+      }
       if (state.toolBrowser.open) {
         // 3-22：详情展开时 Esc 归 ToolBrowser（先取消搜索，再收起详情），避免一键直接关面板
         if (state.toolBrowser.expandedCallId !== null) return;
@@ -143,6 +146,9 @@ export function useKeybinds(deps: {
   useInput(
     (ch, key) => {
       const state = deps.ui.getState();
+      if (state.paletteOpen) {
+        return; // 命令面板独占输入；Ctrl+K/Esc 由面板处理
+      }
       if (state.toolBrowser.open) {
         // 3-22：工具详情的 ↑↓/Enter/翻页/搜索/复制由 ToolBrowser 消费（它持有全文与窗口），
         // 这里只保留全局开关与浏览器互切，避免同一按键双消费者。

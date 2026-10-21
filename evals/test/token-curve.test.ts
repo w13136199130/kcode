@@ -87,9 +87,10 @@ describe("长会话 token 曲线（上下文工程验收）", () => {
     // （B3：保留区 6→10 条，压缩后的平台期含不可再压的近期原文地板）
     const tailFloor = COMPACTION_KEEP_TAIL * estimateTokens(BIG_OUTPUT);
     expect(peak).toBeLessThan(HISTORY_BUDGET + tailFloor + 2000);
-    // 曲线走平：终点不超过「预算 + 保留区地板」，后半程窄幅震荡（不再持续爬升）
+    // 曲线走平：终点不超过「预算 + 保留区地板」，后半程窄幅震荡（不再持续爬升）；
+    // N0 起切点对齐完整 user 轮次，可能多保留一整轮大输出 → 允许 4 个输出块的抖动
     expect(curve[curve.length - 1] ?? 0).toBeLessThan(HISTORY_BUDGET + tailFloor);
-    expect(tailSpread).toBeLessThan(2 * estimateTokens(BIG_OUTPUT) + 1500);
+    expect(tailSpread).toBeLessThan(4 * estimateTokens(BIG_OUTPUT) + 1500);
 
     // 压缩确实发生过，且锚点与摘要保留在最后一轮请求中
     expect(sink.events.filter((e) => e.type === "compaction_summary").length).toBeGreaterThanOrEqual(1);

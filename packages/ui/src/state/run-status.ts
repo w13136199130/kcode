@@ -18,6 +18,14 @@ export interface UsageStats {
   historyBudget: number;
 }
 
+/** 3-33：排队输入的界面视图（engine 的 RuntimeCommandQueue 仍是唯一事实源） */
+export interface QueuedCommandView {
+  id: number;
+  text: string;
+  priority: "now" | "next" | "later";
+  enqueuedAt: number;
+}
+
 export interface RunStatusSlice {
   busy: boolean;
   busySince: number | null;
@@ -25,6 +33,10 @@ export interface RunStatusSlice {
   phase: string;
   notice: string | null;
   queuedCount: number;
+  /** 3-33：排队列表快照（面板渲染）；queuedCount 保留给状态行/桌面 */
+  queuedItems: QueuedCommandView[];
+  /** 3-33：Esc 中断后队列暂停，等用户显式 /queue run 或 clear */
+  queuePaused: boolean;
   pendingTools: Readonly<Record<string, string>>;
   /** null = 尚无数据（会话未跑过），状态栏隐藏用量段 */
   usage: UsageStats | null;
@@ -37,6 +49,8 @@ export interface RunStatusSlice {
   setNotice(notice: string | null): void;
   setCancelling(cancelling: boolean): void;
   setQueuedCount(queuedCount: number): void;
+  setQueuedItems(items: QueuedCommandView[]): void;
+  setQueuePaused(paused: boolean): void;
   setPendingTool(callId: string, tool: string): void;
   clearPendingTool(callId: string): void;
   /** 本轮结束兜底：清空全部待决工具（session_end） */
@@ -53,6 +67,8 @@ export const createRunStatusSlice: StateCreator<RunStatusSlice, [], [], RunStatu
   phase: "",
   notice: null,
   queuedCount: 0,
+  queuedItems: [],
+  queuePaused: false,
   pendingTools: {},
   usage: null,
   begin: () =>
@@ -62,6 +78,8 @@ export const createRunStatusSlice: StateCreator<RunStatusSlice, [], [], RunStatu
   setNotice: (notice) => set({ notice }),
   setCancelling: (cancelling) => set({ cancelling }),
   setQueuedCount: (queuedCount) => set({ queuedCount }),
+  setQueuedItems: (items) => set({ queuedItems: items, queuedCount: items.length }),
+  setQueuePaused: (queuePaused) => set({ queuePaused }),
   setPendingTool: (callId, tool) =>
     set((state) => ({ pendingTools: { ...state.pendingTools, [callId]: tool } })),
   clearPendingTool: (callId) =>
@@ -80,6 +98,8 @@ export const createRunStatusSlice: StateCreator<RunStatusSlice, [], [], RunStatu
       phase: "",
       notice: null,
       queuedCount: 0,
+      queuedItems: [],
+      queuePaused: false,
       pendingTools: {},
       usage: null,
     }),
