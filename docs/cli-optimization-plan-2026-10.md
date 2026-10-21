@@ -262,7 +262,7 @@
 
 | ID | 方向 | 动作 | 验收 | 人日 |
 |---|---|---|---|---|
-| 4-01 | **Windows 原生沙箱** | restricted token + job object；read-only / workspace-write 两档；网络默认关；沙箱升级审批 once/session/policy | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 15–20（原型+生产化） |
+| 4-01 | **Windows 原生沙箱**（⚠️ spike 完成，未进 M1）：Job Object + `KILL_ON_JOB_CLOSE` 可用；纯 `CreateRestrictedToken`（去特权）仍保留管理员/High integrity，可写系统目录；加 `Users+RESTRICTED` restricted SID 后 `cmd.exe` 退出 `0xC0000142`。下一步转 AppContainer / low-integrity + workspace ACL / elevated helper 二次 spike | 沙箱内 `kcode -p` 可改工作区、不可写系统目录、不可联网；越权有明确提示 | 15–20（原型+生产化，当前阻断） |
 | 4-02 | **策略文件**（✅）：`.kcode/policy.json` v1：allow/ask/deny + commandPrefix/pathPrefix + priority；bash/PowerShell 文本前缀（分段/包装剥离）；deny 覆盖任何模式、allow 需 `/trust`、解析失败 fail-closed | 能声明"永不执行 rm -rf / del /s / git push --force" | 4 |
 | 4-03 | **LSP/diagnostics** | 编辑后收集 tsc/eslint/pyright 诊断，作为工具结果回灌；`diagnostics` 工具 | 改完文件能立即看到类型错误，不必模型自己跑全量 | 6–8 |
 | 4-04 | **repo map** | tree-sitter 或 rg + 结构摘要；按 token 预算注入 | 大仓问答/定位不再靠盲搜 | 6–8 |
