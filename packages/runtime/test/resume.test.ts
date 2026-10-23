@@ -234,7 +234,16 @@ describe("D1 会话标题/删除", () => {
         join(dir, `${id}.jsonl`),
         ev({ v: 1, type: "session_start", ts: 0, sessionId: id, model: "m" }) +
           ev({ v: 1, type: "user_message", ts: 0, sessionId: id, content: "部署失败怎么排查" }) +
-          ev({ v: 1, type: "assistant_message", ts: 0, sessionId: id, content: "先看部署日志" }),
+          ev({ v: 1, type: "assistant_message", ts: 0, sessionId: id, content: "先看部署日志" }) +
+          ev({
+            v: 1,
+            type: "tool_result",
+            ts: 0,
+            sessionId: id,
+            callId: "call_secret",
+            ok: true,
+            output: "第一行\n部署日志在 /tmp/deploy.log\n最后一行",
+          }),
       );
       await renameSession(dir, id, "部署排查");
       const hits = await searchSessions(dir, "部署");
@@ -242,6 +251,14 @@ describe("D1 会话标题/删除", () => {
       expect(hits[0]).toMatchObject({ sessionId: id, title: "部署排查" });
       expect(hits[0]?.snippet).toContain("部署");
       expect(hits.every((h) => h.line > 0)).toBe(true);
+
+      // 搜索结果只取可见正文：不包含 callId/type 等 JSONL 元数据，也不允许用元数据命中
+      const toolHits = await searchSessions(dir, "deploy.log");
+      expect(toolHits).toHaveLength(1);
+      expect(toolHits[0]).toMatchObject({ kind: "tool", snippet: expect.stringContaining("deploy.log") });
+      expect(toolHits[0]?.snippet).not.toContain("call_secret");
+      expect(toolHits[0]?.snippet).not.toContain('"type"');
+      expect(await searchSessions(dir, "call_secret")).toEqual([]);
       expect(await searchSessions(dir, "不存在的关键词")).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });

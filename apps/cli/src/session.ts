@@ -29,6 +29,7 @@ import {
   searchSessions as searchSessionTexts,
   type QueuedCommand,
   type RuntimeCommandQueue,
+  type SessionSearchHit,
 } from "@kcode/runtime";
 import { newId, workspaceKey } from "@kcode/shared";
 import type { Runtime } from "./bootstrap.js";
@@ -69,13 +70,7 @@ export interface SessionHandle {
   /** 4-05：删除历史会话（调用方拒绝当前活动会话） */
   deleteSession(sessionId: string): Promise<void>;
   /** 4-05：跨会话全文搜索 */
-  searchSessions(query: string, limit?: number): Promise<{
-    sessionId: string;
-    title?: string;
-    workspaceKey: string;
-    line: number;
-    snippet: string;
-  }[]>;
+  searchSessions(query: string, limit?: number): Promise<SessionSearchHit[]>;
   /** 3-06：当前会话的有效事件流（含工具全文；rewind/compact 已生效） */
   exportEvents(): Promise<SessionEvent[]>;
   listCommands(): {

@@ -209,6 +209,16 @@ describe("运行交互与事件状态（实际 Ink 渲染）", () => {
     t.end("aborted");
   }, T);
 
+  it("busy 中 /mode 即时执行，不进入队列", async () => {
+    const t = await setup();
+    t.stdin.write("/mode plan");
+    await t.eventually("/mode plan");
+    t.stdin.write("\r");
+    await t.eventually("已切换：只读");
+    expect(t.frame()).not.toContain("排队 1 条");
+    t.end("completed");
+  }, T);
+
   it("状态跟随模型增量、并行工具和终态，不提前报告执行结束", async () => {
     const t = await setup();
     t.options.onReasoning?.("分析摘要");

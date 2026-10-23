@@ -17,7 +17,7 @@ import { useTerminalTitle } from "./terminal/title.js";
 import { useAttentionBell, useCompletionBell } from "./terminal/notify.js";
 import { useSessionLifecycle } from "./state/lifecycle.js";
 import { InputArea } from "./input/InputArea.js";
-import { runDispatch } from "./input/commands.js";
+import { isImmediateWhileBusy, runDispatch } from "./input/commands.js";
 import { DialogLayer } from "./dialogs/DialogLayer.js";
 import { createSandboxPort, sandboxSetting, startSandboxPty, type SandboxPtySession } from "@kcode/sandbox";
 import type { RewindPoint } from "./dialogs/panels.js";
@@ -183,15 +183,13 @@ export function KcodeApp(props: KcodeAppProps) {
     return () => clearInterval(timer);
   }, [active]);
 
-  // Ctrl+O：折叠 ⇄ 展开转写（对标 Claude Code 的 transcript 切换）。
-  // 3-25：Static 里的旧块不会自动重绘——清屏/清 scrollback 后递增 renderEpoch，
-  // 由 TranscriptView 以新展开度重放全部定稿块（否则 Ctrl+O 对已滚出屏幕的块毫无效果）。
+  // Ctrl+O：折叠 ⇄ 展开当前轮转写。
+  // 不再清屏/重放 Static 全量历史——那会把整段 transcript 重新打印一遍（终端不支持 ED3
+  // 清 scrollback 时更会留下多份副本）。当前轮块由 TranscriptView 留在活区，可就地重绘。
   useInput(
     (ch, key) => {
       if (key.ctrl && ch.toLowerCase() === "o" && fatal === null) {
-        process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
         setVerbose((v) => !v);
-        ui.getState().replayTranscript();
       }
     },
     { isActive: interactive },
@@ -558,8 +556,9 @@ export function KcodeApp(props: KcodeAppProps) {
       return;
     }
     if (ui.getState().busy) {
-      // 3-33：/queue 管理命令在运行中即时执行（其余输入才排队；否则清空/删除队列无从操作）
-      if (/^\/queue(?:\s|$)/i.test(text)) {
+      // 3-33：/queue 管理命令在运行中即时执行；/mode 等纯本地状态命令同理，
+      // 否则用户在模型思考时切模式会被排到本轮结束之后。
+      if (isImmediateWhileBusy(text)) {
         setInput("");
         await dispatch(text);
         return;

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Box, Text, useStdout } from "ink";
 import type { TodoItem } from "@kcode/contracts";
 import { markdownToLines, type MdLine } from "./markdown.js";
@@ -85,9 +86,25 @@ const VERBOSE_REASONING_LINES = 30;
  * Static 中的块一经打印不再更新——工具块只有在完成（done/failed）后才应进入 Static。
  * 符号系统对齐主流 CLI：⏺ 助手 / ✻ 思考 / ⎿ 结果——全部等宽字形，不用 emoji。
  */
-export function BlockView(props: { block: Block; verbose?: boolean; now?: number }) {
+export function BlockView(props: {
+  block: Block;
+  verbose?: boolean;
+  now?: number;
+  expandable?: boolean;
+}) {
   const block = props.block;
   const { stdout } = useStdout();
+  const expandable = props.expandable !== false;
+  // 当前轮块会留在活区（Ctrl+O 可就地重绘）；大表格每帧重算代价高，按块文本/宽度缓存。
+  const assistantLines = useMemo<MdLine[] | null>(
+    () =>
+      block.kind === "assistant"
+        ? process.env["KCODE_NO_MD"] === "1"
+          ? stripEscapes(block.text).split("\n").map((line) => ({ segments: [{ text: line }] }))
+          : markdownToLines(block.text, { columns: Math.max(40, (stdout.columns ?? 100) - 2) })
+        : null,
+    [block, stdout.columns],
+  );
   if (block.kind === "banner") {
     // 极简启动横幅（对标 Claude Code：一行标识 + 模型 + 目录 + 提示，不带 ASCII art）
     return (
@@ -129,10 +146,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     // 助手正文：CC 同款 ● 首行前缀（白，与正文同色）+ 续行 2 格缩进。
     // 首个内容行是列表项时 ● 独占一行——● • 双重列表符号是排版反馈实测。
     // 空正文块（思考模型直发工具调用）不渲染。
-    const lines: MdLine[] =
-      process.env["KCODE_NO_MD"] === "1"
-        ? stripEscapes(block.text).split("\n").map((l) => ({ segments: [{ text: l }] }))
-        : markdownToLines(block.text);
+    const lines: MdLine[] = assistantLines ?? [];
     const firstContentIdx = lines.findIndex((l) => l.segments.map((s) => s.text).join("").trim() !== "");
     if (firstContentIdx === -1) {
       return null;
@@ -170,11 +184,14 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
   if (block.kind === "reasoning") {
     // 思考行 CC 同款：过去式 + 展开提示（Thought for 1s (ctrl+o to expand)），muted 灰
     const timing = block.ms !== undefined ? ` ${formatMs(block.ms)}` : "";
+    const hint = expandable ? " (ctrl+o to expand)" : "";
     if (props.verbose === true) {
       const lines = stripEscapes(block.text).split("\n").slice(0, VERBOSE_REASONING_LINES);
       return (
         <Box flexDirection="column" marginBottom={1}>
-          <Text color={c("foregroundSubtle")}>{`  Thought for${timing} (ctrl+o to collapse)`}</Text>
+          <Text color={c("foregroundSubtle")}>
+            {`  Thought for${timing}${expandable ? " (ctrl+o to collapse)" : ""}`}
+          </Text>
           {lines.map((line, j) => (
             <Text key={j} color={c("foregroundSubtle")} wrap="truncate-end">
               {"    "}
@@ -186,7 +203,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
     }
     return (
       <Box marginBottom={1}>
-        <Text color={c("foregroundSubtle")}>{`  Thought for${timing} (ctrl+o to expand)`}</Text>
+        <Text color={c("foregroundSubtle")}>{`  Thought for${timing}${hint}`}</Text>
       </Box>
     );
   }
@@ -216,6 +233,15 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
       : block.durationMs !== undefined
         ? ` (${formatMs(block.durationMs)})`
         : "";
+  const outputLineCount =
+    block.output !== undefined && block.output !== "" ? block.output.replace(/\n$/, "").split("\n").length : 0;
+  const summarySuffix = outputLineCount > 1 ? ` · 共 ${outputLineCount} 行 · Ctrl+B 查看全部` : "";
+  const summaryText = linkifyStructuredPaths(stripEscapes(block.summary ?? ""));
+  const summaryLimit = summarySuffix === "" ? 120 : 88;
+  const summaryDisplay =
+    visualWidth(summaryText) > summaryLimit
+      ? `${truncateVisual(summaryText, summaryLimit - 1)}…`
+      : summaryText;
   return (
     <Box flexDirection="column" marginLeft={2} marginBottom={1}>
       <Text>
@@ -232,7 +258,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
           {(() => {
             const lines = block.output.split("\n");
             // 3-22/3-34：失败输出默认显示末尾——构建/测试错误集中在尾部；
-            // 未展开态只给 6 行提示，Ctrl+O/Ctrl+B 看全部。
+            // 未展开态只给 6 行提示；当前轮 Ctrl+O 展开，历史按 Ctrl+B 看全部。
             const tailMode = block.status === "failed";
             const limit = props.verbose === true ? VERBOSE_TOOL_LINES : FAILED_TOOL_LINES;
             const shown = tailMode ? lines.slice(-limit) : lines.slice(0, limit);
@@ -248,7 +274,7 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
                 {hidden > 0 ? (
                   <Text color={c("foregroundSubtle")}>
                     {tailMode
-                      ? `  …（仅显示末尾 ${limit} 行 · Ctrl+O 展开 / Ctrl+B 查看全部）`
+                      ? `  …（仅显示末尾 ${limit} 行${expandable ? " · Ctrl+O 展开" : ""} / Ctrl+B 查看全部）`
                       : `  …（共 ${lines.length} 行 · Ctrl+B 查看全部）`}
                   </Text>
                 ) : null}
@@ -261,7 +287,8 @@ export function BlockView(props: { block: Block; verbose?: boolean; now?: number
         block.summary !== "" && (
           <Box marginLeft={2}>
             <Text color={c("foregroundSubtle")}>
-              {glyph("⎿", "\\")} {linkifyStructuredPaths(stripEscapes(block.summary))}
+              {glyph("⎿", "\\")} {summaryDisplay}
+              {summarySuffix}
             </Text>
           </Box>
         )

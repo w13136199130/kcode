@@ -67,7 +67,7 @@ export interface TaskBrowserState {
 
 export interface TranscriptSlice {
   blocks: Block[];
-  /** 3-25：Static 重放代次——Ctrl+O 展开/收起或 /clear 时递增，宿主以 key 重挂 Static 重印 */
+  /** 3-25：Static 重放代次——/clear 或显式重放时递增，宿主以 key 重挂 Static 重印 */
   renderEpoch: number;
   /** 流式正文缓冲（渲染为活区一行；flushAssistant 定格为 assistant 块） */
   streamText: string;
@@ -136,6 +136,23 @@ function closeBothBrowser(state: TranscriptSlice): { toolBrowser: ToolBrowserSta
   };
 }
 
+/** 后台任务快照相等：轮询秒回同一状态时不写新数组，避免“setState → 渲染 → 再轮询”循环 */
+function sameBackgroundTasks(a: readonly BgTaskView[], b: readonly BgTaskView[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((task, i) => {
+    const next = b[i]!;
+    return (
+      task.id === next.id &&
+      task.command === next.command &&
+      task.status === next.status &&
+      task.exitCode === next.exitCode &&
+      task.logPath === next.logPath &&
+      task.startedAt === next.startedAt
+    );
+  });
+}
+
 export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], TranscriptSlice> = (set, get) => ({
   blocks: [],
   renderEpoch: 0,
@@ -191,7 +208,8 @@ export const createTranscriptSlice: StateCreator<TranscriptSlice, [], [], Transc
       const expandedCallId = state.toolBrowser.expandedCallId === current.callId ? null : current.callId;
       return { toolBrowser: { ...state.toolBrowser, expandedCallId } };
     }),
-  setBackgroundTasks: (tasks) => set({ backgroundTasks: tasks }),
+  setBackgroundTasks: (tasks) =>
+    set((state) => (sameBackgroundTasks(state.backgroundTasks, tasks) ? state : { backgroundTasks: tasks })),
   openTaskBrowser: () =>
     set((state) => ({
       ...closeBothBrowser(state),

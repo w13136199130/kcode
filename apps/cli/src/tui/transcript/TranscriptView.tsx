@@ -6,12 +6,10 @@ import { c } from "../theme/theme.js";
 
 /**
  * 转写区（N2-3 外迁，3-25 修正 Live/Static 边界）：
- * - Static 只接收"第一个运行中工具之前"的块——已打印块不再重绘，长会话不整帧重印；
- * - 第一个 running 工具及其后的所有块（含 info/assistant/已完成工具）留在活区：
- *   排队提示、子代理事件插进队列后，running 卡仍会被持续重绘，不会冻结成 ⚡；
- * - 工具完成后，静态前缀自然向后生长，顺序不变且不重复打印；
- * - Ctrl+O 切换展开度时 renderEpoch 递增，Static 重新挂载重放全部定稿块（否则滚出屏幕的
- *   块永远保持旧展开态——这就是"Ctrl+O 按了没反应"的根因）。
+ * - Static 只接收“当前轮之前”的块——已打印块不再重绘，长会话不整帧重印；
+ * - 运行中工具及其后的块留在活区；空闲时最近一轮留在活区，Ctrl+O 可就地重绘，
+ *   不再清屏重放全部历史（避免终端留下多份 transcript）；
+ * - 旧轮次进 Static 后保持打印时的展开度；全文用 Ctrl+B / /export 查看。
  */
 export function TranscriptView(props: { ui: UiStore; verbose: boolean; tick: number }) {
   const blocks = useStore(props.ui, (s) => s.blocks);
@@ -20,13 +18,25 @@ export function TranscriptView(props: { ui: UiStore; verbose: boolean; tick: num
   const reasoningText = useStore(props.ui, (s) => s.reasoningText);
   const todos = useStore(props.ui, (s) => s.todos);
 
-  // 静态/活区分界：第一个运行中的工具之后一律留在活区（含其后已定稿的块）
+  // 静态/活区分界：
+  // - 最近一轮（最后一个 user 起）整体留在活区：当前轮的 user/assistant/tool 都能就绪重绘，
+  //   且不会在“运行中工具结束”时把已进 Static 的块拉回活区（那会导致 Static 缩短、内容重复）；
+  // - 没有 user（启动横幅/直接命令）时，从第一个运行中工具起留活区；
+  // - 旧轮次已进 Static，保持打印时的展开度；全文用 Ctrl+B / /export 查看。
   let splitAt = blocks.length;
-  for (let i = 0; i < blocks.length; i++) {
-    const block = blocks[i]!;
-    if (block.kind === "tool" && block.status === "running") {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i]!.kind === "user") {
       splitAt = i;
       break;
+    }
+  }
+  if (splitAt === blocks.length) {
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i]!;
+      if (block.kind === "tool" && block.status === "running") {
+        splitAt = i;
+        break;
+      }
     }
   }
   const finalized = blocks.slice(0, splitAt);
@@ -38,7 +48,9 @@ export function TranscriptView(props: { ui: UiStore; verbose: boolean; tick: num
   return (
     <>
       <Static key={renderEpoch} items={finalized}>
-        {(block, index) => <BlockView key={index} block={block} verbose={props.verbose} />}
+        {(block, index) => (
+          <BlockView key={index} block={block} verbose={props.verbose} expandable={false} />
+        )}
       </Static>
       {live.map((block, i) => (
         <BlockView key={liveKey(block, splitAt + i)} block={block} verbose={props.verbose} now={props.tick} />

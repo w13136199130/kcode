@@ -88,6 +88,40 @@ describe("markdownToLines（Markdown → 样式分段行）", () => {
     expect(headerLine?.segments.every((s) => s.bold === true)).toBe(true);
   });
 
+  it("超宽表格降级为纵向记录，不再把一列撑爆终端", () => {
+    const long = "很长的说明".repeat(20);
+    const lines = markdownToLines(`| 名称 | 说明 |\n| --- | --- |\n| foo | ${long} |`, { columns: 80 });
+    const texts = plain(lines);
+    expect(texts.some((t) => t.includes("▎ foo"))).toBe(true);
+    expect(texts.some((t) => t.includes("说明:"))).toBe(true);
+    expect(texts.some((t) => t.includes("很长的说明"))).toBe(true);
+    expect(Math.max(...texts.map((t) => t.length))).toBeLessThan(80);
+  });
+
+  it("表格单元格 <br> 转成分隔符，不把内容粘成一串", () => {
+    const lines = markdownToLines("| 应用 | 说明 |\n| --- | --- |\n| **cli**<br>apps/cli<br>v0.2.0 | x |", {
+      columns: 120,
+    });
+    const row = plain(lines).find((t) => t.includes("cli"));
+    expect(row).toContain("cli · apps/cli · v0.2.0");
+    expect(row).not.toContain("cliapps");
+  });
+
+  it("6 列表格在终端宽度内降级为纵向记录（字段名来自表头）", () => {
+    const md = [
+      "| 应用 | 职责 | 入口 | 构建 | 产物 | 说明 |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| cli | 终端界面 | main.tsx | tsup | dist | 可分发 |",
+      "| host | 子进程宿主 | port.ts | tsup | port.cjs | 被两端消费 |",
+    ].join("\n");
+    const texts = plain(markdownToLines(md, { columns: 100 }));
+    expect(texts.some((t) => t.includes("▎ cli"))).toBe(true);
+    expect(texts.some((t) => t.includes("职责: 终端界面"))).toBe(true);
+    expect(texts.some((t) => t.includes("▎ host"))).toBe(true);
+    expect(texts.some((t) => t.includes("说明: 被两端消费"))).toBe(true);
+    expect(texts.some((t) => t.includes("| 应用 |"))).toBe(false);
+  });
+
   it("软换行（br）拆为多行；空文档返回一个空行", () => {
     const lines = markdownToLines("第一行  \n第二行");
     const texts = plain(lines);

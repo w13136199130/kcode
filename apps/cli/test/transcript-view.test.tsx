@@ -39,8 +39,9 @@ describe("TranscriptView Live/Static 边界（3-25）", () => {
     instance.unmount();
   }, 10_000);
 
-  it("Ctrl+O 展开：replayTranscript 后已定稿块按新展开度重印", async () => {
+  it("Ctrl+O 展开：当前轮活区就地重绘，不重放 Static 历史", async () => {
     const store = createUiStore();
+    store.getState().pushBlock({ kind: "user", text: "解释一下" });
     store.getState().pushBlock({ kind: "reasoning", text: "内部推演细节", ms: 1000 });
     const instance = render(<TranscriptView ui={store} verbose={false} tick={0} />);
     await sleep(100);
@@ -48,10 +49,31 @@ describe("TranscriptView Live/Static 边界（3-25）", () => {
     expect(collapsed).toContain("Thought for 1.0s (ctrl+o to expand)");
     expect(collapsed).not.toContain("内部推演细节");
 
+    // 只切 verbose，不调用 replayTranscript：最近一轮在活区，直接重绘。
     instance.rerender(<TranscriptView ui={store} verbose tick={0} />);
-    store.getState().replayTranscript();
     await sleep(120);
     expect(instance.frames.join("")).toContain("内部推演细节");
+    instance.unmount();
+  }, 10_000);
+
+  it("终端宽度内的大表格按纵向记录渲染，不再被 Ink 任意折行", async () => {
+    const store = createUiStore();
+    store.getState().pushBlock({ kind: "user", text: "对比" });
+    store.getState().pushBlock({
+      kind: "assistant",
+      text: [
+        "| 应用 | 职责 | 入口 | 构建 | 产物 | 说明 |",
+        "| --- | --- | --- | --- | --- | --- |",
+        "| cli | 终端界面 | main.tsx | tsup | dist | 可分发 |",
+        "| host | 子进程宿主 | port.ts | tsup | port.cjs | 被两端消费 |",
+      ].join("\n"),
+    });
+    const instance = render(<TranscriptView ui={store} verbose={false} tick={0} />);
+    await sleep(100);
+    const text = instance.frames.join("");
+    expect(text).toContain("▎ cli");
+    expect(text).toContain("职责: 终端界面");
+    expect(text).toContain("说明: 被两端消费");
     instance.unmount();
   }, 10_000);
 

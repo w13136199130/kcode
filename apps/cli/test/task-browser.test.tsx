@@ -41,6 +41,15 @@ describe("taskBrowser slice 行为", () => {
     expect(store.getState().taskBrowser.open).toBe(true);
   });
 
+  it("相同任务快照不触发 store 更新（防轮询 setState 循环）", () => {
+    const store = createUiStore();
+    const task = bgTask({ id: "bg_1" });
+    store.getState().setBackgroundTasks([task]);
+    const first = store.getState().backgroundTasks;
+    store.getState().setBackgroundTasks([{ ...task }]);
+    expect(store.getState().backgroundTasks).toBe(first);
+  });
+
   it("光标 clamp；Enter 语义展开当前任务日志；关闭清展开态", () => {
     const store = createUiStore();
     store.getState().setBackgroundTasks([bgTask({ id: "bg_1" }), bgTask({ id: "bg_2" }), bgTask({ id: "bg_3" })]);

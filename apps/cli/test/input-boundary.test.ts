@@ -192,3 +192,40 @@ describe("/tasks（3-27 后台任务可见性）", () => {
     expect(blocks.some((b) => b.kind === "info" && b.text.includes("用法：/tasks stop"))).toBe(true);
   });
 });
+
+describe("/search 结果清洗", () => {
+  it("按会话分组、标注来源、不展示 JSONL 元数据", async () => {
+    const { ctx, blocks } = makeCtx(home);
+    const session = ctx.session as unknown as {
+      searchSessions?: (query: string) => Promise<
+        { sessionId: string; title: string; workspaceKey: string; line: number; snippet: string; kind: string }[]
+      >;
+    };
+    session.searchSessions = async () => [
+      {
+        sessionId: "sess_search_1234567890",
+        title: "部署排查",
+        workspaceKey: "",
+        line: 2,
+        snippet: "部署失败怎么排查",
+        kind: "user",
+      },
+      {
+        sessionId: "sess_search_1234567890",
+        title: "部署排查",
+        workspaceKey: "",
+        line: 8,
+        snippet: "deploy.log 在 /tmp",
+        kind: "tool",
+      },
+    ];
+    await runDispatch(ctx, "/search 部署");
+    const text = blocks.find((b) => b.kind === "info")?.text ?? "";
+    expect(text).toContain("会话搜索「部署」（2 条）");
+    expect(text).toContain("部署排查");
+    expect(text).toContain("L2 [用户] 部署失败怎么排查");
+    expect(text).toContain("L8 [工具] deploy.log 在 /tmp");
+    expect(text).not.toContain("callId");
+    expect(text).not.toContain('"type"');
+  });
+});

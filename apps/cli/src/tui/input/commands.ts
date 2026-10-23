@@ -8,7 +8,7 @@ import type {
 import type { Runtime } from "../../bootstrap.js";
 import type { LocalSessionOptions, SessionHandle } from "../../session.js";
 import type { Block, UiStore } from "@kcode/ui";
-import type { QueuedCommand } from "@kcode/runtime";
+import type { QueuedCommand, SessionSearchHit } from "@kcode/runtime";
 import { MODE_META, MODE_CYCLE } from "../theme/modes.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import { contextWindowFor, modelWindowKnown } from "@kcode/core";
@@ -78,7 +78,7 @@ export interface DispatchContext {
   /** 4-05：fork 当前/指定会话（历史带入新 JSONL，旧会话保留） */
   forkSession(source?: string): void;
   /** 4-05：跨会话全文搜索 */
-  searchSessions?(query: string): Promise<{ sessionId: string; title?: string; line: number; snippet: string }[]>;
+  searchSessions?(query: string): Promise<SessionSearchHit[]>;
   /** 3-33：恢复暂停的队列（空闲时立即开始排空；忙时本轮结束后继续） */
   resumeQueue?: () => void;
   /** /terminal：打开普通 PTY（明示不受 srt 保护） */
@@ -91,6 +91,39 @@ export interface DispatchContext {
  */
 export function modelWindowNote(ref: string): string {
   return modelWindowKnown(ref) ? `· ${Math.round(contextWindowFor(ref) / 1000)}k` : "· ?";
+}
+
+/**
+ * 运行中可即时执行的本地命令：不消耗模型轮次，不应等本轮结束。
+ * 仅列纯本地状态/队列管理；/model、/compact、/retry 等会改会话或依赖空闲态的命令仍排队/自行拒绝。
+ */
+const IMMEDIATE_WHILE_BUSY = new Set(["mode", "queue"]);
+
+export function isImmediateWhileBusy(text: string): boolean {
+  const match = /^\/([^\s/\\]+)(?:\s|$)/.exec(text.trim());
+  return match !== null && IMMEDIATE_WHILE_BUSY.has(match[1]!.toLowerCase());
+}
+
+/** /search 命中来源标签：搜索片段已去掉 JSONL 元数据，这里只标正文来源 */
+function searchKindLabel(kind: SessionSearchHit["kind"]): string {
+  switch (kind) {
+    case "user":
+      return "用户";
+    case "assistant":
+      return "助手";
+    case "reasoning":
+      return "思考";
+    case "tool":
+      return "工具";
+    case "summary":
+      return "摘要";
+    case "skill":
+      return "技能";
+    case "todo":
+      return "待办";
+    default:
+      return "内容";
+  }
 }
 
 export async function runDispatch(ctx: DispatchContext, text: string, images?: string[]): Promise<void> {
@@ -314,14 +347,25 @@ ${body}
           return;
         }
         const hits = await ctx.session.searchSessions(query).catch(() => null);
+        if (hits === null || hits.length === 0) {
+          ctx.pushBlock({ kind: "info", text: `（未找到包含「${query}」的会话）` });
+          return;
+        }
+        // 按会话分组：同一会话的命中不再重复 sessionId/标题；片段只含正文 + 来源 + 行号。
+        const groups = new Map<string, { title: string; lines: string[] }>();
+        for (const hit of hits) {
+          let group = groups.get(hit.sessionId);
+          if (group === undefined) {
+            group = { title: stripEscapes(hit.title ?? "（无标题）"), lines: [] };
+            groups.set(hit.sessionId, group);
+          }
+          group.lines.push(`  L${hit.line} [${searchKindLabel(hit.kind)}] ${stripEscapes(hit.snippet)}`);
+        }
         ctx.pushBlock({
           kind: "info",
-          text:
-            hits === null || hits.length === 0
-              ? `（未找到包含「${query}」的会话）`
-              : `会话搜索「${query}」（${hits.length} 条）：\n${hits
-                  .map((h) => `· ${h.sessionId.slice(0, 16)}… · ${h.title ?? "（无标题）"} · L${h.line} · ${h.snippet}`)
-                  .join("\n")}`,
+          text: `会话搜索「${query}」（${hits.length} 条）：\n${[...groups.entries()]
+            .map(([sessionId, group]) => `· ${sessionId.slice(0, 16)}… · ${group.title}\n${group.lines.join("\n")}`)
+            .join("\n")}`,
         });
         return;
       }

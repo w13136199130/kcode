@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useStore } from "zustand";
 import { readFile } from "node:fs/promises";
@@ -30,6 +30,10 @@ export function TaskBrowser(props: { ui: UiStore }) {
   const tasks = useStore(props.ui, (s) => s.backgroundTasks);
   const browser = useStore(props.ui, (s) => s.taskBrowser);
   const services = useServices<CliServices>();
+  // ServicesProvider 的 value 可能随宿主渲染变化；轮询 effect 只认真实语义依赖（open/ui），
+  // 通过 ref 取最新 services，避免“effect 重跑 → setState → 再渲染”的更新风暴。
+  const servicesRef = useRef(services);
+  servicesRef.current = services;
   const [tail, setTail] = useState<{ id: string; text: string } | null>(null);
 
   // 打开期间低频轮询：任务状态变化（running → done/failed）无事件，轮询是最简正确解
@@ -38,13 +42,13 @@ export function TaskBrowser(props: { ui: UiStore }) {
       return;
     }
     const refresh = (): void => {
-      const session = services.getSession();
+      const session = servicesRef.current.getSession();
       props.ui.getState().setBackgroundTasks(session === null ? [] : session.backgroundTasks());
     };
     refresh();
     const timer = setInterval(refresh, POLL_MS);
     return () => clearInterval(timer);
-  }, [browser.open, props.ui, services]);
+  }, [browser.open, props.ui]);
 
   // 展开时读日志尾部（运行中的日志是追加流，读到的是当时的快照——与"看一眼进度"的语义一致）
   const expandedTask = tasks[browser.cursor];

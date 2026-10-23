@@ -44,6 +44,26 @@ describe("Transcript 组件（P1-5 TUI）", () => {
     expect(frame).toContain("流式输出中");
   });
 
+  it("完成的工具卡显示首行 + 共 N 行 + Ctrl+B 入口", () => {
+    const { lastFrame } = render(
+      <Transcript
+        blocks={[
+          {
+            kind: "tool",
+            callId: "c1",
+            tool: "bash",
+            argsPreview: "ls -1 apps/",
+            status: "done",
+            summary: "cli",
+            output: "cli\ndesktop\nhost\nmarket\nweb",
+          },
+        ]}
+        streamText=""
+      />,
+    );
+    expect(lastFrame() ?? "").toContain("cli · 共 5 行 · Ctrl+B 查看全部");
+  });
+
   it("TodoPanel 渲染三态任务项", () => {
     const { lastFrame } = render(
       <TodoPanel

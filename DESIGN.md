@@ -139,7 +139,7 @@ N0 会话一致性 → N1 契约/治理/身份/日志/令牌 ✅ → N2 平台�
 | 权限 | 三态 + 四档（plan/default/acceptEdits/fullAccess）、项目级持久放行 + /permissions、automation 权限语义、只读档不可穿透 |
 | 会话 | JSONL append-only + v:1、--resume、/rewind 检查点（已落盘）、/diff 改动审查+逐文件回退、/cost（缓存/推理/按模型/工具/子代理分项，/usage 别名）、/context、/status、/clear、todo `<todo_state>` 每轮回注（续接恢复）、审计 JSONL `/audit`（工具/裁决/scope/耗时/cwd/mode，子代理带 parentSessionId）、`kcode sessions vacuum/rm` 保留策略（年龄/数量/总量配额，级联清理） |
 | 模型 | BYOK 多厂商（openai-compatible/Ollama/GLM/DeepSeek/中转）、key 受众绑定、DPAPI keychain、瞬态失败指数退避重试 |
-| TUI | Ink、Markdown + 语法高亮、工具状态行、Todo 面板、结构化选择题、后台通知、Shift+Tab 权限循环、@ 文件补全、输入历史持久化、`# `/`/remember` 记忆、斜杠路径不误判、Ctrl+A/E/U/K/W 行编辑 + 按词移动、Ctrl+B 工具详情分页/搜索/复制（失败默认末尾 + JSONL 路径）、Static 活区边界 + Ctrl+O 重放、ESC/OSC 剥离 + NO_COLOR/KCODE_PLAIN/light 主题、后台任务 `⚙ N` + 完成铃 + Ctrl+T/`/tasks` 停止 |
+| TUI | Ink、Markdown + 语法高亮、工具状态行、Todo 面板、结构化选择题、后台通知、Shift+Tab 权限循环、@ 文件补全、输入历史持久化、`# `/`/remember` 记忆、斜杠路径不误判、Ctrl+A/E/U/K/W 行编辑 + 按词移动、Ctrl+B 工具详情分页/搜索/复制（失败默认末尾 + JSONL 路径）、Static 活区边界 + Ctrl+O 就地重绘当前轮、ESC/OSC 剥离 + NO_COLOR/KCODE_PLAIN/light 主题、后台任务 `⚙ N` + 完成铃 + Ctrl+T/`/tasks` 停止 |
 | 安全 | key 受众绑定、双作用域配置、E2E epoch/ratchet/envelope 加密层（**无 relay 消费者**）、威胁模型 v2 |
 
 ### 2.2 验证状态（2026-09-24 实测）
@@ -371,7 +371,7 @@ export interface IPlatformService {
 | B4 进程 → 命令执行 | 任意命令 | 权限确认 + 项目策略 deny（含 `!` 直执行）+ 超时 + 进程树清理 + /trust 门控 **已实现**；srt 前台 bash 隔离（Windows alpha，需安装）**可选已接入** |
 | B5 插件/技能 → 本机 | 供应链攻击 | 安装纯文件复制 + seed **已实现**；加载期 hash 校验（N3-5：篡改拒载）**已实现**；Sigstore 签名 **目标（N4-4）** |
 
-**已知边界（诚实声明）**：提示注入未解；**默认无 OS 级沙箱**（"工具执行前确认"≠沙箱）；srt 可选适配（Windows alpha、机器级安装、仅 bash 前台）已接入，`read/write/edit` 文件工具仍在沙箱外；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能来源策略已由 3-18 收口（project/plugin 默认手动）；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块不原地重绘——Ctrl+O 以清屏 + `renderEpoch` 重放切换展开度；原地编辑消息/内联进度卡类交互仍只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。
+**已知边界（诚实声明）**：提示注入未解；**默认无 OS 级沙箱**（"工具执行前确认"≠沙箱）；srt 可选适配（Windows alpha、机器级安装、仅 bash 前台）已接入，`read/write/edit` 文件工具仍在沙箱外；凭据与代码同进程；插件 seed 本身可被连同内容一起重算伪造（防伪需 N4-4 签名，加载期校验防的是"装后被改"而非"装时即恶"）；技能来源策略已由 3-18 收口（project/plugin 默认手动）；BYOK 远端调用意味着源码会离开本机；**Static 转写不可逆约束**（已打印块不原地重绘——当前轮留在活区，Ctrl+O 可就地切换展开度；旧轮次保持打印时状态，全文走 Ctrl+B / `/export`；原地编辑消息/内联进度卡类交互仍只能覆盖层实现，§8.4b②的架构代价）；**子代理结论信任链**（结论作为 tool_result 无审查回灌父上下文，子代理读过不可信网页后其结论可携带注入文本——post_tool_use hook 是唯一校验点，与 zcode 同级）。
 
 ---
 

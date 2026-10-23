@@ -1,6 +1,6 @@
 import { Lexer } from "marked";
 import hljs from "highlight.js/lib/common";
-import { visualWidth } from "../terminal/width.js";
+import { truncateVisual, visualWidth, wrapVisual } from "../terminal/width.js";
 import { stripEscapes } from "../terminal/sanitize.js";
 
 /**
@@ -175,9 +175,11 @@ type AnyToken = {
   align?: Array<"center" | "left" | "right" | null>;
 };
 
-/** Markdown 主入口：文档 → 渲染行（空文档返回一个空行；不可信控制序列在此剥离） */
-export function markdownToLines(md: string): MdLine[] {
+/** Markdown 主入口：文档 → 渲染行（空文档返回一个空行；不可信控制序列在此剥离；columns 缺省 100） */
+export interface MarkdownOptions { columns?: number }
+export function markdownToLines(md: string, options: MarkdownOptions = {}): MdLine[] {
   const safe = stripEscapes(md);
+  const columns = Math.max(24, options.columns ?? 100);
   const out: MdLine[] = [];
   const lastIsEmpty = (): boolean =>
     out.length === 0 || out[out.length - 1]!.segments.every((s) => s.text.trim() === "");
@@ -234,9 +236,16 @@ export function markdownToLines(md: string): MdLine[] {
           });
           break;
         case "html":
-        case "tag":
-          appendSeg(lines, { text: (token.text ?? "").replace(/<[^>]*>/g, ""), ...style });
+        case "tag": {
+          // 表格单元格常用 <br> 模拟换行；直接剥标签会把 "cli<br>apps/cli" 粘成 "cliapps/cli"。
+          // 这里把 <br> 转成换行，其余标签保留一个空格作为分隔。
+          const raw = token.text ?? "";
+          appendSeg(lines, {
+            text: raw.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, " "),
+            ...style,
+          });
           break;
+        }
         default:
           if (token.tokens !== undefined) {
             inlineSegments(token.tokens, style, lines);
@@ -293,14 +302,20 @@ export function markdownToLines(md: string): MdLine[] {
 
   function renderTable(token: AnyToken): void {
     blank();
-    const headerCells = (token.header ?? []).map((cell) => inlineToLines(cell.tokens, { bold: true }));
-    const rowCells = (token.rows ?? []).map((row) => row.map((cell) => inlineToLines(cell.tokens, {})));
-    const flat = (lines: MdLine[]): string => lines.flatMap((l) => l.segments.map((s) => s.text)).join("");
-    const widths = (token.header ?? []).map((_, c) =>
-      Math.max(visualWidth(flat(headerCells[c]!)), ...rowCells.map((row) => visualWidth(flat(row[c]!)))),
-    );
-    const pad = (text: string, w: number, align: "center" | "left" | "right" | null): string => {
-      const gap = Math.max(0, w - visualWidth(text));
+    const header = token.header ?? [];
+    const rows = token.rows ?? [];
+    const headerCells = header.map((cell) => inlineToLines(cell.tokens, { bold: true }));
+    const rowCells = rows.map((row) => row.map((cell) => inlineToLines(cell.tokens, {})));
+    /** 单元格纯文本：<br> 产生的多行用 · 连接（网格模式只有一行可显示） */
+    const cellText = (lines: MdLine[] | undefined): string =>
+      (lines ?? [])
+        .map((line) => line.segments.map((segment) => segment.text).join(""))
+        .map((text) => text.trim())
+        .filter((text) => text !== "")
+        .join(" · ");
+    const columnCount = header.length;
+    const pad = (text: string, width: number, align: "center" | "left" | "right" | null): string => {
+      const gap = Math.max(0, width - visualWidth(text));
       if (align === "right") {
         return " ".repeat(gap) + text;
       }
@@ -310,20 +325,74 @@ export function markdownToLines(md: string): MdLine[] {
       }
       return text + " ".repeat(gap);
     };
-    const emitRow = (cells: MdLine[][], style: InlineStyle): void => {
+
+    // 网格模式只在列数少且总宽放得下时使用；否则降级为逐行记录，
+    // 避免 6 列长文本被 Ink 在任意字符处折行、列完全对不齐。
+    const widths = headerCells.map((_, c) =>
+      Math.max(
+        visualWidth(cellText(headerCells[c])),
+        ...rowCells.map((row) => visualWidth(cellText(row[c]))),
+      ),
+    );
+    const gridWidth = widths.reduce((sum, width) => sum + width + 2, 0);
+    const useGrid = columnCount > 0 && columnCount <= 4 && gridWidth <= columns - 2;
+    if (useGrid) {
+      const emitRow = (cells: MdLine[][], style: InlineStyle): void => {
+        out.push({
+          segments: Array.from({ length: columnCount }, (_, c) => ({
+            text: ` ${pad(cellText(cells[c]), widths[c]!, token.align?.[c] ?? null)} `,
+            ...style,
+          })),
+        });
+      };
+      emitRow(headerCells, { bold: true });
       out.push({
-        segments: cells.map((cell, c) => ({
-          text: ` ${pad(flat(cell), widths[c]!, token.align?.[c] ?? null)} `,
-          ...style,
-        })),
+        segments: widths.map((width) => ({ text: ` ${"-".repeat(width + 2)}`, dimColor: true })),
       });
-    };
-    emitRow(headerCells, { bold: true });
-    out.push({
-      segments: widths.map((w) => ({ text: ` ${"-".repeat(w + 2)}`, dimColor: true })),
-    });
-    for (const row of rowCells) {
-      emitRow(row, {});
+      for (const row of rowCells) {
+        emitRow(row, {});
+      }
+      blank();
+      return;
+    }
+
+    // 纵向记录：每行一个块，字段名来自表头。长值按终端宽度换行，保留可比性。
+    for (let r = 0; r < rowCells.length; r++) {
+      const row = rowCells[r]!;
+      const first = cellText(row[0]);
+      const firstLines = wrapVisual(first === "" ? `第 ${r + 1} 行` : first, Math.max(12, columns - 2));
+      for (let i = 0; i < firstLines.length; i++) {
+        out.push({
+          segments: [
+            { text: i === 0 ? "▎ " : "  ", dimColor: true },
+            { text: firstLines[i]!, bold: i === 0 },
+          ],
+        });
+      }
+      for (let c = 1; c < columnCount; c++) {
+        const rawLabel = cellText(headerCells[c]);
+        const label =
+          visualWidth(rawLabel) > 16
+            ? `${truncateVisual(rawLabel, 16)}…`
+            : rawLabel === ""
+              ? `列${c + 1}`
+              : rawLabel;
+        const prefix = `  ${label}: `;
+        const available = Math.max(12, columns - 2 - visualWidth(prefix));
+        const value = cellText(row[c]) || "—";
+        const wrapped = wrapVisual(value, available);
+        for (let i = 0; i < wrapped.length; i++) {
+          out.push({
+            segments: [
+              { text: i === 0 ? prefix : " ".repeat(visualWidth(prefix)), dimColor: true },
+              { text: wrapped[i]! },
+            ],
+          });
+        }
+      }
+      if (r < rowCells.length - 1) {
+        out.push({ segments: [] });
+      }
     }
     blank();
   }

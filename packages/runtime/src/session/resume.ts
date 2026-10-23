@@ -105,12 +105,85 @@ export async function loadSessionEvents(filePath: string): Promise<SessionEvent[
   return parseJsonlPrefix(await readFile(filePath, "utf8"));
 }
 
+export type SessionSearchHitKind =
+  | "user"
+  | "assistant"
+  | "reasoning"
+  | "tool"
+  | "summary"
+  | "skill"
+  | "todo";
+
 export interface SessionSearchHit {
   sessionId: string;
   title?: string;
   workspaceKey: string;
   line: number;
   snippet: string;
+  /** 命中字段来源（展示层标注“用户/助手/工具…”；不把 JSONL 元数据当正文） */
+  kind?: SessionSearchHitKind;
+}
+
+interface SearchCandidate {
+  text: string;
+  kind: SessionSearchHitKind;
+}
+
+/** JSONL 行 → 可搜索的可见文本；不返回 uuid/sessionId/type 等元数据 */
+function searchCandidates(event: Record<string, unknown>): SearchCandidate[] {
+  const field = (key: string): string => (typeof event[key] === "string" ? (event[key] as string) : "");
+  const collectStrings = (value: unknown, out: string[] = []): string[] => {
+    if (typeof value === "string") {
+      out.push(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) collectStrings(item, out);
+    } else if (value !== null && typeof value === "object") {
+      for (const item of Object.values(value)) collectStrings(item, out);
+    }
+    return out;
+  };
+  switch (event["type"]) {
+    case "user_message":
+      return [{ text: field("content"), kind: "user" }];
+    case "assistant_message":
+      return [
+        { text: field("content"), kind: "assistant" },
+        { text: field("reasoning"), kind: "reasoning" },
+      ];
+    case "tool_result":
+      return [
+        { text: field("output"), kind: "tool" },
+        { text: field("error"), kind: "tool" },
+      ];
+    case "tool_call": {
+      // 只取工具名 + 参数值（command/path/pattern…），不拼 callId/type 这类 JSONL 元数据
+      const args = collectStrings(event["args"]).join(" ");
+      return [{ text: `${field("tool")} ${args}`, kind: "tool" }];
+    }
+    case "compaction_summary":
+      return [{ text: field("summary"), kind: "summary" }];
+    case "skill_used":
+      return [{ text: field("skill"), kind: "skill" }];
+    case "todo_update":
+      return [{ text: collectStrings(event["todos"]).join(" "), kind: "todo" }];
+    default:
+      return [];
+  }
+}
+
+const SNIPPET_CHARS = 180;
+
+/** 命中位置附近截取纯文本摘要；空白压平，保留 query 上下文 */
+function makeSnippet(text: string, needle: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const at = flat.toLowerCase().indexOf(needle);
+  if (at < 0) return flat.slice(0, SNIPPET_CHARS);
+  const width = Math.max(SNIPPET_CHARS, needle.length + 40);
+  const half = Math.floor((width - needle.length) / 2);
+  let start = Math.max(0, at - half);
+  let end = Math.min(flat.length, start + width);
+  start = Math.max(0, end - width);
+  return `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`;
 }
 
 /** 跨会话全文搜索：直接查 JSONL 文本，返回命中的会话/行；每会话最多 3 条。 */
@@ -133,17 +206,28 @@ export async function searchSessions(
     }
     let found = 0;
     for (const [index, line] of text.split(/\r?\n/).entries()) {
-      if (line.toLowerCase().includes(needle)) {
-        hits.push({
-          sessionId: summary.sessionId,
-          ...(summary.title !== undefined ? { title: summary.title } : {}),
-          workspaceKey: summary.workspaceKey,
-          line: index + 1,
-          snippet: line.slice(0, 240),
-        });
-        found += 1;
-        if (found >= 3 || hits.length >= limit) break;
+      if (!line.toLowerCase().includes(needle)) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
       }
+      if (parsed === null || typeof parsed !== "object") continue;
+      const candidate = searchCandidates(parsed as Record<string, unknown>).find(
+        (item) => item.text !== "" && item.text.toLowerCase().includes(needle),
+      );
+      if (candidate === undefined) continue;
+      hits.push({
+        sessionId: summary.sessionId,
+        ...(summary.title !== undefined ? { title: summary.title } : {}),
+        workspaceKey: summary.workspaceKey,
+        line: index + 1,
+        snippet: makeSnippet(candidate.text, needle),
+        kind: candidate.kind,
+      });
+      found += 1;
+      if (found >= 3 || hits.length >= limit) break;
     }
   }
   return hits;
