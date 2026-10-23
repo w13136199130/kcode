@@ -320,6 +320,14 @@ DESKTOP_RADII = [4, 6, 8, 10, 12, 16];
 
 ![Slice 1 桌面侧栏](desktop-ui-design/screens/desktop-v2-sidebar-1440-light.png)
 
+本地启动：
+
+```powershell
+pnpm --filter @kcode/desktop dev
+```
+
+`dev.mjs` 会清理 `ELECTRON_RUN_AS_NODE`，使用独立的 dev userData，并在 Windows dev 下关闭 sandbox/GPU，避免 Chromium singleton 与受限会话启动失败。
+
 P0 限制：
 
 - “文件夹加号”新增工作区暂存 `localStorage["kcode-desktop-workspaces"]`，等 host 注册表 RPC 替换；

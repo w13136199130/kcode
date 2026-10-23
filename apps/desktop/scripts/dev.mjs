@@ -51,9 +51,23 @@ void waitReady().then((ok) => {
     vite.kill();
     process.exit(1);
   }
-  const electron = run("npx", ["electron", "dist/main.cjs"], {
+  const electronEnv = {
+    ...process.env,
+    KCODE_DESKTOP_DEV_URL: devUrl,
+    // Windows 上默认 userData 的 SingletonLock 可能因 ACL/安全策略创建失败；
+    // dev 使用独立目录，避免把本地启动卡在 Chromium process singleton。
+    KCODE_DESKTOP_USER_DATA:
+      process.env.KCODE_DESKTOP_USER_DATA ?? join(root, "dist", "dev-user-data"),
+  };
+  // 某些 shell / agent 环境会设置 ELECTRON_RUN_AS_NODE=1——Electron 会退化成 Node 并以
+  // 0x80000003 退出。启动窗口前显式清掉，避免本地 dev 被环境变量误伤。
+  delete electronEnv.ELECTRON_RUN_AS_NODE;
+  const electronArgs = ["electron", "dist/main.cjs"];
+  // Windows 本地开发环境可能在受限会话里起 Chromium sandbox/GPU；显式降级只影响 dev。
+  if (process.platform === "win32") electronArgs.push("--no-sandbox", "--disable-gpu");
+  const electron = run("npx", electronArgs, {
     cwd: root,
-    env: { ...process.env, KCODE_DESKTOP_DEV_URL: devUrl },
+    env: electronEnv,
   });
   electron.on("exit", () => vite.kill());
 });
