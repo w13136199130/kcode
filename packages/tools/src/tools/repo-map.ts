@@ -13,6 +13,7 @@ const SOURCE_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,kt,cs,rb,php,swif
 const IGNORE = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", "**/.next/**", "**/coverage/**"];
 
 const cache = new Map<string, { at: number; text: string }>();
+const CONTROL_WORDS = new Set(["if", "for", "while", "switch", "catch", "return", "function", "new", "await", "yield", "do", "else", "try"]);
 
 function symbolsFor(file: string, source: string): string[] {
   const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
@@ -45,7 +46,8 @@ function symbolsFor(file: string, source: string): string[] {
     // TS/JS: exported/top-level declarations, plus common member declarations.
     add(/^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1]);
     add(/^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1]);
-    add(/^\s*(?:public|private|protected|static|readonly|async|get|set)*\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{]/.exec(line)?.[1]);
+    const member = /^\s*(?:public|private|protected|static|readonly|async|get|set)*\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*[:{]/.exec(line)?.[1];
+    if (member !== undefined && !CONTROL_WORDS.has(member)) add(member);
   }
   return symbols.slice(0, 12);
 }
@@ -72,7 +74,10 @@ function render(entries: { file: string; symbols: string[] }[], maxChars: number
     for (const entry of byDir.get(dir)!.sort((a, b) => a.file.localeCompare(b.file))) {
       const name = entry.file.slice(entry.file.lastIndexOf("/") + 1);
       const text = `  ${name}: ${entry.symbols.join(", ")}`;
-      if (!push(text)) return `${lines.join("\n")}\n…（repo map 按预算截断）`;
+      if (!push(text)) {
+        const note = "\n…（repo map 按预算截断）";
+        return `${lines.join("\n").slice(0, Math.max(0, maxChars - note.length))}${note}`;
+      }
     }
   }
   return lines.join("\n");

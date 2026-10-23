@@ -12,6 +12,7 @@ beforeAll(async () => {
   await writeFile(join(root, "src", "a.ts"), "export function alpha() {}\nexport class Beta {}\n", "utf8");
   await writeFile(join(root, "src", "b.py"), "class Gamma:\n    pass\n\ndef delta():\n    pass\n", "utf8");
   await writeFile(join(root, "src", "nested", "c.ts"), "export const epsilon = 1;\n", "utf8");
+  await writeFile(join(root, "src", "control.ts"), "export function real() { if (x) return 1; for (;;) break; }\n", "utf8");
   await writeFile(join(root, "node_modules", "ignored", "bad.ts"), "export function shouldNotAppear() {}\n", "utf8");
 });
 afterAll(async () => {
@@ -26,6 +27,8 @@ describe("repo map（4-04）", () => {
     expect(map).toContain("b.py: Gamma, delta");
     expect(map).toContain("nested/");
     expect(map).toContain("c.ts: epsilon");
+    expect(map).toContain("control.ts: real");
+    expect(map).not.toMatch(/\bif\b|\bfor\b/);
     expect(map).not.toContain("shouldNotAppear");
   });
 

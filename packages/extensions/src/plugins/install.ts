@@ -141,7 +141,9 @@ async function collectFiles(dir: string, prefix = ""): Promise<string[]> {
 /** 读取并校验插件清单；不合法时给出可读错误 */
 export async function readPluginManifest(sourceDir: string): Promise<PluginManifestType> {
   const raw = await readFile(join(sourceDir, ".kcode-plugin"), "utf8");
-  const parsed = PluginManifest.safeParse(JSON.parse(raw));
+  // Windows 编辑器/Set-Content 可能写 UTF-8 BOM；JSON.parse 不接受，先剥掉。
+  const json = JSON.parse(raw.replace(/^\uFEFF/, ""));
+  const parsed = PluginManifest.safeParse(json);
   if (!parsed.success) {
     throw new Error(`插件清单不合法：${parsed.error.message}`);
   }

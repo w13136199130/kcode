@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   addTrustedKey,
+  buildExtensionRoots,
   generateSigningKeyPair,
   hashPluginContent,
   installPlugin,
@@ -98,6 +99,28 @@ describe("4-08 插件签名", () => {
     const check = await verifyInstalledPlugin(installed, { trustedKeys: [] });
     expect(check.ok).toBe(false);
     expect(check.reason).toContain("内容");
+  });
+
+  it("Windows UTF-8 BOM 清单仍可读取", async () => {
+    const dir = await makePlugin("bom-plugin", "1.0.0");
+    const raw = await (await import("node:fs/promises")).readFile(join(dir, ".kcode-plugin"), "utf8");
+    await writeFile(join(dir, ".kcode-plugin"), `\uFEFF${raw}`, "utf8");
+    expect((await readPluginManifest(dir)).name).toBe("bom-plugin");
+  });
+
+  it("strict 加载模式拒绝未签名插件", async () => {
+    const dir = await makePlugin("strict-load", "1.0.0");
+    const khome = join(root, "strict-home");
+    await installPlugin(dir, join(khome, "cli", "plugins", "cache"));
+    process.env["KCODE_PLUGIN_REQUIRE_SIGNATURE"] = "1";
+    try {
+      const warnings: string[] = [];
+      const roots = await buildExtensionRoots({ cwd: root, kcodeHomeDir: khome, onWarn: (m) => warnings.push(m) });
+      expect(roots.plugins.map((p) => p.manifest.name)).not.toContain("strict-load");
+      expect(warnings.some((m) => m.includes("未签名"))).toBe(true);
+    } finally {
+      delete process.env["KCODE_PLUGIN_REQUIRE_SIGNATURE"];
+    }
   });
 
   it("信任库持久化公钥并按 keyId 去重", async () => {

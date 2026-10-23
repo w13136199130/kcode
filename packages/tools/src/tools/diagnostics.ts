@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import type { Tool, ToolContext, ToolOutput } from "@kcode/contracts";
@@ -44,6 +44,22 @@ function findUp(start: string, names: readonly string[]): string | undefined {
   }
 }
 
+/** pnpm monorepo：tsc 可能只装在子包里；从直接子包借一个本地二进制。 */
+function findWorkspaceTool(root: string, rel: string): string | undefined {
+  const packagesDir = join(root, "packages");
+  let names: string[];
+  try {
+    names = readdirSync(packagesDir);
+  } catch {
+    return undefined;
+  }
+  for (const name of names) {
+    const candidate = join(packagesDir, name, "node_modules", rel);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 /** 纯检测：只在项目内寻找本地二进制，绝不走 npx/网络。 */
 export function detectDiagnostics(cwd: string, target?: string): DiagnosticCommand[] {
   const start = target === undefined ? cwd : isAbsolute(target) ? target : resolve(cwd, target);
@@ -62,8 +78,10 @@ export function detectDiagnostics(cwd: string, target?: string): DiagnosticComma
   const commands: DiagnosticCommand[] = [];
 
   const tsconfig = join(root, "tsconfig.json");
-  const tsc = join(root, "node_modules", "typescript", "bin", "tsc");
-  if (existsSync(tsconfig) && existsSync(tsc)) {
+  const tsc = existsSync(join(root, "node_modules", "typescript", "bin", "tsc"))
+    ? join(root, "node_modules", "typescript", "bin", "tsc")
+    : findWorkspaceTool(root, join("typescript", "bin", "tsc"));
+  if (existsSync(tsconfig) && tsc !== undefined && existsSync(tsc)) {
     commands.push({
       tool: "tsc",
       file: process.execPath,
