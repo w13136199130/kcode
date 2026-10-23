@@ -173,8 +173,8 @@ function createMainWindow(): void {
   win.webContents.on("console-message", (_e, _level, message) => {
     process.stderr.write(`[renderer] ${message}\n`);
   });
-  win.webContents.on("did-finish-load", () => {
-    process.stdout.write("[main] did-finish-load → attachPort\n");
+  win.webContents.on("dom-ready", () => {
+    process.stdout.write("[main] dom-ready → attachPort\n");
     const host = ensureHost(win);
     const port1 = host.attachPort();
     win.webContents.postMessage("kcode:host-port", null, [port1]);

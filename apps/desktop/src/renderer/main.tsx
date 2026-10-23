@@ -143,14 +143,24 @@ function DesktopApp() {
     };
   }, []);
 
-  // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）
+  // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）。
+  // attach/hello 存在短暂竞态，首轮 create 可能被拒；失败要重试，不能把 createdRef 永久卡死。
   useEffect(() => {
     if (conn.status !== "ready" || createdRef.current || modelDefault === null || defaultCwd === "") return;
     createdRef.current = true;
-    void conn
-      .send("session/create", { model: modelDefault, cwd: defaultCwd })
-      .then((r) => setSessionId((r as { sessionId: string }).sessionId))
-      .catch(() => undefined);
+    let attempts = 0;
+    const create = (): void => {
+      void conn
+        .send("session/create", { model: modelDefault, cwd: defaultCwd })
+        .then((r) => setSessionId((r as { sessionId: string }).sessionId))
+        .catch(() => {
+          createdRef.current = false;
+          if (attempts >= 3) return;
+          attempts += 1;
+          window.setTimeout(create, 300 * attempts);
+        });
+    };
+    create();
   }, [conn.status, modelDefault, defaultCwd, conn]);
 
   // 转写重放（M2b）：会话就绪后拉一次全量事件重建时间线（reload/切换后续接都走这里）

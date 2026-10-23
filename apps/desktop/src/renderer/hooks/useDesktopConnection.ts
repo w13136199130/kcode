@@ -100,13 +100,31 @@ export function useDesktopConnection(): HostConnection {
     };
     bridge.onHostExit(onHostExit);
 
-    // 握手由本端发起（host 收到端口即等待 hello）
-    bridge.send(
-      JSON.stringify({ kind: "hello", hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: [] } }),
-    );
+    // 握手由本端发起（host 收到端口即等待 hello）。
+    // attachPort 发生在 dom-ready 边界，首帧 effect 可能早于 port 挂载；
+    // 500ms 重试直到 ready，避免一次丢失 hello 就把首启卡在“连接宿主中”。
+    const hello = JSON.stringify({
+      kind: "hello",
+      hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: [] },
+    });
+    bridge.send(hello);
+    let helloAttempts = 0;
+    const helloTimer = window.setInterval(() => {
+      if (statusRef.current !== "connecting") {
+        window.clearInterval(helloTimer);
+        return;
+      }
+      helloAttempts += 1;
+      if (helloAttempts > 20) {
+        window.clearInterval(helloTimer);
+        return;
+      }
+      bridge.send(hello);
+    }, 500);
 
     return () => {
       // StrictMode 双挂载：不退订 = 两个 handler 各处理一遍每条事件（界面全双份，M2a 实测）
+      window.clearInterval(helloTimer);
       unsubscribe();
       if (flushTimer.current !== null) {
         clearTimeout(flushTimer.current);

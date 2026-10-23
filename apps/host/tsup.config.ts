@@ -13,6 +13,9 @@ export default defineConfig({
   outDir: "dist",
   outExtension: () => ({ js: ".cjs" }),
   bundle: true,
+  // CJS 内联依赖里的 import.meta.url 会被压成 {}，createRequire(undefined) 会让 host 启动即崩。
+  // tsup shims 注入可用的 importMetaUrl；不能依赖源码/tsx 路径掩盖该问题。
+  shims: true,
   // 与 CLI 打包同款：workspace 依赖内联（exports 只导出 TS 源，外置 require 会炸）；
   // canvas 是 pdfjs 可选后端（运行时按需 require、缺省跳过）、@vscode/ripgrep 是二进制——都外置
   noExternal: [/^(?!canvas($|\/)|@vscode\/ripgrep($|\/))/],

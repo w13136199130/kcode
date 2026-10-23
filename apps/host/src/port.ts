@@ -26,6 +26,21 @@ if (parentPort === undefined) {
 }
 
 const ports = new Set<PortLike>();
+/** reload 的端口交接间隙：旧 port 先关、新 port 稍后 attach，不能立即判死 */
+const PORT_CLOSE_GRACE_MS = 2_000;
+let closeTimer: NodeJS.Timeout | null = null;
+let shuttingDown = false;
+
+function scheduleClientDisconnectShutdown(): void {
+  if (shuttingDown || closeTimer !== null) return;
+  closeTimer = setTimeout(() => {
+    closeTimer = null;
+    if (ports.size > 0 || shuttingDown) return;
+    shuttingDown = true;
+    // 客户端全部断连：fail-closed 结算所有未决交互后退出
+    void server.shutdown("client-disconnected").finally(() => process.exit(0));
+  }, PORT_CLOSE_GRACE_MS);
+}
 
 const server = new HostServer((frame: HostFrame) => {
   const line = JSON.stringify(frame);
@@ -56,10 +71,7 @@ function pump(port: PortLike): void {
   });
   port.on("close", () => {
     ports.delete(port);
-    if (ports.size === 0) {
-      // 客户端全部断连：fail-closed 结算所有未决交互后退出
-      void server.shutdown("client-disconnected").finally(() => process.exit(0));
-    }
+    if (ports.size === 0) scheduleClientDisconnectShutdown();
   });
   port.start();
   // 每个新挂载的端口都要走一遍握手（host 回 hello + ready）
@@ -70,6 +82,11 @@ function pump(port: PortLike): void {
 }
 
 parentPort.on("message", (ev) => {
+  // reload 新端口到达：取消上一次“全部断连”的退出倒计时
+  if (closeTimer !== null) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
   for (const port of ev.ports) {
     ports.add(port);
     pump(port);

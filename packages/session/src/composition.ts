@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type {
   ChatMessage,
   FileReadRecord,
@@ -186,6 +187,11 @@ export interface ComposeSessionOptions {
 }
 
 
+function isUserHome(cwd: string): boolean {
+  const target = resolve(cwd);
+  const home = resolve(homedir());
+  return process.platform === "win32" ? target.toLowerCase() === home.toLowerCase() : target === home;
+}
 
 /**
  * 会话组装（单进程唯一组装点）：工具、权限、钩子、技能、命令、
@@ -384,11 +390,15 @@ export async function composeSession(opts: ComposeSessionOptions): Promise<Compo
   }
   const subagentLine = `- 大范围搜索/多文件调研/可独立的子任务用 task 工具派生子代理（隔离上下文，只回传结论，不占用本会话历史）；可用类型：general-purpose（通用）、explore（只读搜索）${customAgents.length > 0 ? `、${customAgents.map((a) => `${a.name}（${a.description}）`).join("、")}` : ""}`;
   // 4-04：仓库结构摘要进系统提示（按字符预算截断）；默认 auto，KCODE_REPO_MAP=off 可关。
+  // 用户主目录不是仓库：跳过，避免 desktop 默认 cwd=home 时全盘扫描把 session/create 卡住；
+  // KCODE_REPO_MAP=force 可显式覆盖。普通仓库另加 2s 扫描预算，超时降级为空 map。
   const repoMap =
-    process.env["KCODE_REPO_MAP"] === "off"
+    process.env["KCODE_REPO_MAP"] === "off" ||
+    (process.env["KCODE_REPO_MAP"] !== "force" && isUserHome(opts.cwd))
       ? ""
       : await buildRepoMap(opts.cwd, {
           maxChars: Number.parseInt(process.env["KCODE_REPO_MAP_CHARS"] ?? "6000", 10) || 6000,
+          timeoutMs: 2_000,
         });
   const basePrompt = `${SYSTEM_PROMPT}
 ${subagentLine}

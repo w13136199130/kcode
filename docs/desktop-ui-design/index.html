@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kcode desktop — UI prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-screen="conversation">
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4.5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" /></symbol>
+      <symbol id="i-diff" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16M4 8h6M14 8h6M4 16h6M14 16h6" /></symbol>
+      <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="m8 12 2.5 2.5L16 9" /></symbol>
+      <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 4h4v3a2 2 0 1 0 4 0h2v5h-3a2 2 0 1 0 0 4h3v4h-5v-3a2 2 0 1 0-4 0v3H6v-5H3a2 2 0 1 0 0-4h3V4Z" /></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.07 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.07V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.93 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="18" cy="7" r="2" /><circle cx="18" cy="18" r="2" /><path d="M6 7v5a5 5 0 0 0 5 5h5M8 5h4a6 6 0 0 1 6 6v5" /></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.5 3 8 7.5 9.5 4.5-1.5 7.5-5 7.5-9.5V6Z" /><path d="m8.5 12 2.2 2.2 4.8-5" /></symbol>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6Z" /><path d="m19 16 .7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z" /></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" /></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="m7 9 3 3-3 3M12.5 15H17" /></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5M9 12h6M9 16h6" /></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" /></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20 11-8 8a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" /></symbol>
+      <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 9V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3Z" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="12" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3" /></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M18.5 9A7 7 0 0 0 5.8 7.2L4 12M5.5 15A7 7 0 0 0 18.2 16.8L20 12" /></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.2A8 8 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" /></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" /></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7Z" /></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5" /></symbol>
+    </svg>
+
+    <div class="window">
+      <header class="titlebar">
+        <div class="traffic" aria-hidden="true"><span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span></div>
+        <div class="titlebar-title"><span class="brand-mark small">k</span><span>kcode</span><span class="title-sep">/</span><span class="muted">桌面工作台</span></div>
+        <div class="titlebar-actions">
+          <button class="icon-btn title-action" data-action="toggle-panel" title="切换面板 (Ctrl+Alt+B)"><svg class="icon"><use href="#i-diff" /></svg></button>
+          <button class="icon-btn title-action" data-action="toggle-terminal" title="切换终端 (Ctrl+`)"><svg class="icon"><use href="#i-terminal" /></svg></button>
+          <button class="icon-btn title-action help-trigger" data-action="help-menu" title="帮助与支持">?</button>
+        </div>
+        <div class="titlebar-meta"><span class="status-dot"></span><span>本地</span><kbd>⌘K</kbd></div>
+      </header>
+
+      <div class="app" id="app">
+        <aside class="sidebar" id="sidebar">
+          <div class="app-tabbar">
+            <span class="app-tab-logo">k</span>
+            <span class="app-tab-name">kcode</span>
+            <span class="app-tab-badge">本地</span>
+          </div>
+          <button class="new-chat" data-action="new-chat"><svg class="icon"><use href="#i-plus" /></svg><span>新建会话</span><kbd>⌘N</kbd></button>
+
+          <nav class="primary-nav">
+            <button class="primary-nav-item active" data-screen="conversation"><svg class="icon"><use href="#i-chat" /></svg>对话</button>
+            <button class="primary-nav-item" data-screen="automation"><svg class="icon"><use href="#i-clock" /></svg>自动化</button>
+            <button class="primary-nav-item" data-screen="plugins"><svg class="icon"><use href="#i-puzzle" /></svg>插件市场</button>
+          </nav>
+
+          <div class="task-list-section">
+            <div class="task-list-head"><span>任务列表</span><div><button class="icon-btn" data-action="task-search" title="搜索任务"><svg class="icon"><use href="#i-search" /></svg></button><button class="icon-btn" data-action="task-sort" title="排序"><svg class="icon"><use href="#i-diff" /></svg></button></div></div>
+
+            <div class="task-section-head"><span>项目</span><div><button class="tiny-btn" data-action="add-workspace" title="添加项目"><svg class="icon"><use href="#i-plus" /></svg></button></div></div>
+            <div class="project-list" id="project-list">
+              <div class="project-group" data-project="kcode">
+                <div class="workspace-item project-row active" data-action="select-workspace" data-workspace="kcode" data-path="E:\space\my_space\MyProject\kcode" role="button" tabindex="0">
+                  <button class="project-caret" data-action="toggle-project" data-project="kcode" title="折叠项目"><svg class="icon"><use href="#i-chevron" /></svg></button>
+                  <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
+                  <span class="project-name">kcode</span>
+                  <button class="project-new" data-action="new-task-in-project" data-workspace="kcode" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button>
+                  <button class="project-more" data-action="project-menu" data-workspace="kcode" data-project-name="kcode" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button>
+                </div>
+                <div class="project-tasks" id="task-list-kcode">
+                  <button class="session-item active" data-action="open-session" data-workspace="kcode" data-session="对比 apps 下 5 个应用">
+                    <span class="session-title">对比 apps 下 5 个应用</span>
+                    <span class="session-meta"><span>2 分钟前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  </button>
+                  <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="修复桌面宿主启动">
+                    <span class="session-title">修复桌面宿主启动</span>
+                    <span class="session-meta"><span>1 小时前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  </button>
+                  <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="整理 CLI 优化计划">
+                    <span class="session-title">整理 CLI 优化计划</span>
+                    <span class="session-meta"><span>昨天</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="project-group collapsed" data-project="web">
+                <div class="workspace-item project-row" data-action="select-workspace" data-workspace="web" data-path="E:\space\my_space\MyProject\kcode\apps\web" role="button" tabindex="0">
+                  <button class="project-caret" data-action="toggle-project" data-project="web" title="折叠项目"><svg class="icon"><use href="#i-chevron" /></svg></button>
+                  <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
+                  <span class="project-name">web</span>
+                  <button class="project-new" data-action="new-task-in-project" data-workspace="web" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button>
+                  <button class="project-more" data-action="project-menu" data-workspace="web" data-project-name="web" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button>
+                </div>
+                <div class="project-tasks" id="task-list-web">
+                  <button class="session-item" data-action="open-session" data-workspace="web" data-session="优化浏览器登录页">
+                    <span class="session-title">优化浏览器登录页</span>
+                    <span class="session-meta"><span>昨天</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  </button>
+                  <button class="session-item" data-action="open-session" data-workspace="web" data-session="检查 web 构建产物">
+                    <span class="session-title">检查 web 构建产物</span>
+                    <span class="session-meta"><span>2 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="task-inbox-group" id="inbox-group">
+              <div class="task-section-head task-section-inbox"><button class="task-section-caret" data-action="toggle-inbox" title="折叠任务"><svg class="icon"><use href="#i-chevron" /></svg></button><span data-action="select-inbox" role="button" tabindex="0">任务</span><div><button class="tiny-btn" data-action="new-inbox-task" title="新建未归类任务"><svg class="icon"><use href="#i-plus" /></svg></button></div></div>
+              <div id="ungrouped-task-list">
+                <button class="session-item" data-action="open-session" data-workspace="inbox" data-session="Nginx TCP 转发与内网 Ntrip Caster 中转方案">
+                  <span class="session-title">Nginx TCP 转发与内网 Ntrip Caster 中转方案</span>
+                  <span class="session-meta"><span>10 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                </button>
+                <button class="session-item" data-action="open-session" data-workspace="inbox" data-session="分析降雨量与水情指标计算逻辑">
+                  <span class="session-title">分析降雨量与水情指标计算逻辑</span>
+                  <span class="session-meta"><span>36 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-foot">
+            <div class="account-row">
+              <span class="account-avatar">D</span>
+              <span class="account-copy"><strong>DELL</strong><small>GLM-5.3 · 本地</small></span>
+              <button class="icon-btn" data-action="open-settings" title="设置"><svg class="icon"><use href="#i-settings" /></svg></button>
+            </div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <header class="topbar">
+            <div class="project-block" data-action="open-workspace-menu">
+              <div class="project-icon"><svg class="icon"><use href="#i-folder" /></svg></div>
+              <div class="project-copy"><div class="project-name"><span id="project-title">对比 apps 下 5 个应用</span> <span class="dirty-dot"></span></div><div class="project-path"><span id="workspace-path-name">kcode</span> <span class="path-sep">/</span> <span class="branch"><svg class="icon"><use href="#i-branch" /></svg>main</span></div></div>
+            </div>
+            <div class="top-actions">
+              <button class="top-btn" data-action="toggle-context"><svg class="icon"><use href="#i-diff" /></svg><span>变更</span><span class="count-badge">3</span></button>
+              <button class="top-btn" data-action="open-context-tasks"><svg class="icon"><use href="#i-task" /></svg><span>任务</span><span class="count-badge">1</span></button>
+              <button class="icon-btn" data-action="open-palette" title="命令面板 (⌘K)"><svg class="icon"><use href="#i-command" /></svg></button>
+              <button class="icon-btn" data-action="open-more-menu" title="更多"><svg class="icon"><use href="#i-more" /></svg></button>
+            </div>
+          </header>
+
+          <section class="view view-conversation" id="conversation-view">
+            <div class="thread">
+              <div class="thread-head"><span><svg class="icon"><use href="#i-clock" /></svg> 今天 14:32</span><span>3 个工具调用 · 42 秒</span><span class="thread-live"><span class="status-dot"></span>已连接</span></div>
+
+              <div class="trust-banner" id="trust-banner">
+                <span class="trust-icon"><svg class="icon"><use href="#i-shield" /></svg></span>
+                <div class="trust-copy"><strong>项目尚未信任</strong><span>AGENTS.md、规则与项目技能尚未装载。信任后新会话生效。</span></div>
+                <button class="trust-action" data-action="trust">信任本项目</button>
+                <button class="icon-btn trust-close" data-action="dismiss-trust" title="关闭"><svg class="icon"><use href="#i-close" /></svg></button>
+              </div>
+
+              <div class="message user-message">
+                <div class="user-bubble">对比 apps/ 下 5 个应用的职责、入口和构建方式，给一个适合桌面端扫视的总结。顺便看一下昨天为什么桌面启动一直卡在“连接宿主中”。</div>
+                <div class="message-meta">14:32 · 你</div>
+              </div>
+
+              <div class="message assistant-message">
+                <div class="assistant-head"><span class="avatar">k</span><span class="assistant-name">kcode</span><span class="model-tag">GLM-5.3</span><span class="message-meta">14:32</span></div>
+                <div class="assistant-body">
+                  <p>我先核对了各应用的 <code>package.json</code>、构建配置和入口文件。桌面端目前和 CLI 共用 <code>contracts</code>、<code>design</code> 与 host 协议，但 renderer 有自己的事件投影。</p>
+
+                  <button class="tool-card" data-action="toggle-tool">
+                    <span class="tool-head">
+                      <span class="tool-icon"><svg class="icon"><use href="#i-terminal" /></svg></span>
+                      <span class="tool-copy"><span class="tool-name">bash</span><code>pnpm test</code></span>
+                      <span class="tool-status ok"><svg class="icon"><use href="#i-check" /></svg>通过</span>
+                      <span class="tool-duration">42.0s</span>
+                      <svg class="icon tool-caret"><use href="#i-chevron" /></svg>
+                    </span>
+                    <span class="tool-output"><span class="ok-line">✓ 172 test files passed</span><span class="muted-line">✓ 870 tests passed · 2 skipped</span><span class="muted-line">Duration 39.78s</span></span>
+                  </button>
+
+                  <button class="change-card" data-action="toggle-context">
+                    <span class="file-icon">TS</span>
+                    <span class="change-copy"><strong>main.tsx</strong><span>apps/desktop/src/renderer</span></span>
+                    <span class="change-stat add">+42</span><span class="change-stat del">−8</span>
+                    <span class="change-link">查看 <svg class="icon"><use href="#i-arrow-up" /></svg></span>
+                  </button>
+
+                  <p>桌面端的关键差异是：<strong>renderer 不是 Terminal 的镜像</strong>，而是 host 事件的投影。把“会话、工具、审批、diff”做成同一条可扫视的时间线，比复制 TUI 的逐行输出更重要。</p>
+
+                  <table class="mini-table">
+                    <thead><tr><th>应用</th><th>职责</th><th>入口</th><th>状态</th></tr></thead>
+                    <tbody>
+                      <tr><td><code>@kcode/cli</code></td><td>终端主界面</td><td><code>src/main.tsx</code></td><td><span class="pill ok">稳定</span></td></tr>
+                      <tr><td><code>@kcode/desktop</code></td><td>桌面工作台</td><td><code>src/main/index.ts</code></td><td><span class="pill warn">迭代中</span></td></tr>
+                      <tr><td><code>@kcode/host</code></td><td>会话宿主</td><td><code>src/port.ts</code></td><td><span class="pill ok">稳定</span></td></tr>
+                    </tbody>
+                  </table>
+
+                  <div class="quota-banner"><span class="quota-icon">!</span><div><strong>[1310] 已达到本周使用上限</strong><p>额度将在 2026-10-23 09:17 重置。当前任务可以继续运行。</p></div><button class="small-action" data-action="reset-quota">重置额度</button><button class="small-action" data-action="feedback">反馈问题</button><button class="icon-btn" data-action="dismiss-quota"><svg class="icon"><use href="#i-close" /></svg></button></div>
+
+                  <div class="continue-row"><button class="continue-btn" data-action="continue-task"><svg class="icon"><use href="#i-play" /></svg>继续</button><span>kcode 已暂停，等待你的指令</span></div>
+
+                  <div class="answer-actions">
+                    <button class="text-btn" data-action="copy-answer"><svg class="icon"><use href="#i-copy" /></svg>复制</button>
+                    <button class="text-btn" data-action="retry-answer"><svg class="icon"><use href="#i-refresh" /></svg>重试</button>
+                    <span class="answer-time">刚刚 · 1.8k tokens</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view view-empty" id="empty-view">
+            <div class="empty-wrap">
+              <div class="trust-banner empty-trust" id="empty-trust">
+                <span class="trust-icon"><svg class="icon"><use href="#i-shield" /></svg></span>
+                <div class="trust-copy"><strong>项目尚未信任</strong><span>加载 AGENTS.md 与项目规则前，需要先确认工作区。</span></div>
+                <button class="trust-action" data-action="trust">信任本项目</button>
+                <button class="icon-btn trust-close" data-action="dismiss-trust" title="关闭"><svg class="icon"><use href="#i-close" /></svg></button>
+              </div>
+              <div class="empty-hero">
+                <div class="empty-logo"><span>k</span></div>
+                <div class="eyebrow"><span class="eyebrow-dot"></span>KCODE WORKSPACE</div>
+                <h1>开始一个任务</h1>
+                <p>读代码、改实现、跑测试，或者把一堆材料整理成可交付的结果。</p>
+                <div class="suggestions">
+                  <button class="suggestion" data-action="use-prompt" data-prompt="解释这个仓库的架构，指出最值得先读的三个文件。"><span class="prompt-icon blue"><svg class="icon"><use href="#i-search" /></svg></span><span class="suggestion-copy"><strong>理解这个仓库</strong><small>架构、入口、关键模块</small></span><kbd>⌘1</kbd></button>
+                  <button class="suggestion" data-action="use-prompt" data-prompt="修复桌面端启动慢的问题，并补一个回归测试。"><span class="prompt-icon coral"><svg class="icon"><use href="#i-terminal" /></svg></span><span class="suggestion-copy"><strong>修复一个 bug</strong><small>定位、修改、验证</small></span><kbd>⌘2</kbd></button>
+                  <button class="suggestion" data-action="use-prompt" data-prompt="总结这次改动，生成一份给团队看的变更说明。"><span class="prompt-icon green"><svg class="icon"><use href="#i-diff" /></svg></span><span class="suggestion-copy"><strong>生成变更摘要</strong><small>diff、测试、风险</small></span><kbd>⌘3</kbd></button>
+                </div>
+                <div class="recent-row"><span>最近打开</span><button class="recent-project" data-action="open-recent" data-session="kcode"><span class="mini-project">k</span>kcode<span>桌面工作台</span></button><button class="recent-project" data-action="open-recent" data-session="web"><span class="mini-project alt">w</span>web<span>浏览器客户端</span></button></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view view-automation">
+            <div class="page-shell">
+              <header class="page-head"><div><div class="eyebrow"><span class="eyebrow-dot"></span>AUTOMATION</div><h1>自动化 工作流</h1><p>创建定时任务，或在排队空闲时自动执行。</p></div><div class="page-actions"><button class="ghost-btn" data-action="schedule-task"><svg class="icon"><use href="#i-clock" /></svg>定时任务</button><button class="primary-btn" data-action="create-task"><svg class="icon"><use href="#i-plus" /></svg>创建临时任务</button></div></header>
+              <div class="empty-panel"><div class="empty-panel-icon"><svg class="icon"><use href="#i-clock" /></svg></div><h3>还没有定时任务</h3><p>可以让 kcode 在每天固定时间整理仓库、生成周报或做风险扫描。</p><div class="empty-panel-actions"><button class="primary-btn" data-action="schedule-task">新建定时任务</button><button class="ghost-btn" data-action="create-task">创建临时任务</button></div></div>
+              <div class="template-section"><div class="template-heading"><span>自动化模板</span><span class="muted">点击模板即可创建</span></div><div class="template-grid">
+                <button class="template-card" data-action="use-template" data-template="每日站会摘要"><span class="template-icon blue"><svg class="icon"><use href="#i-chat" /></svg></span><strong>每日站会摘要</strong><p>汇总上一个工作日以来的提交、CI 状态和阻塞项，生成不超过 6 条的摘要。</p><small>每天 09:00</small></button>
+                <button class="template-card" data-action="use-template" data-template="CI 失败与不稳定测试报告"><span class="template-icon coral"><svg class="icon"><use href="#i-terminal" /></svg></span><strong>CI 失败与不稳定测试报告</strong><p>扫描最近 CI 失败和不稳定测试，按影响范围给出修复建议。</p><small>每天 10:00</small></button>
+                <button class="template-card" data-action="use-template" data-template="文档同步检查"><span class="template-icon green"><svg class="icon"><use href="#i-file" /></svg></span><strong>文档同步检查</strong><p>检查 README、配置说明是否与当前实现不一致，仅读分析。</p><small>每周三 15:00</small></button>
+                <button class="template-card" data-action="use-template" data-template="Git 站点摘要"><span class="template-icon"><svg class="icon"><use href="#i-branch" /></svg></span><strong>Git 站点摘要</strong><p>汇总本周 Git 活动，生成周会摘要并保持简洁。</p><small>每周五 16:00</small></button>
+              </div></div>
+            </div>
+          </section>
+
+          <section class="view view-plugins">
+            <div class="page-shell plugin-shell">
+              <header class="page-head"><div><div class="eyebrow"><span class="eyebrow-dot"></span>PLUGINS</div><h1>插件市场</h1><p>安装能力包，扩展工具、MCP、技能和命令。</p></div><div class="page-actions"><button class="ghost-btn" data-action="plugin-manage"><svg class="icon"><use href="#i-settings" /></svg>插件管理</button><button class="primary-btn" data-action="add-plugin"><svg class="icon"><use href="#i-plus" /></svg>添加插件</button></div></header>
+              <div class="plugin-toolbar"><div class="tab-pills"><button class="tab-pill active">公开</button><button class="tab-pill" data-plugin-tab="community">社区</button><button class="tab-pill" data-plugin-tab="personal">个人</button></div><label class="search-box"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索插件" /></label></div>
+              <div class="market-section"><div class="market-heading"><span>开发者工具</span><span class="muted">按热度</span></div>
+                <div class="market-row"><span class="market-icon dark">G</span><div><strong>GitHub</strong><p>基于 GitHub CLI 的 PR、Issue、评论工作流。</p></div><span class="market-meta">官方</span><button class="small-action" data-action="install-plugin">安装</button></div>
+                <div class="market-row"><span class="market-icon accent">D</span><div><strong>DeepSeek</strong><p>接入 DeepSeek provider 与模型列表。</p></div><span class="market-meta">官方</span><button class="small-action" data-action="install-plugin">安装</button></div>
+                <div class="market-row"><span class="market-icon green">M</span><div><strong>MCP Bridge</strong><p>连接项目级 MCP server，按需加载工具。</p></div><span class="market-meta">社区</span><button class="small-action" data-action="install-plugin">安装</button></div>
+              </div>
+              <div class="market-section"><div class="market-heading"><span>实用工具</span><span class="muted">按热度</span></div>
+                <div class="market-row"><span class="market-icon">P</span><div><strong>PDF / Office</strong><p>读取、生成与预览 PDF、DOCX、XLSX。</p></div><span class="market-meta">内置</span><button class="small-action" data-action="install-plugin">已安装</button></div>
+                <div class="market-row"><span class="market-icon">V</span><div><strong>Voice Input</strong><p>本地语音识别，把口述任务转成提示词。</p></div><span class="market-meta">官方</span><button class="small-action" data-action="install-plugin">安装</button></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="terminal-panel" id="terminal-panel">
+            <header class="terminal-head"><div class="terminal-tabs"><button class="terminal-tab active"><svg class="icon"><use href="#i-terminal" /></svg>PowerShell</button><button class="terminal-tab" data-action="new-terminal">+</button></div><div class="terminal-actions"><span>kcode · E:\space\my_space\MyProject\kcode</span><button class="icon-btn" data-action="close-terminal"><svg class="icon"><use href="#i-close" /></svg></button></div></header>
+            <div class="terminal-body"><div class="terminal-line muted">Windows PowerShell</div><div class="terminal-line muted">版权所有 (C) Microsoft Corporation。保留所有权利。</div><div class="terminal-line">&nbsp;</div><div class="terminal-line">PS E:\space\my_space\MyProject\kcode&gt; git status --short</div><div class="terminal-line"> M apps/desktop/src/main/index.ts</div><div class="terminal-line"> M apps/host/src/port.ts</div><div class="terminal-line">&nbsp;</div><div class="terminal-line">PS E:\space\my_space\MyProject\kcode&gt; <span class="terminal-caret"></span></div></div>
+          </section>
+
+          <footer class="composer">
+            <div class="composer-inner">
+              <div class="queue-bar hidden" id="queue-bar"><span><span class="queue-dot"></span>已排队 <strong id="queue-count">0</strong> 条</span><button class="small-action" data-action="clear-queue">清空</button></div>
+              <div class="composer-box">
+                <div class="attachment-row hidden" id="attachment-row"></div>
+                <textarea id="composer-input" rows="1" placeholder="描述任务，Enter 发送 · Shift+Enter 换行"></textarea>
+                <div class="composer-toolbar">
+                  <button class="composer-tool composer-plus" data-action="open-attach-menu" title="添加附件"><svg class="icon"><use href="#i-plus" /></svg></button>
+                  <button class="composer-select mode-select" data-action="open-mode-menu"><svg class="icon"><use href="#i-shield" /></svg><span id="mode-label">变更确认</span><svg class="icon chevron"><use href="#i-chevron" /></svg></button>
+                  <span class="toolbar-spacer"></span>
+                  <button class="context-meter" data-action="open-context-meter" title="上下文容量"><span class="context-meter-icon"><span></span></span><span id="context-percent">67%</span></button>
+                  <button class="composer-select model-select" data-action="open-model-menu"><span id="model-label">GLM-5.3</span><span class="reasoning-badge" id="reasoning-badge">高</span><svg class="icon chevron"><use href="#i-chevron" /></svg></button>
+                  <button class="composer-stop hidden" id="composer-stop" data-action="stop-run" title="停止"><span></span></button>
+                  <button class="send-btn" id="send-btn" data-action="send" title="发送 (Enter)"><svg class="icon"><use href="#i-arrow-up" /></svg></button>
+                </div>
+              </div>
+              <div class="composer-popover model-popover" id="model-popover">
+                <div class="popover-head"><div><span class="provider-logo">B</span><strong>BigModel</strong><span class="popover-tag">个人</span></div><button class="icon-btn" data-action="close-model-popover"><svg class="icon"><use href="#i-close" /></svg></button></div>
+                <div class="popover-section"><div class="popover-label">模型</div>
+                  <button class="model-choice active" data-model-choice="GLM-5.3"><span>GLM-5.3</span><span class="model-choice-check">✓</span></button>
+                  <button class="model-choice" data-model-choice="GLM-5.3-Flash"><span>GLM-5.3-Flash</span><span class="model-choice-tag">视觉</span><span class="model-choice-check" style="visibility:hidden">✓</span></button>
+                </div>
+                <div class="reasoning-box"><div class="reasoning-head"><span>思考强度</span><strong id="reasoning-value">高</strong><kbd>Ctrl+T</kbd></div><input id="reasoning-range" type="range" min="0" max="2" step="1" value="2" aria-label="思考强度" /><div class="reasoning-scale"><span>低</span><span>中</span><span>高</span></div></div>
+              </div>
+              <div class="composer-popover context-popover" id="context-popover">
+                <div class="popover-head"><strong>上下文容量</strong><span class="popover-value">67.1 万 / 100 万</span><button class="icon-btn" data-action="close-context-popover"><svg class="icon"><use href="#i-close" /></svg></button></div>
+                <div class="context-capacity-bar"><span style="width:67.1%"></span></div>
+                <div class="context-capacity-meta"><span>已使用 67.1%</span><span>平均缓存命中率 <strong>99%</strong></span></div>
+                <div class="context-quota-head"><span>剩余额度</span><button class="text-link" data-action="reset-quota">获得 3 次重置额度</button></div>
+                <div class="context-quota-grid"><div><span>5 小时</span><strong>100%</strong><div class="quota-bar"><span style="width:100%"></span></div></div><div><span>每周</span><strong>100%</strong><div class="quota-bar green"><span style="width:100%"></span></div></div><div><span>MCP</span><strong>100%</strong><div class="quota-bar orange"><span style="width:100%"></span></div></div></div>
+              </div>
+              <div class="composer-hint"><span>Enter 发送</span><span>Shift+Enter 换行</span><span class="hint-spacer"></span><span><kbd>⌘K</kbd> 命令</span></div>
+            </div>
+          </footer>
+        </main>
+
+        <aside class="context-pane" id="context-pane">
+          <div class="context-head"><div><span class="eyebrow">CONTEXT</span><strong>变更与任务</strong></div><button class="icon-btn" data-action="toggle-context"><svg class="icon"><use href="#i-close" /></svg></button></div>
+          <div class="context-tabs"><button class="context-tab active" data-context-tab="changes">变更 <span>3</span></button><button class="context-tab" data-context-tab="tasks">任务 <span>1</span></button></div>
+          <div class="context-body" data-context-panel="changes">
+            <div class="change-list">
+              <button class="change-file active" data-action="select-file" data-file="main.tsx"><span class="file-icon">TS</span><span><strong>main.tsx</strong><small>renderer</small></span><span class="change-stat add">+42</span><span class="change-stat del">−8</span></button>
+              <button class="change-file" data-action="select-file" data-file="host.ts"><span class="file-icon">TS</span><span><strong>host.ts</strong><small>renderer · hooks</small></span><span class="change-stat add">+18</span><span class="change-stat del">−2</span></button>
+              <button class="change-file" data-action="select-file" data-file="port.ts"><span class="file-icon rs">RS</span><span><strong>port.ts</strong><small>apps/host/src</small></span><span class="change-stat add">+25</span><span class="change-stat del">−4</span></button>
+            </div>
+            <div class="diff-preview">
+              <div class="diff-head"><span>apps/desktop/src/renderer/main.tsx</span><span class="muted">+42 −8</span></div>
+              <pre><span class="diff-line ctx">@@ -146,7 +146,17 @@</span>
+<span class="diff-line add">+  const create = (): void => {</span>
+<span class="diff-line add">+    void conn.send("session/create", {</span>
+<span class="diff-line add">+      model: modelDefault, cwd: defaultCwd,</span>
+<span class="diff-line add">+    }).catch(() =&gt; {</span>
+<span class="diff-line add">+      createdRef.current = false;</span>
+<span class="diff-line ctx">     });</span>
+<span class="diff-line del">-    .catch(() =&gt; undefined);</span></pre>
+            </div>
+            <button class="context-open-btn" data-action="open-editor"><svg class="icon"><use href="#i-external" /></svg>在编辑器中打开</button>
+          </div>
+          <div class="context-body hidden" data-context-panel="tasks">
+            <div class="progress-head"><span>进度</span><strong>2 / 5</strong><button class="icon-btn" data-action="open-more-menu"><svg class="icon"><use href="#i-more" /></svg></button></div>
+            <div class="progress-list"><div class="progress-item done"><span></span><p>梳理启动链与 session/create</p></div><div class="progress-item done"><span></span><p>修复 home repo map 扫描</p></div><div class="progress-item running"><span></span><p>补桌面 E2E 回归</p></div><div class="progress-item"><span></span><p>更新审计文档</p></div><div class="progress-item"><span></span><p>提交前检查</p></div></div>
+            <div class="task-card"><span class="task-status running"></span><div><strong>运行全量测试</strong><span>pnpm test · 42s</span></div><span class="pill ok">完成</span></div>
+            <div class="task-card"><span class="task-status queued"></span><div><strong>更新桌面 E2E</strong><span>等待本轮结束</span></div><span class="pill muted">排队</span></div>
+            <div class="subagent-card"><span class="list-icon">G</span><div><strong>general-purpose</strong><span>子智能体 · 2 个工具运行中</span></div><span class="status-dot"></span></div>
+          </div>
+        </aside>
+
+        <aside class="panel-picker" id="panel-picker">
+          <header class="panel-picker-head"><div><h2>新标签页</h2><p>在当前工作区打开一个工具面板。</p></div><button class="icon-btn" data-action="close-panel-picker"><svg class="icon"><use href="#i-close" /></svg></button></header>
+          <div class="panel-picker-grid">
+            <div class="panel-choice" data-panel="files" role="button" tabindex="0"><span class="panel-choice-icon"><svg class="icon"><use href="#i-file" /></svg></span><div><strong>文件</strong><span>从目录中选择一个文件</span></div><span class="small-action">打开</span></div>
+            <div class="panel-choice" data-panel="browser" role="button" tabindex="0"><span class="panel-choice-icon"><svg class="icon"><use href="#i-external" /></svg></span><div><strong>浏览器</strong><span>浏览网页和预览应用</span></div><span class="small-action">打开</span></div>
+            <div class="panel-choice" data-panel="terminal" role="button" tabindex="0"><span class="panel-choice-icon"><svg class="icon"><use href="#i-terminal" /></svg></span><div><strong>终端</strong><span>运行命令和查看输出</span></div><span class="small-action">打开</span></div>
+            <div class="panel-choice" data-panel="review" role="button" tabindex="0"><span class="panel-choice-icon"><svg class="icon"><use href="#i-diff" /></svg></span><div><strong>审查</strong><span>查看代码变更与差异</span></div><span class="small-action">打开</span></div>
+          </div>
+          <footer class="panel-picker-foot"><span>面板在当前工作区内打开</span><kbd>Esc 关闭</kbd></footer>
+        </aside>
+      </div>
+
+      <section class="onboarding" id="onboarding">
+        <div class="onboarding-card">
+          <div class="onboarding-brand"><span class="brand-mark">k</span><span>kcode</span></div>
+          <h1>把工作区连接起来</h1>
+          <p>选择一个项目目录，配置模型供应商。密钥只写入本机钥匙串。</p>
+          <label class="onboarding-field"><span>项目目录</span><div class="input-action"><input id="onboarding-cwd" value="E:\space\my_space\MyProject\kcode" readonly /><button class="small-action" data-action="pick-directory"><svg class="icon"><use href="#i-folder" /></svg>选择</button></div></label>
+          <div class="onboarding-label">厂商预设</div>
+          <div class="preset-row"><button class="preset active" data-preset="GLM">GLM-5.3</button><button class="preset" data-preset="DeepSeek">DeepSeek</button><button class="preset" data-preset="自定义">自定义</button></div>
+          <div class="onboarding-grid"><label class="onboarding-field"><span>Provider</span><input id="onboarding-provider" value="Z.ai" /></label><label class="onboarding-field"><span>模型</span><input id="onboarding-model" value="glm-5.3" /></label></div>
+          <label class="onboarding-field"><span>Base URL</span><input id="onboarding-baseurl" value="https://api.z.ai/api/paas/v4" /></label>
+          <label class="onboarding-field"><span>API key</span><input id="onboarding-key" type="password" placeholder="sk-..." /></label>
+          <div class="onboarding-actions"><button class="ghost-btn" data-action="onboarding-skip">稍后配置</button><button class="primary-btn" data-action="onboarding-save">保存并开始</button></div>
+          <div class="onboarding-hint"><svg class="icon"><use href="#i-lock" /></svg>密钥不会出现在 renderer；配置仅保存在本机。</div>
+        </div>
+      </section>
+
+      <div class="overlay overlay-plan" id="plan-overlay">
+        <section class="plan-sheet" role="dialog" aria-modal="true" aria-label="执行计划">
+          <header class="approval-head"><div class="approval-title"><span class="approval-icon blue"><svg class="icon"><use href="#i-task" /></svg></span><div><h2>执行计划</h2><p>kcode 准备按以下步骤完成这次任务</p></div></div><button class="icon-btn" data-action="close-overlay"><svg class="icon"><use href="#i-close" /></svg></button></header>
+          <ol class="plan-steps"><li><span>1</span><div><strong>定位启动慢的环节</strong><p>读取 host 启动链与 session/create 日志</p></div><em>已完成</em></li><li><span>2</span><div><strong>修复 home repo map 扫描</strong><p>跳过 home + 增加 2s 预算</p></div><em>进行中</em></li><li><span>3</span><div><strong>补回归测试并验证</strong><p>desktop E2E + 全量测试</p></div><em>待执行</em></li></ol>
+          <div class="plan-options"><button class="approval-option primary" data-plan="approve"><span class="option-key">1</span><span><strong>批准执行</strong><small>按这个计划继续</small></span></button><button class="approval-option" data-plan="revise"><span class="option-key">2</span><span><strong>调整计划</strong><small>先修改步骤</small></span></button><button class="approval-option danger" data-plan="abandon"><span class="option-key">Esc</span><span><strong>放弃</strong><small>结束本次计划</small></span></button></div>
+          <footer class="approval-foot"><span>计划会写入当前会话</span><span>1–3 选择 · Enter 确认</span></footer>
+        </section>
+      </div>
+
+      <div class="overlay overlay-question" id="question-overlay">
+        <section class="question-sheet" role="dialog" aria-modal="true" aria-label="提问">
+          <header class="approval-head"><div class="approval-title"><span class="approval-icon blue"><svg class="icon"><use href="#i-chat" /></svg></span><div><h2>需要你补充一个信息</h2><p>这个选择会影响接下来的实现范围</p></div></div><button class="icon-btn" data-action="close-overlay"><svg class="icon"><use href="#i-close" /></svg></button></header>
+          <p class="question-text">这次 UI 迭代优先采用哪种视觉方向？</p>
+          <div class="question-options"><button class="question-option" data-question="light"><span class="option-key">1</span><span><strong>纯白极简</strong><small>更接近 ZCode / Codex</small></span></button><button class="question-option" data-question="dark"><span class="option-key">2</span><span><strong>深色工作台</strong><small>更接近 DeepSeek Harness</small></span></button><button class="question-option" data-question="both"><span class="option-key">3</span><span><strong>两套都保留</strong><small>亮暗各自优化</small></span></button></div>
+          <footer class="approval-foot"><span>Enter 确认 · Esc 跳过</span><span>选择会写回会话</span></footer>
+        </section>
+      </div>
+
+      <div class="overlay overlay-approval" id="approval-overlay">
+        <section class="approval-sheet" role="dialog" aria-modal="true" aria-label="审批">
+          <header class="approval-head"><div class="approval-title"><span class="approval-icon"><svg class="icon"><use href="#i-shield" /></svg></span><div><h2>需要你的确认</h2><p>kcode 想在工作区执行一个命令</p></div></div><button class="icon-btn" data-action="close-overlay"><svg class="icon"><use href="#i-close" /></svg></button></header>
+          <div class="approval-command"><span class="prompt-mark">$</span><code>pnpm install @kcode/desktop-ui --save-dev</code><span class="risk-pill">写入依赖</span></div>
+          <div class="approval-explain"><span class="risk-dot"></span><div><strong>会修改 package.json 与 lockfile</strong><p>允许后 kcode 会安装依赖并继续当前任务。这个操作不会离开工作区。</p></div><button class="inline-link" data-action="show-rule">查看规则</button></div>
+          <div class="approval-detail"><div class="detail-head"><span>将要修改</span><span>2 个文件</span></div><div class="detail-row"><span class="file-icon">JS</span><code>package.json</code><span class="change-stat add">+1</span></div><div class="detail-row"><span class="file-icon">LO</span><code>pnpm-lock.yaml</code><span class="change-stat add">+128</span></div></div>
+          <div class="approval-options">
+            <button class="approval-option primary" data-approval="once"><span class="option-key">1</span><span><strong>允许本次</strong><small>只执行这一次</small></span><span class="option-check"><svg class="icon"><use href="#i-check" /></svg></span></button>
+            <button class="approval-option" data-approval="session"><span class="option-key">2</span><span><strong>本会话允许</strong><small>同类操作不再询问</small></span><span class="option-check"><svg class="icon"><use href="#i-check" /></svg></span></button>
+            <button class="approval-option" data-approval="always"><span class="option-key">3</span><span><strong>始终允许</strong><small>写入项目规则</small></span><span class="option-check"><svg class="icon"><use href="#i-check" /></svg></span></button>
+            <button class="approval-option danger" data-approval="deny"><span class="option-key">Esc</span><span><strong>拒绝</strong><small>结束这次工具调用</small></span><span class="option-check"><svg class="icon"><use href="#i-close" /></svg></span></button>
+          </div>
+          <footer class="approval-foot"><span><svg class="icon"><use href="#i-lock" /></svg> 所有决定都会写入审计日志</span><span>1–4 选择 · Enter 确认</span></footer>
+        </section>
+      </div>
+
+      <div class="overlay overlay-palette" id="palette-overlay">
+        <section class="palette" role="dialog" aria-modal="true" aria-label="命令面板">
+          <div class="palette-input-row"><svg class="icon"><use href="#i-search" /></svg><input id="palette-input" placeholder="搜索命令、会话或设置…" autocomplete="off" /><kbd>Esc</kbd></div>
+          <div class="palette-list" id="palette-list">
+            <div class="palette-group"><span>快速操作</span>
+              <button class="palette-item active" data-palette="新建会话"><span class="palette-icon"><svg class="icon"><use href="#i-plus" /></svg></span><span>新建会话</span><kbd>⌘N</kbd></button>
+              <button class="palette-item" data-palette="查看变更"><span class="palette-icon"><svg class="icon"><use href="#i-diff" /></svg></span><span>查看工作区变更</span><kbd>⌘D</kbd></button>
+              <button class="palette-item" data-palette="打开设置"><span class="palette-icon"><svg class="icon"><use href="#i-settings" /></svg></span><span>打开设置</span><kbd>⌘,</kbd></button>
+            </div>
+            <div class="palette-group"><span>会话</span>
+              <button class="palette-item" data-palette="对比 apps 下 5 个应用"><span class="palette-icon"><svg class="icon"><use href="#i-chat" /></svg></span><span>对比 apps 下 5 个应用</span><span class="palette-meta">今天</span></button>
+              <button class="palette-item" data-palette="修复桌面宿主启动"><span class="palette-icon"><svg class="icon"><use href="#i-chat" /></svg></span><span>修复桌面宿主启动</span><span class="palette-meta">今天</span></button>
+            </div>
+            <div class="palette-group"><span>模型</span>
+              <button class="palette-item" data-palette="切换模型"><span class="palette-icon"><svg class="icon"><use href="#i-spark" /></svg></span><span>切换模型</span><kbd>⌘M</kbd></button>
+            </div>
+          </div>
+          <footer class="palette-foot"><span><kbd>↑↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>Esc</kbd> 关闭</span></footer>
+        </section>
+      </div>
+
+      <div class="overlay overlay-settings" id="settings-overlay">
+        <section class="settings" role="dialog" aria-modal="true" aria-label="设置">
+          <aside class="settings-nav">
+            <button class="settings-back" data-action="close-overlay"><span>←</span> 返回工作区</button>
+            <div class="settings-nav-head"><span class="brand-mark small">k</span><span>设置</span></div>
+            <div class="settings-group-label">基础设置</div>
+            <button class="settings-nav-item" data-settings="general"><svg class="icon"><use href="#i-settings" /></svg>常规</button>
+            <button class="settings-nav-item active" data-settings="models"><svg class="icon"><use href="#i-spark" /></svg>模型</button>
+            <button class="settings-nav-item" data-settings="appearance"><svg class="icon"><use href="#i-sun" /></svg>外观</button>
+            <button class="settings-nav-item" data-settings="permissions"><svg class="icon"><use href="#i-shield" /></svg>权限</button>
+            <button class="settings-nav-item" data-settings="browser"><svg class="icon"><use href="#i-external" /></svg>浏览器控制</button>
+            <button class="settings-nav-item" data-settings="shortcuts"><svg class="icon"><use href="#i-command" /></svg>键盘快捷键</button>
+            <div class="settings-group-label">Agent 能力</div>
+            <button class="settings-nav-item" data-settings="memory"><svg class="icon"><use href="#i-file" /></svg>记忆</button>
+            <button class="settings-nav-item" data-settings="subagents"><svg class="icon"><use href="#i-task" /></svg>子智能体</button>
+            <button class="settings-nav-item" data-settings="plugins"><svg class="icon"><use href="#i-puzzle" /></svg>插件</button>
+            <button class="settings-nav-item" data-settings="mcp"><svg class="icon"><use href="#i-terminal" /></svg>MCP 服务器</button>
+            <button class="settings-nav-item" data-settings="skills"><svg class="icon"><use href="#i-spark" /></svg>技能</button>
+            <button class="settings-nav-item" data-settings="commands"><svg class="icon"><use href="#i-command" /></svg>命令</button>
+            <button class="settings-nav-item" data-settings="hooks"><svg class="icon"><use href="#i-play" /></svg>钩子</button>
+            <div class="settings-group-label">数据与统计</div>
+            <button class="settings-nav-item" data-settings="usage"><svg class="icon"><use href="#i-clock" /></svg>使用统计</button>
+            <button class="settings-nav-item" data-settings="archive"><svg class="icon"><use href="#i-folder" /></svg>归档管理</button>
+            <div class="settings-group-label">其他</div>
+            <button class="settings-nav-item" data-settings="about"><svg class="icon"><use href="#i-clock" /></svg>关于</button>
+            <div class="settings-nav-foot"><span class="status-dot"></span>本地配置</div>
+          </aside>
+          <div class="settings-content">
+            <header class="settings-head"><div><h2 id="settings-title">模型设置</h2><p id="settings-desc">选择默认模型，配置 provider 与本地密钥引用。</p></div><div class="settings-head-actions"><button class="dark-btn model-only" data-action="show-provider-picker"><svg class="icon"><use href="#i-plus" /></svg>添加供应商</button><button class="icon-btn" data-action="close-overlay"><svg class="icon"><use href="#i-close" /></svg></button></div></header>
+            <div class="settings-panel" data-settings-panel="models">
+              <div class="setting-row"><div><strong>默认模型</strong><span>每个新会话使用的模型</span></div><button class="select-like" data-action="open-model-menu"><span class="model-dot"></span>GLM-5.3 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
+              <div class="model-layout">
+                <aside class="model-provider-list">
+                  <div class="model-group-label">智谱</div>
+                  <button class="provider-row active" data-action="select-provider" data-provider="BigModel"><span class="provider-logo">B</span><div><strong>BigModel</strong><span>openai-compatible</span></div><span class="status-dot"></span></button>
+                  <button class="provider-row" data-action="select-provider" data-provider="Start Plan"><span class="provider-logo">S</span><div><strong>Start Plan</strong><span>套餐</span></div><span class="status-dot warn"></span></button>
+                  <div class="model-group-label">自定义供应商</div>
+                  <button class="provider-row" data-action="select-provider" data-provider="DeepSeek"><span class="provider-logo deepseek">D</span><div><strong>DeepSeek</strong><span>deepseek-chat</span></div><span class="status-dot warn"></span></button>
+                  <button class="provider-row" data-action="select-provider" data-provider="Kimi"><span class="provider-logo">K</span><div><strong>Kimi</strong><span>moonshot</span></div><span class="status-dot warn"></span></button>
+                  <button class="provider-add-inline" data-action="show-provider-picker"><svg class="icon"><use href="#i-plus" /></svg>添加供应商</button>
+                </aside>
+                <section class="model-provider-detail" id="provider-detail">
+                  <header class="provider-detail-head"><div class="provider-title"><span class="provider-logo" id="detail-logo">B</span><div><h3 id="detail-name">BigModel</h3><span id="detail-kind">openai-compatible · api.bigmodel.cn</span></div></div><button class="toggle on" data-action="toggle-setting"><span></span></button><button class="icon-btn" data-action="provider-menu"><svg class="icon"><use href="#i-more" /></svg></button></header>
+                  <div class="plan-card"><div class="plan-head"><strong id="plan-name">GLM Coding Pro</strong><span class="pill ok" id="plan-status">已连接</span><button class="icon-btn" data-action="provider-menu"><svg class="icon"><use href="#i-more" /></svg></button></div><div class="plan-meta"><span id="plan-expiry">到期 2027年1月15日</span><span>·</span><button class="text-link" data-action="manage-plan">管理</button><button class="text-link" data-action="unlink-plan">解绑</button></div><div class="quota-grid"><div><span>5 小时剩余</span><strong>100%</strong><div class="quota-bar"><span style="width:100%"></span></div></div><div><span>每周剩余</span><strong>100%</strong><div class="quota-bar"><span style="width:100%"></span></div><small>10月29日</small></div><div><span>MCP 配额</span><strong>100%</strong><div class="quota-bar orange"><span style="width:100%"></span></div><small>10月24日</small></div></div><div class="plan-meta"><span>剩余额度</span><button class="text-link" data-action="reset-quota">获得 3 次重置额度</button></div></div>
+                  <div class="setting-block form-block"><div class="block-head"><span>连接配置</span><span class="muted">密钥只写入本机钥匙串</span></div>
+                    <label class="field"><span>Base URL</span><input id="detail-base" value="https://open.bigmodel.cn/api/paas/v4" readonly /></label>
+                    <div class="field-row"><label class="field"><span>API 格式</span><input value="OpenAI-compatible" readonly /></label><label class="field"><span>API key</span><div class="key-field"><span>sk-••••••••••••4f2a</span><button class="small-action" data-action="change-key">更换</button></div></label></div>
+                  </div>
+                  <div class="model-list-head"><span>模型列表</span><button class="small-action" data-action="add-model"><svg class="icon"><use href="#i-plus" /></svg>添加模型</button></div>
+                  <div class="model-list" id="model-list">
+                    <div class="model-row"><span class="model-avatar">G</span><div><strong>GLM-5.3</strong><span>128K · 视觉</span></div><button class="icon-btn" data-action="model-menu"><svg class="icon"><use href="#i-more" /></svg></button><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+                    <div class="model-row"><span class="model-avatar">G</span><div><strong>GLM-5.3-Flash</strong><span>128K · 视觉</span></div><button class="icon-btn" data-action="model-menu"><svg class="icon"><use href="#i-more" /></svg></button><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+                  </div>
+                  <div class="settings-actions"><button class="ghost-btn" data-action="test-connection">测试连接</button><button class="primary-btn" data-action="save-settings">保存配置</button></div>
+                </section>
+                <section class="provider-add hidden" id="provider-add">
+                  <header class="provider-add-head"><button class="icon-btn" data-action="close-provider-picker"><svg class="icon"><use href="#i-close" /></svg></button><div><h3>添加供应商</h3><p>选择预设，或创建自定义 OpenAI-compatible 端点。</p></div></header>
+                  <div class="provider-picker">
+                    <button class="provider-choice" data-provider-preset="BigModel Coding Plan"><span class="provider-choice-icon">B</span><span><strong>BigModel Coding Plan</strong><small>智谱 · 编码套餐</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="Z.ai Coding Plan"><span class="provider-choice-icon">Z</span><span><strong>Z.ai Coding Plan</strong><small>智谱 · 编码套餐</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="BigModel API"><span class="provider-choice-icon">B</span><span><strong>BigModel API</strong><small>通用 API</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="Z.ai API"><span class="provider-choice-icon">Z</span><span><strong>Z.ai API</strong><small>通用 API</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="创建自定义供应商"><span class="provider-choice-icon">+</span><span><strong>创建自定义供应商</strong><small>Base URL + 模型</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="Kimi"><span class="provider-choice-icon">K</span><span><strong>Kimi</strong><small>Moonshot</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="MiniMax"><span class="provider-choice-icon">M</span><span><strong>MiniMax</strong><small>官方 API</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="DeepSeek"><span class="provider-choice-icon">D</span><span><strong>DeepSeek</strong><small>官方 API</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="OpenAI"><span class="provider-choice-icon">O</span><span><strong>OpenAI</strong><small>官方 API</small></span><span class="menu-chevron">›</span></button>
+                    <button class="provider-choice" data-provider-preset="Anthropic"><span class="provider-choice-icon">A</span><span><strong>Anthropic</strong><small>官方 API</small></span><span class="menu-chevron">›</span></button>
+                  </div>
+                </section>
+              </div>
+            </div>
+            <div class="settings-panel hidden" data-settings-panel="general">
+              <div class="settings-section-title">界面</div>
+              <div class="setting-row"><div><strong>界面语言</strong><span>选择应用 UI 的显示语言</span></div><button class="select-like">简体中文 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
+              <div class="setting-row"><div><strong>界面模式</strong><span>办公模式侧重摘要，编程模式显示命令、diff 和代码</span></div><button class="select-like">编程模式 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
+              <div class="setting-row"><div><strong>主动任务推荐</strong><span>仅在办公模式下提供建议</span></div><button class="toggle on" data-action="toggle-setting" aria-label="主动任务推荐"><span></span></button></div>
+              <div class="settings-section-title">终端</div>
+              <div class="setting-row"><div><strong>继承系统终端 Profile</strong><span>启动内置终端时继承 shell 环境、代理和字体</span></div><button class="toggle on" data-action="toggle-setting" aria-label="继承终端 Profile"><span></span></button></div>
+              <label class="field"><span>终端字体</span><div class="field-action"><input placeholder="留空自动继承，例如 MesloLGS NF" /><button class="small-action" data-action="save-setting">保存</button></div></label>
+              <div class="settings-section-title">网络</div>
+              <label class="field"><span>HTTP 代理</span><div class="field-action"><input placeholder="http://127.0.0.1:7890" /><button class="small-action" data-action="save-setting">保存</button></div></label>
+              <label class="field"><span>不使用代理的地址</span><div class="field-action"><input placeholder="localhost,127.0.0.1,..." /><button class="small-action" data-action="save-setting">保存</button></div></label>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="appearance">
+              <div class="setting-row"><div><strong>主题</strong><span>跟随桌面端当前外观</span></div><div class="theme-switch"><button class="theme-choice active" data-theme-choice="light"><svg class="icon"><use href="#i-sun" /></svg>亮色</button><button class="theme-choice" data-theme-choice="dark"><svg class="icon"><use href="#i-moon" /></svg>暗色</button></div></div>
+              <div class="setting-row"><div><strong>信息密度</strong><span>时间线的行距与卡片间距</span></div><div class="segmented"><button class="active" data-density="comfortable">舒适</button><button data-density="compact">紧凑</button></div></div>
+              <div class="setting-row"><div><strong>界面字号</strong><span>正文与代码块的基础字号</span></div><div class="segmented"><button class="active" data-font="14">14px</button><button data-font="13">13px</button><button data-font="15">15px</button></div></div>
+            </div>
+            <div class="settings-panel hidden" data-settings-panel="browser">
+              <div class="settings-section-title">内置浏览器</div>
+              <div class="setting-row"><div><strong>启用内置浏览器控制</strong><span>允许 kcode 打开、读取和操作网页</span></div><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+              <div class="setting-row"><div><strong>忽略证书校验</strong><span>仅影响内置浏览器，修改后需重启</span></div><button class="toggle" data-action="toggle-setting"><span></span></button></div>
+              <div class="settings-section-title">浏览器数据</div>
+              <div class="setting-row"><div><strong>清除缓存</strong><span>清理 HTTP 缓存、Cache Storage 与 Service Worker</span></div><button class="ghost-btn" data-action="clear-cache">清除缓存</button></div>
+              <div class="setting-row"><div><strong>清除全部浏览器数据</strong><span>Cookie、站点数据与缓存，不可撤销</span></div><button class="danger-btn" data-action="clear-browser">清除全部</button></div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="shortcuts">
+              <div class="shortcut-toolbar"><span>全部快捷键</span><button class="ghost-btn" data-action="reset-shortcuts">恢复默认</button></div>
+              <div class="shortcut-table">
+                <div class="shortcut-row shortcut-head"><span>命令</span><span>按键</span><span>作用域</span></div>
+                <div class="shortcut-row"><span>打开命令中心</span><kbd>Ctrl K</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>打开设置</span><kbd>Ctrl ,</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>切换左侧栏</span><kbd>Ctrl B</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>切换深浅色主题</span><kbd>Ctrl Shift L</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>打开右侧面板</span><kbd>Ctrl Alt B</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>新建任务</span><kbd>Ctrl N</kbd><span>全局</span></div>
+                <div class="shortcut-row"><span>打开工作区</span><kbd>Ctrl O</kbd><span>全局</span></div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="permissions">
+              <div class="setting-row"><div><strong>默认权限模式</strong><span>新会话打开时的审批级别</span></div><button class="select-like" data-action="open-mode-menu"><svg class="icon"><use href="#i-shield" /></svg>变更确认 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
+              <div class="permission-note"><svg class="icon"><use href="#i-lock" /></svg><div><strong>项目信任</strong><p>信任后才会加载 AGENTS.md、项目规则和项目级 MCP 配置。</p></div><button class="small-action" data-action="manage-trust">管理</button></div>
+            </div>
+            <div class="settings-panel hidden" data-settings-panel="plugins"><div class="plugin-list"><div class="plugin-row"><span class="plugin-icon">A</span><div><strong>automation</strong><span>定时任务 · 官方</span></div><span class="pill ok">已启用</span><button class="small-action" data-action="toggle-plugin">停用</button><button class="icon-btn" data-action="remove-plugin"><svg class="icon"><use href="#i-trash" /></svg></button></div><div class="plugin-row"><span class="plugin-icon">V</span><div><strong>voice-input</strong><span>语音输入 · 官方</span></div><span class="pill muted">未启用</span><button class="small-action" data-action="toggle-plugin">启用</button><button class="icon-btn" data-action="remove-plugin"><svg class="icon"><use href="#i-trash" /></svg></button></div><button class="ghost-btn plugin-add" data-action="add-plugin"><svg class="icon"><use href="#i-plus" /></svg>在会话中创建插件</button></div></div>
+            <div class="settings-panel hidden" data-settings-panel="memory">
+              <div class="setting-row"><div><strong>工作区记忆</strong><span>在工作区保存并复用长期上下文；新会话生效</span></div><button class="toggle" data-action="toggle-setting"><span></span></button></div>
+              <div class="settings-section-title">记忆文件</div>
+              <div class="simple-row"><span>~/.kcode/projects/…/memory/*.md</span><button class="small-action" data-action="open-memory">打开</button></div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="subagents">
+              <div class="settings-subview" data-subview="subagents-list">
+                <div class="list-toolbar"><div class="left"><span>用户 · 本机</span><span class="count-pill">子智能体 6</span></div><div class="right"><label class="list-search"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索子智能体" /></label><button class="small-action" data-action="open-subagent-form">+ 新建</button></div></div>
+                <div class="settings-section-title">内置子智能体</div>
+                <div class="list-card"><span class="list-icon">G</span><div><strong>general-purpose</strong><span>通用多步任务 · 全部工具</span></div><button class="small-action" data-action="edit-agent">继承默认</button></div>
+                <div class="list-card"><span class="list-icon">E</span><div><strong>explore</strong><span>只读搜索 · 7 个工具</span></div><button class="small-action" data-action="edit-agent">继承默认</button></div>
+                <div class="list-card"><span class="list-icon">V</span><div><strong>visual-judge</strong><span>文档/PDF/幻灯片视觉校验</span></div><button class="small-action" data-action="edit-agent">继承默认</button></div>
+                <button class="ghost-btn list-add" data-action="open-subagent-form"><svg class="icon"><use href="#i-plus" /></svg>新建子智能体</button>
+              </div>
+              <div class="settings-subview hidden" data-subview="subagents-form">
+                <div class="form-breadcrumb">子智能体 <span>›</span> <strong>新建子智能体</strong></div>
+                <div class="form-card">
+                  <div class="form-head"><div><h3>新建子智能体</h3><p>填写子智能体名称、工具和系统提示词，保存后返回列表。</p></div><span class="scope-pill"><svg class="icon"><use href="#i-lock" /></svg>作用域：用户 · 本机</span></div>
+                  <div class="form-grid">
+                    <label class="field"><span>名称</span><input value="code-reviewer" /></label>
+                    <div class="field"><span>颜色标记</span><div class="color-swatches"><button class="color-dot" style="background:#f5c242"></button><button class="color-dot" style="background:#f08a5d"></button><button class="color-dot active" style="background:#8d7cf6"></button><button class="color-dot" style="background:#54b8e8"></button><button class="color-dot" style="background:#69c59a"></button><button class="color-dot" style="background:#ef8fbf"></button></div></div>
+                    <label class="field"><span>模型</span><button class="select-like">继承默认 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label>
+                  </div>
+                  <label class="field"><span>描述</span><input placeholder="展示给模型的简短说明" value="检查代码变更，优先指出风险与缺失测试" /></label>
+                  <label class="field"><span>可用工具</span><button class="select-like">默认所有权限 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label>
+                  <label class="field"><span>系统提示词</span><textarea placeholder="描述这个子智能体的角色、边界和规则。">你是一个只读代码审查子智能体。优先检查正确性、回归风险和测试缺口，输出按严重程度排序。</textarea></label>
+                  <div class="form-inline"><span><strong>注入 AGENTS.md</strong><br /><span class="muted">将项目规则作为系统提示词的一部分。</span></span><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+                  <div class="form-actions"><button class="ghost-btn" data-action="close-subagent-form">取消</button><button class="primary-btn" data-action="save-subagent">保存</button></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="mcp">
+              <div class="settings-subview" data-subview="mcp-list">
+                <div class="list-toolbar"><div class="left"><span>用户 · 本机</span><span class="count-pill">MCP 6</span></div><div class="right"><label class="list-search"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索 MCP 服务器" /></label><button class="small-action" data-action="import-mcp">导入</button><button class="small-action" data-action="add-mcp">+ 新建</button></div></div>
+                <div class="settings-section-title">已连接 MCP</div>
+                <div class="list-card"><span class="list-icon green">D</span><div><strong>documents</strong><span>本地 MCP server · 已连接</span></div><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+                <div class="list-card"><span class="list-icon green">I</span><div><strong>image_search</strong><span>本地 MCP server · 已连接</span></div><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+                <button class="ghost-btn list-add" data-action="add-mcp"><svg class="icon"><use href="#i-plus" /></svg>添加 MCP 服务器</button>
+              </div>
+              <div class="settings-subview hidden" data-subview="mcp-form">
+                <div class="form-breadcrumb">MCP 服务器 <span>›</span> <strong>新建 MCP 服务器</strong></div>
+                <div class="form-card">
+                  <div class="form-head"><div><h3>新建 MCP 服务器</h3><p>填写新的 MCP 配置，保存后返回列表。</p></div><span class="scope-pill"><svg class="icon"><use href="#i-lock" /></svg>作用域：用户 · 本机</span></div>
+                  <div class="form-grid"><label class="field"><span>名称</span><input placeholder="my-mcp-server" /></label><label class="field"><span>类型</span><button class="select-like">stdio (本地命令) <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label><label class="field"><span>超时时间 MS</span><input value="30000" /></label></div>
+                  <div class="form-grid"><label class="field"><span>协议版本</span><button class="select-like">自动（推荐） <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label><label class="field"><span>命令</span><input value="npx" /></label><label class="field"><span>参数（空格分隔）</span><input value="-y @modelcontextprotocol/server-memory" /></label></div>
+                  <label class="field"><span>环境变量（可选）</span><textarea placeholder="KEY=value"></textarea></label>
+                  <div class="form-actions"><button class="ghost-btn" data-action="close-mcp-form">取消</button><button class="primary-btn" data-action="save-mcp">保存</button></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="skills">
+              <div class="list-toolbar"><div class="left"><span>用户 · 本机</span><span class="count-pill">技能 15</span></div><div class="right"><label class="list-search"><svg class="icon"><use href="#i-search" /></svg><input placeholder="搜索技能" /></label><button class="small-action" data-action="new-skill">+ 新建技能</button><button class="small-action" data-action="import-skill">导入</button></div></div>
+              <div class="settings-section-title">已安装技能</div>
+              <div class="list-card"><span class="list-icon">D</span><div><strong>docx</strong><span>创建、编辑和检查 Word 文档</span></div><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+              <div class="list-card"><span class="list-icon">P</span><div><strong>pdf</strong><span>PDF 读取、生成与预览</span></div><button class="toggle on" data-action="toggle-setting"><span></span></button></div>
+              <div class="list-card"><span class="list-icon">X</span><div><strong>xlsx</strong><span>电子表格创建与公式检查</span></div><button class="toggle" data-action="toggle-setting"><span></span></button></div>
+              <button class="ghost-btn list-add" data-action="new-skill"><svg class="icon"><use href="#i-plus" /></svg>新建 / 导入技能</button>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="commands">
+              <div class="settings-subview" data-subview="commands-list">
+                <div class="list-toolbar"><div class="left"><span>项目命令</span><span class="count-pill">2</span></div><div class="right"><button class="small-action" data-action="add-command">+ 新建命令</button></div></div>
+                <div class="list-card"><span class="list-icon">/</span><div><strong>/review</strong><span>.kcode/commands/review.md</span></div><button class="small-action" data-action="edit-command">编辑</button></div>
+                <div class="list-card"><span class="list-icon">/</span><div><strong>/deploy</strong><span>.kcode/commands/deploy.md</span></div><button class="small-action" data-action="edit-command">编辑</button></div>
+              </div>
+              <div class="settings-subview hidden" data-subview="commands-form">
+                <div class="form-breadcrumb">命令 <span>›</span> <strong>新建命令</strong></div>
+                <div class="form-card">
+                  <div class="form-head"><div><h3>新建命令</h3><p>填写命令名称和提示词，保存后返回列表。</p></div><span class="scope-pill"><svg class="icon"><use href="#i-lock" /></svg>作用域：用户 · 本机</span></div>
+                  <label class="field"><span>名称</span><input placeholder="my-command" /></label>
+                  <label class="field"><span>描述（可选）</span><input placeholder="在命令选择器中显示的简短描述" /></label>
+                  <label class="field"><span>参数提示（可选）</span><input placeholder="例如 &lt;file-path&gt;" /></label>
+                  <label class="field"><span>提示词</span><textarea placeholder="填写调用该命令时发送的提示词..."></textarea></label>
+                  <div class="form-actions"><button class="ghost-btn" data-action="close-command-form">取消</button><button class="primary-btn" data-action="save-command">保存</button></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="hooks">
+              <div class="settings-subview" data-subview="hooks-list">
+                <div class="list-toolbar"><div class="left"><span>用户 · 本机</span><span class="count-pill">钩子 0</span></div><div class="right"><button class="small-action" data-action="add-hook">+ 新建钩子</button></div></div>
+                <div class="empty-panel compact"><div class="empty-panel-icon"><svg class="icon"><use href="#i-play" /></svg></div><h3>尚未安装钩子</h3><p>新建钩子，在任务生命周期事件中运行命令。</p><button class="primary-btn" data-action="add-hook">+ 新建钩子</button></div>
+              </div>
+              <div class="settings-subview hidden" data-subview="hooks-form">
+                <div class="form-breadcrumb">钩子 <span>›</span> <strong>新建钩子</strong></div>
+                <div class="form-card">
+                  <div class="form-head"><div><h3>新建钩子</h3><p>管理任务生命周期钩子，在特定事件发生时自动执行命令。</p></div><span class="scope-pill"><svg class="icon"><use href="#i-lock" /></svg>作用域：用户 · 本机</span></div>
+                  <div class="form-grid"><label class="field"><span>事件</span><button class="select-like">PreToolUse <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label><label class="field"><span>运行方式</span><button class="select-like">进程 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></label><label class="field"><span>匹配器</span><input placeholder="例如 Write, Edit, Bash" /></label></div>
+                  <label class="field"><span>命令</span><input placeholder="echo 'hello from hook'" /></label>
+                  <label class="field"><span>参数</span><textarea placeholder="每行一个 argv 参数"></textarea></label>
+                  <div class="form-actions"><button class="ghost-btn" data-action="close-hook-form">取消</button><button class="primary-btn" data-action="save-hook">保存</button></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="usage">
+              <div class="usage-summary"><div><strong>45.3 亿</strong><span>累计 Token</span></div><div><strong>5.7 亿</strong><span>峰值 Token</span></div><div><strong>17h 42m</strong><span>最长聊天</span></div><div><strong>5 天</strong><span>连续使用</span></div></div>
+              <div class="chart-card"><div class="chart-head"><span>每日 Token 趋势</span><span class="muted">近 7 日</span></div><div class="bar-chart"><span style="height:28%"></span><span style="height:44%"></span><span style="height:36%"></span><span style="height:72%"></span><span style="height:58%"></span><span style="height:83%"></span><span style="height:64%"></span></div><div class="chart-axis"><span>10/17</span><span>10/18</span><span>10/19</span><span>10/20</span><span>10/21</span><span>10/22</span><span>10/23</span></div></div>
+              <div class="chart-card model-usage"><div class="chart-head"><span>模型用量</span><span class="muted">总计 4.5 亿</span></div><div class="model-bar"><span style="width:93%"></span></div><div class="model-legend"><span><i class="dot blue"></i>GLM-5.3 93%</span><span><i class="dot green"></i>DeepSeek 7%</span></div></div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="archive">
+              <div class="setting-row"><div><strong>自动归档旧会话</strong><span>超过保留期且非置顶的会话会进入归档</span></div><button class="toggle" data-action="toggle-setting"><span></span></button></div>
+              <div class="setting-row"><div><strong>归档保留时长</strong><span>会话最后更新时间早于该时长后进入归档候选</span></div><button class="select-like">7 天后归档 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
+              <div class="settings-section-title">已归档会话</div>
+              <div class="list-card"><span class="list-icon">A</span><div><strong>api</strong><span>5 个会话 · 最后更新 3 天前</span></div><button class="small-action" data-action="open-archive">查看</button></div>
+              <div class="list-card"><span class="list-icon">W</span><div><strong>web</strong><span>8 个会话 · 最后更新 6 天前</span></div><button class="small-action" data-action="open-archive">查看</button></div>
+            </div>
+
+            <div class="settings-panel hidden" data-settings-panel="about"><div class="about-card"><div class="brand-mark">k</div><h3>kcode 0.3.0</h3><p>本地优先的编码 agent 工作台。</p><div class="about-row"><span>运行模式</span><code>local</code></div><div class="about-row"><span>宿主</span><code>utilityProcess</code></div><div class="about-row"><span>协议</span><code>v1.0</code></div></div></div>
+            <footer class="settings-foot"><span>设置只保存在本机</span><span>Esc 关闭</span></footer>
+          </div>
+        </section>
+      </div>
+
+      <div class="menu-layer" id="menu-layer">
+        <div class="menu" role="menu" aria-label="操作菜单">
+          <div class="menu-head"><span id="menu-title">操作</span><button class="icon-btn" data-action="close-menu"><svg class="icon"><use href="#i-close" /></svg></button></div>
+          <div class="menu-items" id="menu-items"></div>
+        </div>
+      </div>
+
+      <div class="overlay overlay-dialog" id="dialog-overlay">
+        <section class="dialog" role="dialog" aria-modal="true" aria-label="对话框">
+          <header class="dialog-head"><div><h2 id="dialog-title">操作</h2><p id="dialog-desc"></p></div><button class="icon-btn" data-action="close-dialog"><svg class="icon"><use href="#i-close" /></svg></button></header>
+          <div class="dialog-body" id="dialog-body"></div>
+          <footer class="dialog-foot" id="dialog-foot"></footer>
+        </section>
+      </div>
+
+      <div class="toast" id="toast" role="status"></div>
+    </div>
+
+    <input id="workspace-folder-picker" type="file" webkitdirectory directory multiple hidden />
+
+    <div class="proto-bar">
+      <span class="proto-label">PROTOTYPE</span>
+      <button class="proto-btn active" data-screen="conversation">对话</button>
+      <button class="proto-btn" data-screen="empty">空态</button>
+      <button class="proto-btn" data-screen="context">变更</button>
+      <button class="proto-btn" data-screen="approval">审批</button>
+      <button class="proto-btn" data-screen="plan">计划</button>
+      <button class="proto-btn" data-screen="question">提问</button>
+      <button class="proto-btn" data-screen="settings">设置</button>
+      <button class="proto-btn" data-screen="palette">命令</button>
+      <button class="proto-btn" data-screen="onboarding">引导</button>
+      <span class="proto-sep"></span>
+      <button class="proto-icon" data-action="toggle-theme" title="切换主题"><svg class="icon"><use href="#i-moon" /></svg></button>
+      <button class="proto-icon" data-action="toggle-present" title="隐藏原型控件 (P)"><svg class="icon"><use href="#i-external" /></svg></button>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

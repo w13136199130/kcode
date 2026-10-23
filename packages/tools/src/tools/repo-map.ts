@@ -8,6 +8,7 @@ const MAX_FILES = 2_000;
 const MAX_FILE_LINES = 500;
 const DEFAULT_CHARS = 6_000;
 const TTL_MS = 30_000;
+const DEFAULT_SCAN_BUDGET_MS = 10_000;
 
 const SOURCE_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,kt,cs,rb,php,swift}";
 const IGNORE = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", "**/.next/**", "**/coverage/**"];
@@ -88,25 +89,45 @@ export interface RepoMapOptions {
   maxChars?: number;
   /** 跳过模块级缓存（工具 refresh 用） */
   refresh?: boolean;
+  /** 扫描预算：超时返回空 map，避免在 home/超大目录上卡住会话创建 */
+  timeoutMs?: number;
 }
 
-/** 生成仓库结构摘要；只读、只扫源码扩展名，默认忽略 node_modules/.git/dist。 */export async function buildRepoMap(cwd: string, opts: RepoMapOptions = {}): Promise<string> {
+/** fast-glob 没有 abort 选项：超时后放弃等待；扫描仍可能在后台收尾，不能阻塞会话 */
+function scanWithBudget(cwd: string, budgetMs: number): Promise<string[]> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | null = null;
+    const finish = (files: string[]): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      resolve(files);
+    };
+    timer = setTimeout(() => finish([]), budgetMs);
+    void fg(SOURCE_GLOB, {
+      cwd,
+      onlyFiles: true,
+      dot: false,
+      ignore: IGNORE,
+      followSymbolicLinks: false,
+      suppressErrors: true,
+    })
+      .then((files) => finish(files))
+      .catch(() => finish([]));
+  });
+}
+
+/** 生成仓库结构摘要；只读、只扫源码扩展名，默认忽略 node_modules/.git/dist。 */
+export async function buildRepoMap(cwd: string, opts: RepoMapOptions = {}): Promise<string> {
   const maxChars = Math.max(500, Math.min(64_000, opts.maxChars ?? DEFAULT_CHARS));
   const key = `${cwd}:${maxChars}`;
   const cached = cache.get(key);
   if (opts.refresh !== true && cached !== undefined && Date.now() - cached.at < TTL_MS) {
     return cached.text;
   }
-  const files = (await fg(SOURCE_GLOB, {
-    cwd,
-    onlyFiles: true,
-    dot: false,
-    ignore: IGNORE,
-    followSymbolicLinks: false,
-    suppressErrors: true,
-  }))
-    .sort()
-    .slice(0, MAX_FILES);
+  const budgetMs = Math.max(100, Math.min(30_000, opts.timeoutMs ?? DEFAULT_SCAN_BUDGET_MS));
+  const files = (await scanWithBudget(cwd, budgetMs)).sort().slice(0, MAX_FILES);
   const entries: { file: string; symbols: string[] }[] = [];
   for (const file of files) {
     try {
