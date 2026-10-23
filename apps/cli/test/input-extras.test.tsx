@@ -116,7 +116,7 @@ describe("slice：图片附件与历史搜索状态", () => {
 });
 
 describe("⑤ Ctrl+V 贴图与提交随行", () => {
-  it("Ctrl+V 加入附件并提示；空闲提交携带 images；排队提交不带", async () => {
+  it("Ctrl+V 加入附件并提示；空闲/排队提交都携带 images", async () => {
     const store = createUiStore();
     const submits: Array<[string, string[] | undefined]> = [];
     const { stdin, settle } = mountInputArea(store, (v, images) => submits.push([v, images]));
@@ -133,15 +133,15 @@ describe("⑤ Ctrl+V 贴图与提交随行", () => {
     await settle(200);
     expect(submits.at(-1)).toEqual(["看看这张图", ["C:/tmp/kcode-paste-fake.png"]]);
 
-    // 排队提交（busy）：不带附件，附件保留
+    // 排队提交（busy）：附件随排队消息一起交给 App（由 App 入队并清空附件）
     store.getState().addPendingImage("c.png");
     store.getState().begin();
     stdin.write("排队消息");
     await settle();
     stdin.write("\r");
     await settle(200);
-    expect(submits.at(-1)).toEqual(["排队消息", undefined]);
-    // 排队不消费附件；第一张也未清（清空职责在真实 App.submit，本挂载不含）
+    expect(submits.at(-1)).toEqual(["排队消息", ["C:/tmp/kcode-paste-fake.png", "c.png"]]);
+    // 本挂载不含 App.submit：清空职责仍在 App，这里只断言 InputArea 透传成功
     expect(store.getState().pendingImages).toEqual(["C:/tmp/kcode-paste-fake.png", "c.png"]);
   }, 10_000);
 });

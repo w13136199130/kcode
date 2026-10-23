@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { render } from "ink";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RuntimeCommandQueue } from "@kcode/runtime";
+import { RuntimeCommandQueue, type QueuedCommand } from "@kcode/runtime";
 import type { LocalSessionOptions, SessionHandle } from "../src/session.js";
 import type { Runtime } from "../src/bootstrap.js";
 import { KcodeApp } from "../src/tui/App.js";
@@ -13,6 +13,9 @@ vi.mock("../src/history-store.js", () => ({
   loadInputHistory: async () => [],
   saveInputHistory: async () => {},
   appendHistory: (entries: string[], text: string) => [...entries, text],
+}));
+vi.mock("../src/tui/input/clipboard-image.js", () => ({
+  readClipboardImageToFile: async () => "C:/tmp/kcode-queue-paste.png",
 }));
 
 const cleanups: (() => void)[] = [];
@@ -28,6 +31,7 @@ async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"]
   let options!: LocalSessionOptions;
   const finishers: ((r: RunResult) => void)[] = [];
   const closes: Array<ReturnType<typeof vi.fn>> = [];
+  const queueSnapshots: QueuedCommand[][] = [];
   const run = vi.fn((content: string) => {
     options.onEvent?.({ v: 1, type: "user_message", sessionId: "s1", ts: 0, content });
     return new Promise<RunResult>((resolve) => { finishers.push(resolve); });
@@ -39,7 +43,10 @@ async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"]
     return {
       sessionId: "s1",
       close,
-      commandQueue: new RuntimeCommandQueue((items) => opts.onQueueChange?.(items)),
+      commandQueue: new RuntimeCommandQueue((items) => {
+        queueSnapshots.push([...items]);
+        opts.onQueueChange?.(items);
+      }),
       loop: { run },
       abort: () => {},
       setMode: () => {},
@@ -113,7 +120,7 @@ async function setup(initial: { initialMode?: LocalSessionOptions["initialMode"]
     finishers[n]!({ sessionId: "s1", turns: 1, toolCalls: 0, status });
   };
   await eventually("> █");
-  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin, closes, getOptions: () => options };
+  return { run, frame, eventually, eventuallySaw, settle, enter, finish, stdin, closes, queueSnapshots, getOptions: () => options };
 }
 
 describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、中断清空）", () => {
@@ -148,6 +155,30 @@ describe("RuntimeCommandQueue 接线（N2-2：运行中入队、按序执行、�
     expect(t.run.mock.calls.map((c) => c[0])).toEqual(["first", "q2", "q3", "q4"]);
     // 队列排空后回到空闲输入态
     await t.eventually("> █");
+  }, T);
+
+  it("忙时图片附件随排队消息发送，不再错位到下一条", async () => {
+    const t = await setup();
+    await t.enter("first");
+    await t.eventually("等待模型响应");
+    t.stdin.write("\x16");
+    await t.eventually("张图片附件");
+    t.stdin.write("看图");
+    await t.eventually("看图█");
+    t.stdin.write("\r");
+    await t.eventually("📎1");
+
+    const queued = [...t.queueSnapshots].reverse().find((snapshot) => snapshot.length > 0)?.[0];
+    expect(queued?.text).toBe("看图");
+    expect(queued?.images).toEqual(["C:/tmp/kcode-queue-paste.png"]);
+    expect(t.frame()).toContain("📎1");
+
+    t.finish(0);
+    await vi.waitFor(() => expect(t.run).toHaveBeenCalledTimes(2), { timeout: 3000, interval: 50 });
+    const call = t.run.mock.calls[1] as unknown[];
+    expect(call[1]).toEqual({ images: ["C:/tmp/kcode-queue-paste.png"] });
+    t.finish(1);
+    await t.settle(150);
   }, T);
 
   it("排空到 /clear 时换新会话：旧排队清空不悬挂、计数归零（换会话语义）", async () => {

@@ -64,6 +64,22 @@ describe("Transcript 组件（P1-5 TUI）", () => {
     expect(lastFrame() ?? "").toContain("cli · 共 5 行 · Ctrl+B 查看全部");
   });
 
+  it("长回答默认折叠前 30 行，Ctrl+O 展开全文", () => {
+    const long = Array.from({ length: 50 }, (_, i) => `第 ${i + 1} 行`).join("\n");
+    const blocks = [{ kind: "assistant" as const, text: long }];
+    const { lastFrame, rerender } = render(<Transcript blocks={blocks} streamText="" />);
+    const folded = lastFrame() ?? "";
+    expect(folded).toContain("第 30 行");
+    expect(folded).not.toContain("第 31 行");
+    expect(folded).toContain("共 50 行");
+    expect(folded).toContain("Ctrl+O 展开当前轮");
+
+    rerender(<Transcript blocks={blocks} streamText="" verbose />);
+    const expanded = lastFrame() ?? "";
+    expect(expanded).toContain("第 50 行");
+    expect(expanded).not.toContain("共 50 行");
+  });
+
   it("TodoPanel 渲染三态任务项", () => {
     const { lastFrame } = render(
       <TodoPanel

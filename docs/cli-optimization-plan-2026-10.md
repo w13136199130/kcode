@@ -3,7 +3,7 @@
 > 配套参考：[竞品基线](./cli-agent-benchmark-2026.md) · [ZCode 架构对标](./zcode-benchmark.md) · [威胁模型](./threat-model.md)
 > 范围：本文是**唯一执行文档**（CLI 主线 + 共享层 + 桌面冻结边界）。`apps/cli` 与 `apps/desktop` 共享 `packages/*` 与同一会话语义；CLI 是主产品，桌面 D3 冻结。
 > 目标版本：0.3「可信的 Windows 本地编码 agent」；0.4「日常顺手」；0.5「差异化」。
-> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（当前轮/运行中工具留在活区、Ctrl+O 就地重绘、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**；追加 **3-33 队列可视 + 安全中断**、**3-34 输出可操作 + N0 收尾**、**3-35 配色对比度审计**、**3-36 Ctrl+K 命令面板**、**3-37 审批菜单文案收敛**；**阶段四 4-02 策略文件完成**；**4-01 srt 沙箱 M1 骨架接入**（默认 off，见 [srt-sandbox.md](./srt-sandbox.md)）。最近一次全量：**172 test files passed / 1 skipped；866 tests passed / 2 skipped**；测试默认超时 20s、host 握手 15s；桌面 E2E **2 passed**；Windows CI 已配置（最终以 Actions 最新结果为准）。
+> 当前状态（2026-10-20）：CLI 阶段一 1-01~1-11、阶段二 2-01~2-24 已完成；桌面 D0/D1/D2 已完成、D3 冻结。P0-0 的 `AGENTS.md` trust / `kcode login` / `--verbose` 已落地；**P0-A 全部完成**：3-03 退出清理、3-01 resume 转写、3-04 项目过滤/命名/删除、3-20 超时/溢出恢复、3-05 检查点配额/子代理范围、3-06 JSONL 导出、3-02 图片持久化；**P0-B 全部完成**：3-09 读后过期校验、3-07 `apply_patch`、3-08 `edit.replaceAll`/多编辑、3-10 bash 超时/进程树/流式进度、3-11 grep/glob 参数与边界、3-23 `/diff` 审查/逐文件回退；**P1-C 已启动**：3-28 `#`/`/` 输入边界已落地（`# ` 才写记忆、斜杠路径按提问、未知命令保留原文、`/remember` 显式入口）；3-24 输入编辑键已落地（Ctrl+A/E/U/K/W、Alt/Ctrl+←→、外部编辑器迁 Ctrl+G、Ctrl+J 进帮助/ghost）；3-22 长输出已落地（工具详情分页/搜索/复制、失败默认末尾、JSONL 路径）；3-25 Static 边界已修（当前轮/运行中工具留在活区、Ctrl+O 就地重绘、/clear 复位）；3-26 终端安全已落地（不可信文本剥离 ESC/OSC、NO_COLOR/KCODE_PLAIN、KCODE_THEME=light、ASCII 状态符）；**P1-C 全部完成**：3-27 后台任务可见（状态栏 `⚙ N`、完成铃、`/tasks` + `s`/`/tasks stop`）；**P1-D 已启动**：3-15 hooks matcher/上下文注入/CC 协议兼容已落地；3-16 插件接线已落地（manifest.hooks 进 runner、permissions 收紧、MCP 按 transport、只装最新版）；3-17 命令 frontmatter/`!bash`/命名空间已落地；3-18 skills 两字段 + 来源策略已落地（project/plugin 技能默认手动）；3-19 subagent 扩展已落地（permissionMode/disallowedTools/maxTurns/插件来源，plan 档只读派生）；3-21 费用分项已落地（缓存/推理/按模型/工具）；3-13 todo 回注 + task 治理已落地（`<todo_state>`、看门狗心跳、task_list/task_wait、/cost 子代理）；3-14 MCP 能力补齐已落地（readOnlyHint/signal/图片/重连/项目级配置/headers）。**P1-D 全部完成**；**P2-E 已启动**：3-29 审计落盘（独立 JSONL + `/audit`）；3-30 保留策略（sessions/artifacts/checkpoints/audit 配额、vacuum/rm 级联）；3-32 Windows CI 扩展（Windows 全量测试 + Ink/DPAPI/clipboard + turbo 缓存）；3-31 文档对账（DESIGN 三态索引 + gates 链接/状态校验）。**P2-E 全部完成**；追加 **3-33 队列可视 + 安全中断**、**3-34 输出可操作 + N0 收尾**、**3-35 配色对比度审计**、**3-36 Ctrl+K 命令面板**、**3-37 审批菜单文案收敛**；**阶段四 4-02 策略文件完成**；**4-01 srt 沙箱 M1 骨架接入**（默认 off，见 [srt-sandbox.md](./srt-sandbox.md)）。最近一次全量：**172 test files passed / 1 skipped；870 tests passed / 2 skipped**；测试默认超时 20s、host 握手 15s；**桌面 E2E 本次回归未通过**（2 failed，host 启动链问题见 [desktop-ui-audit.md](./desktop-ui-audit.md)）；Windows CI 已配置（最终以 Actions 最新结果为准）。
 
 > **产品化优先令（2026-10-20）**：CLI 是主产品，桌面 D3 冻结，只保留共享层类型兼容；先完成 CLI 阶段二尾巴与阶段三 P0，再恢复桌面。阶段三内部按“生命周期可靠性 → 编码闭环 → TUI 摩擦 → 扩展深水区”排序，不再按原表从 3-01 顺序平铺。详见下方「阶段三产品化重排」。
 
@@ -20,7 +20,7 @@
 
 **立即下一步**：P0/P1/P2 计划项已收口，阶段四 **4-02 策略文件已完成**；**4-01 srt 适配器 M1 骨架已接入**（默认 off、需 `windows-install`，见 [srt-sandbox.md](./srt-sandbox.md)）。下一步：真实 srt 安装验收 + 审计/status；MXC 等 Node 24/主机支持后再平移。D3 仍冻结。
 
-**桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。
+**桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。**2026-10-23 桌面 UI 审计发现启动链 P0 回归（host bundle `createRequire`、首启 hello/session-create 竞态、reload 杀 host），desktop E2E 当前红；修复前不进入 UI 改版，详见 [desktop-ui-audit.md](./desktop-ui-audit.md)。**
 
 ## 阶段三产品化重排（2026-10-20）
 
@@ -189,7 +189,7 @@
 | 3-01 | **resume 重放转写**：从事件流重建最近 K 条 user/assistant/tool 块；或提供 `/transcript` 分页 | `lifecycle.ts`、`transcript` 层 | `--resume` 后能看到历史，不是空白 | 1.5 |
 | 3-02 | **图片持久化**：`user_message` 增 `images`；resume/rewind 恢复 | `contracts/session.ts`、`loop.ts`、`replayer.ts` | 重启后图片上下文仍在 | 1 |
 | 3-03 | **切换/退出关闭旧会话**：`await old.close()`；SIGINT/SIGTERM handler；close 里停后台任务、等 runner 收尾 | `App.tsx`、`main.tsx`、`composition.ts` | 退出后无 MCP/后台 bash/子代理孤儿；session_end/usage 落盘 | 1.5 |
-| 3-04 | **`/resume` 按当前项目 + 命名/删除**：列表按 workspaceKey 过滤、按 mtime 排序；`session_start` 增 title/tags；`kcode sessions rm` | `runtime/session/resume.ts`、`session.ts`、`commands.ts` | 多项目下菜单只显示当前项目；可命名/删除 | 2 |
+| 3-04 | **`/resume` 按当前项目 + 命名/删除**：列表按 workspaceKey 过滤、按 mtime 排序；0 轮空会话不进入 `/sessions`//`/resume` 列表（`sessions rm` 仍可按 id 删除）；`session_start` 增 title/tags；`kcode sessions rm` | `runtime/session/resume.ts`、`session.ts`、`commands.ts` | 多项目下菜单只显示当前项目；可命名/删除；空会话不干扰选择 | 2 |
 | 3-05 | **检查点配额与子代理范围**：内容 hash 去重、单会话上限、restore 用 copy、失败计数；rewind 收集子代理 callId | `checkpoints.ts`、`rewind.ts` | 大文件编辑不膨胀；rewind 不再"半回滚" | 2 |
 | 3-06 | **`/export` 走 JSONL**：导出完整事件（含工具全文），Markdown 只是渲染；支持历史会话 | `tui/export.ts`、`commands.ts` | 导出可作为交付物；工具输出不丢 | 1 |
 
@@ -225,7 +225,7 @@
 | 3-22 | **长输出可查看**（✅）：工具详情分页（PgUp/PgDn）、`/` 搜索命中行、`c` 复制全文、失败默认显示末尾；完成卡摘要显示「首行 · 共 N 行 · Ctrl+B 查看全部」；块内 2k 预览不够时按 callId 从 JSONL 读全文，并显示 JSONL 路径 | `ToolBrowser.tsx`、`Transcript.tsx`、`session.ts`、`terminal/clipboard-text.ts` | 1000 行测试失败能在 TUI 里看完；多行输出不再只显示首行 | 2 |
 | 3-23 | **diff 审查**（✅）：`/diff [文件]` 列出 changed files + hunks（按上下文折叠）；面板内逐文件 revert（复用 checkpoint 前像，二次确认）；运行中拒绝 | `commands.ts`、`dialogs/DiffBrowser.tsx`、`dialogs/diff-model.ts`、`session/src/checkpoints.ts` | 改完能在 CLI 内 review，不必切 git | 3 |
 | 3-24 | **输入编辑键**（✅）：Ctrl+A/E 行首/行尾、Ctrl+U/K 删到行首/行尾、Ctrl+W 删前一词、Alt/Ctrl+←→ 按词移动；外部编辑器迁 Ctrl+G；Ctrl+J 写进 /help 与 ghost | `InputBox.tsx`、`input/editing.ts`、`InputArea.tsx` | 长提示词可正常编辑 | 1.5 |
-| 3-25 | **Static 修复**（✅）：Static 只收"当前轮之前"的块；运行中工具及其后块留在活区，空闲时最近一轮留在活区——Ctrl+O 就地重绘当前轮，不再清屏重放全部历史（避免终端留下多份 transcript）；旧轮次保持打印时展开度，全文走 Ctrl+B / `/export`，`/clear` 同步复位下标 | `TranscriptView.tsx`、`packages/ui/src/state/transcript.ts` | 排队提示/子代理事件不再冻结工具卡；Ctrl+O 不重复打印；历史可查 | 1.5 |
+| 3-25 | **Static 修复 + 长回答折叠**（✅）：Static 只收"当前轮之前"的块；运行中工具及其后块留在活区，空闲时最近一轮留在活区——Ctrl+O 就地重绘当前轮，不再清屏重放全部历史（避免终端留下多份 transcript）；长回答（>30 行）默认折叠显示前 30 行 + 行数脚注，Ctrl+O 展开当前轮；旧轮次保持打印时展开度，全文走 Ctrl+B / `/export`，`/clear` 同步复位下标 | `TranscriptView.tsx`、`Transcript.tsx`、`packages/ui/src/state/transcript.ts` | 排队提示/子代理事件不再冻结工具卡；Ctrl+O 不重复打印；长回答不刷屏 | 2 |
 | 3-26 | **终端安全与降级**（✅）：所有不可信文本（模型/工具/用户粘贴/文件名/审批命令/标题）渲染前剥离 ESC/OSC/CSI，自家 OSC8 在剥离后重新生成；`NO_COLOR`/`KCODE_PLAIN=1` 关闭颜色，`KCODE_PLAIN` 状态符退 ASCII，`KCODE_THEME=light` 用白底可读深色盘 | `terminal/sanitize.ts`、`Transcript.tsx`、`markdown.tsx`、`design/terminal.ts` | 恶意输出不能改标题/写剪贴板；白底可读 | 2 |
 | 3-27 | **后台任务可见**（✅）：App 每秒读注册表快照（指纹不变不写 store，空闲零重绘）；状态栏 `⚙ N`；running→终态响完成铃；Ctrl+T 面板 `s` 停止；`/tasks` 清单与 `/tasks stop <id>` | `status-data.ts`、`StatusLine.tsx`、`keybinds.ts`、`TaskBrowser.tsx`、`commands.ts` | 切走知道完成；能停 | 1.5 |
 | 3-28 | **`#` / `/` 输入边界**（✅）：`# `（带空格）才写 AGENTS.md，`#include`/裸 `#` 按提问；`/Users/...` 等斜杠路径按普通提问；未知 `/命令` 回填原文不丢输入；新增 `/remember` 显式入口 | `InputArea.tsx`、`commands.ts`、`contracts/commands.ts` | 不再误写 AGENTS.md / 丢输入 | 1 |
@@ -238,7 +238,7 @@
 | 3-30 | **保留策略**（✅）：会话按年龄/数量保留最新；孤儿产物/检查点/审计清理；产物体积与审计总量超限从最旧淘汰；过期子代理会话清理；`kcode sessions vacuum [--dry-run] [--max-sessions/--max-age-days/--max-artifact-mb/--max-audit-mb]`；`rm` 级联删产物/检查点/审计 | `runtime/session/retention.ts`、`sessions-command.ts` | 长期使用磁盘不失控 | 1.5 |
 | 3-31 | **文档对账**（✅）：DESIGN 增状态图例 + §0.1 落地状态索引（阶段→✅/⚠️/⏳/❄→测试/入口）；全部“已落地”断言带三态标记；`gates:check` 校验 DESIGN/README 本地链接存在 + “已落地”未带标记即 fail；修正技能来源/hash 过时结论 | `DESIGN.md`、`scripts/gates-check.mjs` | 不再出现"文档说完成、代码没有" | 2 |
 | 3-32 | **Windows CI 扩展**（✅）：Windows job 从 6 个 smoke 文件扩为**全量 `pnpm test`**（Ink 交互渲染、真实路径/CRLF、DPAPI keychain、剪贴板、bash 进程树、host lease）+ desktop E2E；Linux 门禁补 `pnpm build`；turbo `.turbo` 缓存、concurrency 取消旧跑、job 超时 | `.github/workflows/ci.yml` | Windows 回归可发现 | 1 |
-| 3-33 | **队列可视 + 安全中断**（✅）：输入框上方常驻队列面板（预览/计数）；Esc 中断保留队列并暂停（不静默清空）；`/queue [list|run|clear|rm <序号>]`；运行中 `/queue` 与 `/mode` 等纯本地命令即时执行 | `runtime/command-queue.ts`、`ui/run-status.ts`、`tui/input/QueuePanel.tsx`、`App.tsx`、`commands.ts` | 运行中提交不丢失；切模式不被拖到本轮结束 | 2 |
+| 3-33 | **队列可视 + 安全中断**（✅）：输入框上方常驻队列面板（预览/计数/📎附件数）；Esc 中断保留队列并暂停（不静默清空）；`/queue [list|run|clear|rm <序号>]`；运行中 `/queue` 与 `/mode` 等纯本地命令即时执行；忙时图片随该条排队消息发送，斜杠/`!` 命令不消费附件 | `runtime/command-queue.ts`、`ui/run-status.ts`、`tui/input/QueuePanel.tsx`、`App.tsx`、`commands.ts` | 运行中提交不丢失；切模式不被拖到本轮结束；图片不错位 | 2 |
 | 3-34 | **输出可操作 + N0 收尾**（✅）：`/copy` 复制最近回复、`/copy code` 复制最近代码块；失败工具卡默认展开末尾 6 行；压缩切点优先 user 完整轮次（单轮长任务退化工具对边界），消除 N0 ⚠️ | `tui/input/copy.ts`、`Transcript.tsx`、`core/context/compact.ts` | 复制/排错不用手动选；压缩不拆轮次 | 2 |
 | 3-35 | **配色/对比度审计**（✅）：暗/亮语义色全量 WCAG AA ≥4.5:1；dark 调色板去 ANSI 名改确定性 hex（brand/diff/interaction）；`rawColor("gray")` 收敛为 `foregroundSubtle`；`KCODE_THEME=dark` 显式支持 | `design/terminal.ts`、`design/contrast.ts`、`StatusLine.tsx`、`TranscriptView.tsx` | 浅/深终端都清晰可读 | 1 |
 | 3-36 | **Ctrl+K 命令面板**（✅）：内置/自定义命令 + 键动作统一动作表；模糊子序列过滤、最近使用排序、↑↓/Enter/Esc；无参数命令直接执行，需参数命令回填 | `tui/input/CommandPalette.tsx`、`InputArea.tsx`、`keybinds.ts`、`ui/transcript.ts` | 不用背命令名也能找到操作 | 2 |
@@ -432,7 +432,7 @@ docs/srt-sandbox.md                   ← 使用、边界、验收、MXC 平移
 
 - CLI 阶段一 1-01~1-11；阶段二 2-01~2-24（脚本化契约 + 安全最小集 + 审批闭环 + 通知/模式同步 + 生成式 /help）。
 - 桌面 D0/D1/D2：onboarding、host config RPC、队列、时间线、会话标题/删除、单实例/窗口状态、Composer slash/@、审批键盘/真实 diff/changed files/任务面板。
-- 验证基线：172 test files passed / 1 skipped；866 tests passed / 2 skipped；desktop E2E 2 passed；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
+- 验证基线：172 test files passed / 1 skipped；870 tests passed / 2 skipped；desktop E2E 当前 failed（host 启动链回归，见 [desktop-ui-audit.md](./desktop-ui-audit.md)，修复后再回归）；lint 0 errors；knip/build 绿；gates 含文档链接与三态校验。
 
 ### 当前 P0（按序）
 

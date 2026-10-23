@@ -182,8 +182,9 @@ $env:NO_COLOR="1"; $env:KCODE_PLAIN="1"; pnpm --filter @kcode/cli start
 1. 发起一轮长任务（或任务进行中），连续输入 `q2`、`q3`；
 2. 输入框上方应出现 `⧗ 排队 N 条` 面板，逐条显示预览；
 3. 运行中输入 `/mode plan`：应立即切到只读，不出现新的排队项；
-4. 按 Esc：应提示“队列保留 N 条”，队列进入“已暂停”，不会自动续跑；
-5. 输入 `/queue` 查看、`/queue rm 1` 删除、`/queue run` 恢复执行、`/queue clear` 清空。
+4. 运行中 Ctrl+V 贴图后提交普通提问：队列项应显示 `📎N`，图片随该条消息执行；后续消息不应再次带上同一张图；
+5. 按 Esc：应提示“队列保留 N 条”，队列进入“已暂停”，不会自动续跑；
+6. 输入 `/queue` 查看、`/queue rm 1` 删除、`/queue run` 恢复执行、`/queue clear` 清空。
 
 自动化回归：
 
@@ -196,6 +197,7 @@ pnpm vitest run apps/cli/test/queue.test.tsx packages/runtime/test/command-queue
 1. 让模型输出一段带代码围栏的回复；
 2. `/copy` 应提示复制最近回复；`/copy code` 应提示复制代码块（含语言与行数）；
 3. 触发一个失败工具（如 `bash` 跑不存在的命令）：失败卡应直接显示末尾 6 行错误，无需 Ctrl+O；当前轮按 Ctrl+O 展开 12 行，Ctrl+B 看完整输出（旧轮次已进 Static，用 Ctrl+B / `/export`）。
+4. 让模型输出一段超过 30 行的长回答：默认只显示前 30 行 + `… 共 N 行 · Ctrl+O 展开当前轮`；按 Ctrl+O 显示全文，再按一次折回。
 
 自动化回归：
 
@@ -375,7 +377,8 @@ pnpm vitest run packages/tools/test/repo-map.test.ts
 3. `kcode --fork latest`：启动时直接 fork；
 4. `/search 部署`：跨会话 JSONL 搜索，按会话分组显示 sessionId、标题、行号、正文 snippet 与来源标签；结果中不应出现 `callId`/`type`/`uuid` 等 JSONL 元数据；
 5. `/sessions rm <id>`：删除历史；删除当前会话应被拒绝；
-6. `/rename 标题`：已有能力，搜索结果的 title 应反映新标题。
+6. `/rename 标题`：已有能力，搜索结果的 title 应反映新标题；
+7. 0 轮空会话（只有 `session_start`）不应出现在 `/sessions`、`/resume` 或 `kcode sessions list` 中；按 id 执行 `sessions rm` 仍应可删除。
 
 自动化：
 

@@ -382,7 +382,7 @@ export async function createSession(opts: LocalSessionOptions): Promise<SessionH
       const summaries = await listSessions(join(kcodeHomeDir, "cli", "sessions"));
       const cwdKey = workspaceKey(opts.cwd);
       return summaries
-        .filter((s) => s.workspaceKey === "" || s.workspaceKey === cwdKey)
+        .filter((s) => s.turns > 0 && (s.workspaceKey === "" || s.workspaceKey === cwdKey))
         .slice(0, 10)
         .map((s) => ({
           sessionId: s.sessionId,

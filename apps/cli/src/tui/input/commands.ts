@@ -325,12 +325,13 @@ ${body}
           return;
         }
         const sessions = await ctx.session.listSessions().catch(() => null);
+        const listed = sessions === null ? null : sessions.filter((s) => s.turns > 0);
         ctx.pushBlock({
           kind: "info",
           text:
-            sessions === null || sessions.length === 0
+            listed === null || listed.length === 0
               ? "（暂无历史会话）"
-              : `当前项目最近会话（重启后 kcode --resume <id 前缀> 续接；/sessions rm <id> 删除）：\n${sessions
+              : `当前项目最近会话（重启后 kcode --resume <id 前缀> 续接；/sessions rm <id> 删除）：\n${listed
                   .map((s) => `· ${s.sessionId.slice(0, 16)}… · ${s.turns} 轮 · ${s.title ?? s.preview ?? "（空）"}`)
                   .join("\n")}`,
         });
@@ -376,8 +377,8 @@ ${body}
           return;
         }
         const currentId = ctx.sessionRef.current?.sessionId;
-        // 候选排除当前会话（续接自己没有意义）
-        const candidates = sessions.filter((s) => s.sessionId !== currentId);
+        // 候选排除当前会话与 0 轮空会话（续接空会话没有意义）
+        const candidates = sessions.filter((s) => s.sessionId !== currentId && s.turns > 0);
         if (args !== "") {
           // /resume latest 或 id 前缀：先校验存在，避免无效 id 静默开新会话
           const target =

@@ -31,6 +31,10 @@ beforeAll(async () => {
     line({ type: "session_start", workspaceKey: "D:/other-project", model: "m" }) +
       line({ type: "user_message", content: "other 首问" }),
   );
+  await writeFile(
+    join(dir, "sess_empty.jsonl"),
+    line({ type: "session_start", workspaceKey: cwd.replace(/\\/g, "/"), model: "m" }),
+  );
 });
 
 afterAll(async () => {
@@ -46,6 +50,12 @@ describe("3-04 kcode sessions", () => {
     expect(text).toContain("sess_alpha");
     expect(text).toContain("sess_beta");
     expect(text).not.toContain("sess_other");
+    expect(text).not.toContain("sess_empty");
+
+    // 0 轮空会话不进 list，但仍可按 id 显式删除
+    const removedEmpty: string[] = [];
+    expect(await sessionsCommand(cwd, home, ["rm", "sess_empty"], (l) => removedEmpty.push(l))).toBe(true);
+    expect(removedEmpty.join("\n")).toContain("已删除会话 sess_empty");
 
     const renamed: string[] = [];
     expect(await sessionsCommand(cwd, home, ["rename", "sess_alpha", "部署", "排查"], (l) => renamed.push(l))).toBe(true);

@@ -36,14 +36,16 @@ export async function sessionsCommand(
   const all = await listSessions(dir);
   const key = workspaceKey(cwd);
   const sessions = all.filter((s) => s.workspaceKey === "" || s.workspaceKey === key);
+  // 空会话（只有 session_start，0 轮）不进入 list；rm/rename 仍可显式按 id 操作
+  const visible = sessions.filter((s) => s.turns > 0);
   const op = args[0] ?? "list";
 
   if (op === "list") {
-    if (sessions.length === 0) {
+    if (visible.length === 0) {
       write("（当前项目暂无历史会话）");
       return true;
     }
-    for (const s of sessions) {
+    for (const s of visible) {
       const title = s.title ?? (s.preview === "" ? "（空会话）" : s.preview);
       write(`${s.sessionId} · ${s.turns} 轮 · ${title}`);
     }
@@ -78,7 +80,7 @@ export async function sessionsCommand(
     write(`用法：kcode sessions ${op} <id|前缀|latest>${op === "rename" ? " <标题…>" : ""}`);
     return false;
   }
-  const resolved = resolve(sessions, target);
+  const resolved = resolve(target === "latest" ? visible : sessions, target);
   if (typeof resolved === "string") {
     write(`✗ ${resolved}`);
     return false;

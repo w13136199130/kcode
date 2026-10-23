@@ -496,7 +496,7 @@ export function KcodeApp(props: KcodeAppProps) {
     }
     const next = sessionRef.current?.commandQueue.dequeue();
     if (next !== undefined) {
-      await dispatch(next.text);
+      await dispatch(next.text, next.images);
     }
   };
 
@@ -564,7 +564,14 @@ export function KcodeApp(props: KcodeAppProps) {
         return;
       }
       const session = sessionRef.current;
-      session.commandQueue.enqueue(text);
+      // 图片只跟随普通提问；斜杠命令/!直执行不消费附件，避免入队后被命令忽略而丢失。
+      const isSlashCommand = /^\/[^\s/\\]+(?:\s|$)/.test(text) && !text.startsWith("/.");
+      const attached = text.startsWith("!") || isSlashCommand ? [] : (images ?? ui.getState().pendingImages);
+      session.commandQueue.enqueue(text, "later", attached);
+      if (attached.length > 0) {
+        ui.getState().clearPendingImages();
+        pushBlock({ kind: "info", text: `📎 ${attached.length} 张图片已随排队消息附带` });
+      }
       setInput("");
       saveHistory(text);
       return;

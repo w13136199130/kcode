@@ -76,6 +76,8 @@ export function formatToolPreview(tool: string, args: unknown): string {
 }
 /** verbose 态工具输出最多渲染行数 */
 const VERBOSE_TOOL_LINES = 12;
+/** 长回答默认折叠：前 30 行 + 摘要脚注，Ctrl+O 展开当前轮 */
+const ASSISTANT_PREVIEW_LINES = 30;
 /** 3-34：失败工具卡未展开时也显示末尾行数（错误通常在尾部） */
 const FAILED_TOOL_LINES = 6;
 /** 思考块展开态最多渲染行数 */
@@ -153,10 +155,12 @@ export function BlockView(props: {
     }
     const firstText = lines[firstContentIdx]!.segments.map((s) => s.text).join("").trimStart();
     const listStart = /^(•|☐|☑|\d+\.)\s/.test(firstText);
+    const folded = props.verbose !== true && lines.length > ASSISTANT_PREVIEW_LINES;
+    const visibleLines = folded ? lines.slice(0, Math.max(ASSISTANT_PREVIEW_LINES, firstContentIdx + 1)) : lines;
     return (
       <Box flexDirection="column" marginBottom={1}>
         {listStart ? <Text>{glyph("●", "*")}</Text> : null}
-        {lines.map((line, j) => {
+        {visibleLines.map((line, j) => {
           const isFirst = j === firstContentIdx;
           return (
             <Box key={j}>
@@ -178,6 +182,13 @@ export function BlockView(props: {
             </Box>
           );
         })}
+        {folded ? (
+          <Box marginLeft={2}>
+            <Text color={c("foregroundSubtle")}>
+              {`… 共 ${lines.length} 行 · ${expandable ? "Ctrl+O 展开当前轮" : "/export 导出全文"}`}
+            </Text>
+          </Box>
+        ) : null}
       </Box>
     );
   }

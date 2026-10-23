@@ -52,6 +52,15 @@ describe("RuntimeCommandQueue（N2-2 简化版准入队列）", () => {
     expect(sizes).toEqual([1, 2, 3, 2]);
   });
 
+  it("图片随排队项一起出队（不遗留到下一条消息）", () => {
+    const q = new RuntimeCommandQueue();
+    q.enqueue("看图", "later", ["C:/tmp/a.png", "C:/tmp/b.png"]);
+    q.enqueue("纯文本");
+    const withImages = q.dequeue();
+    expect(withImages?.images).toEqual(["C:/tmp/a.png", "C:/tmp/b.png"]);
+    expect(q.dequeue()?.images).toBeUndefined();
+  });
+
   it("clear：清空并返回条数（中断语义——取消即不续跑）", () => {
     const q = new RuntimeCommandQueue();
     q.enqueue("a");

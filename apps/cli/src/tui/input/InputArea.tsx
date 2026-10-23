@@ -244,11 +244,11 @@ export function InputArea(props: {
             );
             return;
           }
-          // 附件只随空闲提交发送：排队不带图（附件保留，避免静默丢失）；
+          // 附件随提交透传：busy 时由 App 连同排队消息一起入队（不再错位到下一条）；
           // 清空时机在 App submit 的守卫之后——exit/空输入不应丢掉已贴的图
           const state = props.ui.getState();
           if (state.busy) {
-            props.onSubmit(v);
+            props.onSubmit(v, state.pendingImages.length > 0 ? state.pendingImages : undefined);
             return;
           }
           props.onSubmit(v, state.pendingImages.length > 0 ? state.pendingImages : undefined);

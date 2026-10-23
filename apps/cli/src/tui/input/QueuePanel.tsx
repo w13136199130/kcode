@@ -26,7 +26,9 @@ export function QueuePanel(props: { ui: UiStore }) {
       </Text>
       {shown.map((item: QueuedCommandView, index) => (
         <Text key={item.id} dimColor wrap="truncate-end">
-          {`  ${index + 1}. ${truncateVisual(stripEscapes(item.text.replace(/\s+/g, " ")), 88)}`}
+          {`  ${index + 1}. ${truncateVisual(stripEscapes(item.text.replace(/\s+/g, " ")), 88)}${
+            (item.images?.length ?? 0) > 0 ? ` 📎${item.images!.length}` : ""
+          }`}
         </Text>
       ))}
       {items.length > shown.length ? (

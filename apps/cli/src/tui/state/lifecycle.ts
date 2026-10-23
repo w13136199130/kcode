@@ -115,7 +115,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): {
             if (props.forkFrom !== undefined) {
               const summaries = await listSessions(join(props.runtime.kcodeHomeDir, "cli", "sessions"));
               const scoped = summaries.filter(
-                (s) => s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === "",
+                (s) => s.turns > 0 && (s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === ""),
               );
               const source =
                 props.forkFrom === "latest"
@@ -212,7 +212,7 @@ export function useSessionLifecycle(deps: LifecycleDeps): {
         const sessionsDir = join(props.runtime.kcodeHomeDir, "cli", "sessions");
         const summaries = fork ? await listSessions(sessionsDir) : [];
         const scoped = summaries.filter(
-          (s) => s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === "",
+          (s) => s.turns > 0 && (s.workspaceKey === workspaceKey(props.cwd) || s.workspaceKey === ""),
         );
         const source =
           fork

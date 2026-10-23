@@ -13,6 +13,8 @@ export interface QueuedCommand {
   text: string;
   priority: CommandPriority;
   enqueuedAt: number;
+  /** 运行中提交时已贴的图片：随该条排队消息一起发送，避免错位到下一条 */
+  images?: string[];
 }
 
 const RANK: Record<CommandPriority, number> = { now: 0, next: 1, later: 2 };
@@ -37,8 +39,14 @@ export class RuntimeCommandQueue {
   }
 
   /** 入队：later 尾插；now/next 插到所有更高档之前、同档末尾（稳定） */
-  enqueue(text: string, priority: CommandPriority = "later"): QueuedCommand {
-    const item: QueuedCommand = { id: ++this.seq, text, priority, enqueuedAt: Date.now() };
+  enqueue(text: string, priority: CommandPriority = "later", images?: readonly string[]): QueuedCommand {
+    const item: QueuedCommand = {
+      id: ++this.seq,
+      text,
+      priority,
+      enqueuedAt: Date.now(),
+      ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
+    };
     if (priority === "later") {
       this.items.push(item);
     } else {

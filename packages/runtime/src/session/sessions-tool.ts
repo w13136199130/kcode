@@ -44,14 +44,15 @@ export function createSessionsTool(opts: { sessionsDir: string }): Tool {
       const summaries = await listSessions(opts.sessionsDir);
 
       if (action === "list") {
-        if (summaries.length === 0) {
+        const listed = summaries.filter((s) => s.turns > 0);
+        if (listed.length === 0) {
           return { ok: true, output: "（无历史会话）" };
         }
-        const lines = summaries.map(
+        const lines = listed.map(
           (s, i) =>
             `${i + 1}. ${s.sessionId} · ${new Date(s.modifiedAt).toLocaleString()} · ${s.turns} 轮 · ${s.preview}`,
         );
-        return { ok: true, output: `共 ${summaries.length} 个会话（最近优先）\n${lines.join("\n")}` };
+        return { ok: true, output: `共 ${listed.length} 个会话（最近优先）\n${lines.join("\n")}` };
       }
 
       if (sessionId === undefined) {

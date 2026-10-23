@@ -24,6 +24,8 @@ export interface QueuedCommandView {
   text: string;
   priority: "now" | "next" | "later";
   enqueuedAt: number;
+  /** 随该条排队消息发送的图片（展示层只显示数量） */
+  images?: string[];
 }
 
 export interface RunStatusSlice {

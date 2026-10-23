@@ -193,6 +193,23 @@ describe("/tasks（3-27 后台任务可见性）", () => {
   });
 });
 
+describe("/sessions 空会话过滤", () => {
+  it("/sessions 不展示 0 轮空会话", async () => {
+    const { ctx, blocks } = makeCtx(home);
+    const session = ctx.session as unknown as {
+      listSessions?: () => Promise<{ sessionId: string; preview: string; turns: number; title?: string }[]>;
+    };
+    session.listSessions = async () => [
+      { sessionId: "sess_empty", preview: "", turns: 0 },
+      { sessionId: "sess_real", preview: "真实会话", turns: 2 },
+    ];
+    await runDispatch(ctx, "/sessions");
+    const text = blocks.find((b) => b.kind === "info")?.text ?? "";
+    expect(text).toContain("sess_real");
+    expect(text).not.toContain("sess_empty");
+  });
+});
+
 describe("/search 结果清洗", () => {
   it("按会话分组、标注来源、不展示 JSONL 元数据", async () => {
     const { ctx, blocks } = makeCtx(home);
