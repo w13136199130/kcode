@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { MenuOption } from "./OptionsMenu.js";
 import type { LoginWizard } from "./wizard-state.js";
-import type { AskState, DiffBrowserState, QuestionState, PlanApprovalState } from "../state/interactions.js";
+import type { AskState, DiffBrowserState, MessageEditState, MessagePickerState, QuestionState, PlanApprovalState } from "../state/interactions.js";
 import { LoginWizardPanel } from "./LoginWizardPanel.js";
 import { DiffBrowserPanel } from "./DiffBrowser.js";
 import { TerminalPanel } from "../terminal/TerminalPanel.js";
@@ -15,6 +15,8 @@ import {
   QuestionPanel,
   ResumePickerPanel,
   RewindPickerPanel,
+  MessagePickerPanel,
+  MessageEditPanel,
   type RewindPoint,
 } from "./panels.js";
 
@@ -28,6 +30,8 @@ export function DialogLayer(props: {
   question: QuestionState | null;
   planApproval: PlanApprovalState | null;
   rewindPicker: RewindPoint[] | null;
+  messagePicker: MessagePickerState | null;
+  messageEdit: MessageEditState | null;
   diffBrowser: DiffBrowserState | null;
   /** 工作目录（/diff 面板展示相对路径） */
   cwd: string;
@@ -60,6 +64,12 @@ export function DialogLayer(props: {
   }
   if (props.rewindPicker !== null) {
     return <RewindPickerPanel points={props.rewindPicker} />;
+  }
+  if (props.messagePicker !== null) {
+    return <MessagePickerPanel picker={props.messagePicker} />;
+  }
+  if (props.messageEdit !== null) {
+    return <MessageEditPanel edit={props.messageEdit} />;
   }
   if (props.resumePicker !== null) {
     return <ResumePickerPanel options={props.resumePicker.options} ids={props.resumePicker.ids} />;

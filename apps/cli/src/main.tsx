@@ -4,14 +4,6 @@ import { homedir } from "node:os";
 import { render } from "ink";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-  installPlugin,
-  listInstalledPlugins,
-  readDisabledPlugins,
-  setPluginEnabled,
-  uninstallPlugin,
-  verifyPluginSeed,
-} from "@kcode/extensions";
 import type { IPlatformService } from "@kcode/contracts";
 import { bootstrap, type Runtime } from "./bootstrap.js";
 import {
@@ -30,6 +22,7 @@ import { runHeadless } from "./headless.js";
 import { commandsListCommand, skillsListCommand } from "./inspect.js";
 import { runDataCommand } from "./data-commands.js";
 import { updateCommand } from "./update.js";
+import { pluginCommand } from "./plugin-cmd.js";
 /** 子命令与启动期输出出口：console 被 lint 全面禁用（no-console），这里是 CLI 界面直写而非日志 */
 const print = (s: string): void => {
   process.stdout.write(`${s}\n`);
@@ -121,61 +114,6 @@ async function keyCommand(platform: IPlatformService, args: string[]): Promise<v
   throw new UsageError("用法：kcode key add <ref> <audience...> [--key-file <path>] ｜ kcode key list");
 }
 
-/** 插件管理子命令：install/list/remove/enable/disable（本地目录安装，市场在后续版本接入） */
-async function pluginCommand(args: string[]): Promise<void> {
-  const pluginsDir = join(kcodeHome(), "cli", "plugins");
-  const cacheDir = join(pluginsDir, "cache");
-  const [op, ...rest] = args;
-
-  if (op === "install" && rest[0] !== undefined) {
-    const result = await installPlugin(rest[0], cacheDir, { force: rest.includes("--force") });
-    print(`\n${result.consentSummary}\n`);
-    print(`已安装 ${result.name}@${result.version} → ${result.installPath}`);
-    print(`seed hash：${result.hash.slice(0, 16)}…`);
-    return;
-  }
-  if (op === "list") {
-    const plugins = await listInstalledPlugins(cacheDir);
-    if (plugins.length === 0) {
-      print("（暂无已安装插件）");
-      return;
-    }
-    const disabled = new Set(await readDisabledPlugins(pluginsDir));
-    for (const p of plugins) {
-      const skills = p.manifest.skills.length > 0 ? ` 技能×${p.manifest.skills.length}` : "";
-      const hooks = p.manifest.hooks.length > 0 ? ` hooks×${p.manifest.hooks.length}` : "";
-      const mcp = p.manifest.mcp.length > 0 ? ` MCP×${p.manifest.mcp.length}` : "";
-      // 完整性校验（N3-5）：与会话装载同一套判定，让"为什么没生效"在 list 就能看出来
-      const tampered = !(await verifyPluginSeed(p.installPath, p.seed.hash));
-      const off =
-        tampered
-          ? " ⚠ 完整性校验失败（会话拒绝装载）"
-          : disabled.has(p.manifest.name) || disabled.has(`${p.manifest.name}@${p.manifest.version}`)
-            ? " [已停用]"
-            : "";
-      print(`${p.manifest.name}@${p.manifest.version}${off}${skills}${hooks}${mcp}`);
-    }
-    return;
-  }
-  if (op === "remove" && rest[0] !== undefined) {
-    // 支持 name 或 name@version
-    const at = rest[0].indexOf("@");
-    const name = at === -1 ? rest[0] : rest[0].slice(0, at);
-    const version = at === -1 ? undefined : rest[0].slice(at + 1);
-    print(await uninstallPlugin(cacheDir, name, version));
-    return;
-  }
-  if ((op === "enable" || op === "disable") && rest[0] !== undefined) {
-    // 停用只影响新会话的装载（本会话若在跑不受影响）
-    await setPluginEnabled(pluginsDir, rest[0], op === "enable");
-    print(op === "enable" ? `已启用 ${rest[0]}（新会话生效）` : `已停用 ${rest[0]}（新会话生效）`);
-    return;
-  }
-  throw new Error(
-    "用法：kcode plugin install <目录> [--force] ｜ list ｜ remove <name>[@version] ｜ enable|disable <name>[@version]",
-  );
-}
-
 /** 隐藏回显的口令输入（raw mode 逐字符收集，回车结束；Ctrl+C 退出） */
 function promptHidden(label: string): Promise<string> {
   return new Promise((resolve) => {
@@ -250,7 +188,7 @@ async function main(): Promise<void> {  const [, , ...rest] = process.argv;
       return;
     }
     if (kind === "plugin") {
-      await pluginCommand(sub);
+      await pluginCommand(sub, kcodeHome(), print);
       return;
     }
     if (kind === "doctor") {

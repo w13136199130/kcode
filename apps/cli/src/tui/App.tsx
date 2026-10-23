@@ -26,7 +26,7 @@ import { TranscriptView } from "./transcript/TranscriptView.js";
 import { createStreamController } from "./state/stream.js";
 import { makeEventHandler } from "./state/events.js";
 import { useStatusStats, useBackgroundTasks } from "./state/status-data.js";
-import { makeInteractions, type AskState, type DiffBrowserState, type QuestionState, type PlanApprovalState } from "./state/interactions.js";
+import { makeInteractions, type AskState, type DiffBrowserState, type MessageEditState, type MessagePickerState, type QuestionState, type PlanApprovalState } from "./state/interactions.js";
 import { BUILTIN_COMMANDS, type CommandInfo } from "./input/builtin-commands.js";
 import type { MenuOption } from "./dialogs/OptionsMenu.js";
 import { filterChanges } from "./dialogs/diff-model.js";
@@ -109,6 +109,9 @@ export function KcodeApp(props: KcodeAppProps) {
   const [resumePicker, setResumePicker] = useState<{ options: MenuOption[]; ids: string[] } | null>(null);
   /** /rewind 回退点选择菜单（/rewind 命令或空闲双击 Esc 打开） */
   const [rewindPicker, setRewindPicker] = useState<RewindPoint[] | null>(null);
+  /** 4-06.1：消息选择/编辑面板 */
+  const [messagePicker, setMessagePicker] = useState<MessagePickerState | null>(null);
+  const [messageEdit, setMessageEdit] = useState<MessageEditState | null>(null);
   /** 3-23 /diff 审查面板（改动清单 + 单文件 hunk + 逐文件回退） */
   const [diffBrowser, setDiffBrowser] = useState<DiffBrowserState | null>(null);
   /** 计划批准面板（plan_submit 工具推送）：渲染计划全文 + 批准菜单 */
@@ -265,6 +268,8 @@ export function KcodeApp(props: KcodeAppProps) {
     permissionsPanel !== null ||
     resumePicker !== null ||
     rewindPicker !== null ||
+    messagePicker !== null ||
+    messageEdit !== null ||
     diffBrowser !== null ||
     planApproval !== null ||
     terminal !== null;
@@ -288,6 +293,28 @@ export function KcodeApp(props: KcodeAppProps) {
         return;
       }
       setRewindPicker(points.slice(-10).reverse());
+    })();
+  };
+
+  /** 4-06.1：打开消息选择面板（选中后进入编辑）；参数/非交互仍可用 /edit <n> <text> */
+  const openMessagePicker = (): void => {
+    if (ui.getState().busy) {
+      pushBlock({ kind: "info", tone: "warn", text: "运行中不能编辑提问（等本轮完成或 Esc 中断）" });
+      return;
+    }
+    void (async () => {
+      const session = sessionRef.current;
+      if (session === null) return;
+      const points = await session.rewindPoints().catch(() => null);
+      if (points === null) {
+        pushBlock({ kind: "info", tone: "warn", text: "提问点获取失败（会话操作异常）" });
+        return;
+      }
+      if (points.length === 0) {
+        pushBlock({ kind: "info", text: "（暂无可编辑的提问点）" });
+        return;
+      }
+      setMessagePicker({ points: points.slice(-20).reverse() });
     })();
   };
 
@@ -504,6 +531,24 @@ export function KcodeApp(props: KcodeAppProps) {
     }
   };
 
+  /** 4-06.1：面板提交后回退并重发（与 /edit 共用 retryAt；runOccupied 负责 busy/队列） */
+  const retryMessage = async (eventIndex: number, text: string): Promise<void> => {
+    const session = sessionRef.current;
+    if (session === null) return;
+    await runOccupied(session, text, async () => {
+      const result = await session.retryAt(eventIndex, text);
+      pushBlock(
+        typeof result === "string"
+          ? { kind: "info", tone: "warn", text: `✗ 编辑重发失败：${result}` }
+          : {
+              kind: "info",
+              tone: "ok",
+              text: `⏪ 已回退并重发（恢复 ${result.restoredFiles} 个文件，截断 ${result.droppedEvents} 个事件）`,
+            },
+      );
+    });
+  };
+
   /** 输入提交：运行中入队（N2-2，不带附件），空闲直接分发（携带图片附件 N3C-4⑤） */
   const submit = async (value: string, images?: string[]): Promise<void> => {
     const text = value.trim();
@@ -605,6 +650,7 @@ export function KcodeApp(props: KcodeAppProps) {
         switchSession,
         forkSession,
         openRewindPicker,
+        openMessagePicker,
         openDiffBrowser,
         runOccupied,
         saveHistory,
@@ -705,6 +751,9 @@ export function KcodeApp(props: KcodeAppProps) {
           setQuestion,
           setPlanApproval,
           setRewindPicker,
+          setMessagePicker,
+          setMessageEdit,
+          retryMessage,
           setDiffBrowser,
           setResumePicker,
           setPermissionsPanel,
@@ -735,6 +784,8 @@ export function KcodeApp(props: KcodeAppProps) {
           question={question}
           planApproval={planApproval}
           rewindPicker={rewindPicker}
+          messagePicker={messagePicker}
+          messageEdit={messageEdit}
           diffBrowser={diffBrowser}
           cwd={props.cwd}
           resumePicker={resumePicker}

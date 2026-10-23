@@ -1,6 +1,7 @@
 import type { PermissionAnswer } from "@kcode/contracts";
+import { useState } from "react";
+import { Box, Text, useInput } from "ink";
 import { useServices } from "@kcode/ui";
-import { Box, Text } from "ink";
 import { c } from "../theme/theme.js";
 import { truncateVisual } from "../terminal/width.js";
 import { markdownToLines } from "../transcript/markdown.js";
@@ -10,7 +11,7 @@ import { askScopeLabels } from "./ask-labels.js";
 import { DiffPreview } from "./DiffPreview.js";
 import { stripEscapes } from "../terminal/sanitize.js";
 import type { CliServices } from "../state/services.js";
-import type { AskState, QuestionState, PlanApprovalState, RewindPoint } from "../state/interactions.js";
+import type { AskState, MessageEditState, MessagePickerState, QuestionState, PlanApprovalState, RewindPoint } from "../state/interactions.js";
 
 export type { RewindPoint } from "../state/interactions.js";
 
@@ -191,6 +192,72 @@ export function RewindPickerPanel(props: { points: RewindPoint[] }) {
           dialogs.setRewindPicker(null);
         }}
       />
+    </Box>
+  );
+}
+
+/** 4-06.1：选择要编辑/重发的 user 消息 */
+export function MessagePickerPanel(props: { picker: MessagePickerState }) {
+  const dialogs = useDialogs();
+  return (
+    <Box flexDirection="column">
+      <Text color={c("accent")} bold>
+        选择要编辑的提问（回车进入编辑 · Esc 取消）
+      </Text>
+      <OptionsMenu
+        options={props.picker.points.map((pt, i) => ({
+          key: String((i + 1) % 10),
+          label: `${pt.preview || "（空）"}${pt.fileChanges > 0 ? ` · ${pt.fileChanges} 处文件改动` : ""}`,
+        }))}
+        onPick={(indices) => {
+          const pt = props.picker.points[indices[0] ?? -1];
+          dialogs.setMessagePicker(null);
+          if (pt === undefined) return;
+          dialogs.setMessageEdit({ eventIndex: pt.eventIndex, text: pt.text ?? pt.preview });
+        }}
+        onCancel={() => dialogs.setMessagePicker(null)}
+      />
+    </Box>
+  );
+}
+
+/** 4-06.1：编辑选中的提问；Enter 提交并重发，Ctrl+J 换行，Esc 取消。 */
+export function MessageEditPanel(props: { edit: MessageEditState }) {
+  const dialogs = useDialogs();
+  const [value, setValue] = useState(props.edit.text);
+  useInput((ch, key) => {
+    if (key.return) {
+      const text = value.trim();
+      if (text === "") return;
+      dialogs.setMessageEdit(null);
+      void dialogs.retryMessage(props.edit.eventIndex, text);
+      return;
+    }
+    if (key.escape) {
+      dialogs.setMessageEdit(null);
+      return;
+    }
+    if (key.ctrl && ch.toLowerCase() === "j") {
+      setValue((text) => `${text}\n`);
+      return;
+    }
+    if (key.backspace || key.delete) {
+      setValue((text) => text.slice(0, -1));
+      return;
+    }
+    if (ch !== undefined && ch !== "" && ch >= " ") {
+      setValue((text) => text + ch);
+    }
+  });
+  return (
+    <Box flexDirection="column">
+      <Text color={c("accent")} bold>
+        编辑提问（Enter 提交并重发 · Ctrl+J 换行 · Esc 取消）
+      </Text>
+      <Box borderStyle="round" paddingX={1} flexDirection="column">
+        <Text>{stripEscapes(value) || <Text dimColor>（空）</Text>}</Text>
+      </Box>
+      <Text dimColor>回退会恢复该轮之后的文件检查点，并截断后续对话。</Text>
     </Box>
   );
 }

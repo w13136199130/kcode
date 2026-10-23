@@ -27,6 +27,19 @@ export interface RewindPoint {
   preview: string;
   ts: number;
   fileChanges: number;
+  /** 4-06.1：完整提问（编辑面板预填） */
+  text?: string;
+}
+
+/** 4-06.1：消息选择面板（选中后打开编辑面板） */
+export interface MessagePickerState {
+  points: RewindPoint[];
+}
+
+/** 4-06.1：消息编辑面板（事件索引 + 预填文本） */
+export interface MessageEditState {
+  eventIndex: number;
+  text: string;
 }
 
 /** 3-23：单个改动文件（检查点基线 → 当前磁盘），与 @kcode/session 的 FileChange 同形 */

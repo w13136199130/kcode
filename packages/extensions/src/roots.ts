@@ -2,9 +2,10 @@ import { join } from "node:path";
 import {
   latestInstalledPlugins,
   listInstalledPlugins,
-  verifyPluginSeed,
+  verifyInstalledPlugin,
   type InstalledPlugin,
 } from "./plugins/install.js";
+import { loadTrustedKeys } from "./plugins/signing.js";
 import { parsePluginPermissions } from "./plugins/permissions.js";
 import { filterEnabledPlugins, readDisabledPlugins } from "./plugins/state.js";
 import type { SkillSource } from "./skills/discover.js";
@@ -50,6 +51,8 @@ export async function buildExtensionRoots(opts: {
     disabled,
   );
   const plugins: InstalledPlugin[] = [];
+  const trustedKeys = await loadTrustedKeys(opts.kcodeHomeDir);
+  const requireSignature = process.env["KCODE_PLUGIN_REQUIRE_SIGNATURE"] === "1";
   for (const p of enabled) {
     // 3-16：权限声明不合法/请求提权的插件拒绝装载（同意摘要不能写得比实际能力弱）
     const permissionErrors = parsePluginPermissions(p.manifest.permissions).errors;
@@ -59,12 +62,15 @@ export async function buildExtensionRoots(opts: {
       );
       continue;
     }
-    // 每次组装都重算哈希：插件体量小（技能/命令文件），换缓存反而引入失效复杂度
-    if (await verifyPluginSeed(p.installPath, p.seed.hash)) {
+    // 4-08：hash 锁内容 + 签名锁发布者；未签名仅在非 strict 模式放行
+    const verified = await verifyInstalledPlugin(p, { trustedKeys, requireSignature });
+    if (verified.ok) {
       plugins.push(p);
     } else {
       opts.onWarn?.(
-        `插件 ${p.manifest.name}@${p.manifest.version} 完整性校验失败（内容与安装时不一致），已拒绝装载——kcode plugin install <目录> --force 重装可修复`,
+        `插件 ${p.manifest.name}@${p.manifest.version} ${
+          verified.reason?.includes("内容") ? "完整性校验失败" : "签名校验失败"
+        }（${verified.reason ?? "未知原因"}），已拒绝装载——kcode plugin install <目录> --force 重装可修复`,
       );
     }
   }

@@ -51,6 +51,8 @@ export interface DispatchContext {
   setPermissionsPanel(p: string[] | null): void;
   switchSession(resumeFrom: string): void;
   openRewindPicker(): void;
+  /** 4-06.1：打开消息选择/编辑面板 */
+  openMessagePicker(): void;
   /** 3-23：打开 /diff 审查面板（query = 文件名/路径片段；省略 = 全部改动） */
   openDiffBrowser(query?: string): void;
   runOccupied(session: SessionHandle, text: string, work: () => Promise<unknown>): Promise<void>;
@@ -806,11 +808,13 @@ ${hooks
         }
         const raw = args.trim();
         if (raw === "") {
+          if (name === "edit") {
+            ctx.openMessagePicker();
+            return;
+          }
           ctx.pushBlock({
             kind: "info",
-            text: `用法：/${name} <轮次>${
-              name === "edit" ? " <新内容>" : ""
-            }\n可编辑/重发点：\n${points.map((p, i) => `${i + 1}. ${p.preview || "（空）"}`).join("\n")}`,
+            text: `用法：/${name} <轮次>\n可编辑/重发点：\n${points.map((p, i) => `${i + 1}. ${p.preview || "（空）"}`).join("\n")}`,
           });
           return;
         }

@@ -387,8 +387,9 @@ pnpm vitest run packages/runtime/test/resume.test.ts apps/cli/test/session-fork.
 1. `/retry`（无参数）列出当前会话可编辑/重发的提问轮次；
 2. `/retry 2`：回退到第 2 轮提问之前（恢复文件检查点、截断后续事件），再发送原提问；
 3. `/edit 2 新的问题`：回退后发送编辑后的内容；
-4. 运行中应拒绝；回退后 `/rewind` 清单应只保留有效前缀；
-5. 检查点行为与 `/rewind` 相同：该轮之后的写/编辑文件会恢复。
+4. TUI 内 `/edit`（无参数）：打开提问选择面板 → 选中后进入编辑面板，预填完整文本；Enter 提交重发、Ctrl+J 换行、Esc 取消；
+5. 运行中应拒绝；回退后 `/rewind` 清单应只保留有效前缀；
+6. 检查点行为与 `/rewind` 相同：该轮之后的写/编辑文件会恢复。
 
 自动化（消息索引/截断由现有 rewind 覆盖）：
 
@@ -449,6 +450,39 @@ memory action=list
 
 ```powershell
 pnpm vitest run packages/session/test/rules.test.ts
+```
+
+### 3.22 插件签名（4-08）
+
+1. 生成密钥：
+
+```powershell
+kcode plugin keygen .keys
+```
+
+2. 签名插件目录：
+
+```powershell
+kcode plugin sign .\my-plugin --key .keys\kcode-plugin.key
+```
+
+3. 不信任密钥直接安装签名插件：应报“未受信任”；
+4. 信任后安装：
+
+```powershell
+kcode plugin trust .keys\kcode-plugin.pub "测试"
+kcode plugin install .\my-plugin
+```
+
+5. `kcode plugin list` 应显示 `✍ <keyId>`；
+6. 篡改缓存里的插件文件后重开会话：应拒绝装载并告警；
+7. `kcode plugin install .\my-plugin --require-signature` 对未签名插件应拒绝；
+8. `KCODE_PLUGIN_REQUIRE_SIGNATURE=1` 下未签名插件装载应失败。
+
+自动化：
+
+```powershell
+pnpm vitest run packages/extensions/test/plugin-signing.test.ts packages/extensions/test/plugins-state.test.ts
 ```
 
 真实适配器（需已安装；一次性，opt-in）：

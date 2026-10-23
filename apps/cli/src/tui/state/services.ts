@@ -3,7 +3,7 @@ import type { ServiceSet, UiStore, Block } from "@kcode/ui";
 import type { SessionHandle } from "../../session.js";
 import type { MenuOption } from "../dialogs/OptionsMenu.js";
 import type { LoginWizard } from "../dialogs/wizard-state.js";
-import type { AskState, DiffBrowserState, QuestionState, PlanApprovalState, RewindPoint } from "./interactions.js";
+import type { AskState, DiffBrowserState, MessageEditState, MessagePickerState, QuestionState, PlanApprovalState, RewindPoint } from "./interactions.js";
 
 /**
  * 对话框动作包（N2-3 注入补全）：面板 setter 与引擎动作的稳定集合，
@@ -32,6 +32,10 @@ interface DialogActions {
   setQuestion(question: QuestionState | null): void;
   setPlanApproval(plan: PlanApprovalState | null): void;
   setRewindPicker(points: RewindPoint[] | null): void;
+  /** 4-06.1：消息选择/编辑面板 */
+  setMessagePicker(panel: MessagePickerState | null): void;
+  setMessageEdit(panel: MessageEditState | null): void;
+  retryMessage(eventIndex: number, text: string): Promise<void>;
   setDiffBrowser(panel: DiffBrowserState | null): void;
   setResumePicker(picker: { options: MenuOption[]; ids: string[] } | null): void;
   setPermissionsPanel(panel: string[] | null): void;
