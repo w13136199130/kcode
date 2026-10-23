@@ -67,65 +67,78 @@
           </nav>
 
           <div class="task-list-section">
-            <div class="task-list-head"><span>任务列表</span><div><button class="icon-btn" data-action="task-search" title="搜索任务"><svg class="icon"><use href="#i-search" /></svg></button><button class="icon-btn" data-action="task-sort" title="排序"><svg class="icon"><use href="#i-diff" /></svg></button></div></div>
+            <div class="task-project-section" id="project-group">
+              <div class="task-section-head" data-action="toggle-projects" role="button" tabindex="0"><span>工作区</span><button class="task-section-caret" data-action="toggle-projects" title="折叠工作区"><svg class="icon"><use href="#i-chevron" /></svg></button><div><button class="tiny-btn" data-action="task-search" title="搜索工作区"><svg class="icon"><use href="#i-search" /></svg></button><button class="tiny-btn" data-action="task-sort" title="排序"><svg class="icon"><use href="#i-diff" /></svg></button><button class="tiny-btn folder-add" data-action="add-workspace" title="添加工作区"><svg class="icon"><use href="#i-folder" /></svg><span>+</span></button></div></div>
+              <div class="project-list" id="project-list">
+                <div class="project-group" data-project="kcode">
+                  <div class="workspace-item project-row active" data-action="select-workspace" data-workspace="kcode" data-path="E:\space\my_space\MyProject\kcode" role="button" tabindex="0">
+                    <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
+                    <span class="project-name">kcode</span>
+                    <div class="project-actions"><button class="project-more" data-action="project-menu" data-workspace="kcode" data-project-name="kcode" title="工作区操作"><svg class="icon"><use href="#i-more" /></svg></button><button class="project-panel" data-action="project-panel" data-workspace="kcode" title="项目面板"><svg class="icon"><use href="#i-task" /></svg></button><button class="project-new" data-action="new-task-in-project" data-workspace="kcode" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button></div>
+                  </div>
+                  <div class="project-tasks" id="task-list-kcode">
+                    <button class="session-item active" data-action="open-session" data-workspace="kcode" data-session="对比 apps 下 5 个应用">
+                      <span class="session-title">对比 apps 下 5 个应用</span>
+                      <span class="session-age">2 分钟前</span>
+                      <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
+                    </button>
+                    <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="修复桌面宿主启动">
+                      <span class="session-title">修复桌面宿主启动</span>
+                      <span class="session-age">1 小时前</span>
+                      <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
+                    </button>
+                    <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="整理 CLI 优化计划">
+                      <span class="session-title">整理 CLI 优化计划</span>
+                      <span class="session-age">昨天</span>
+                      <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
+                    </button>
+                  </div>
+                </div>
 
-            <div class="task-section-head"><span>项目</span><div><button class="tiny-btn" data-action="add-workspace" title="添加项目"><svg class="icon"><use href="#i-plus" /></svg></button></div></div>
-            <div class="project-list" id="project-list">
-              <div class="project-group" data-project="kcode">
-                <div class="workspace-item project-row active" data-action="select-workspace" data-workspace="kcode" data-path="E:\space\my_space\MyProject\kcode" role="button" tabindex="0">
-                  <button class="project-caret" data-action="toggle-project" data-project="kcode" title="折叠项目"><svg class="icon"><use href="#i-chevron" /></svg></button>
-                  <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
-                  <span class="project-name">kcode</span>
-                  <button class="project-new" data-action="new-task-in-project" data-workspace="kcode" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button>
-                  <button class="project-more" data-action="project-menu" data-workspace="kcode" data-project-name="kcode" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button>
+                <div class="project-group collapsed" data-project="web">
+                  <div class="workspace-item project-row" data-action="select-workspace" data-workspace="web" data-path="E:\space\my_space\MyProject\kcode\apps\web" role="button" tabindex="0">
+                    <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
+                    <span class="project-name">web</span>
+                    <div class="project-actions"><button class="project-more" data-action="project-menu" data-workspace="web" data-project-name="web" title="工作区操作"><svg class="icon"><use href="#i-more" /></svg></button><button class="project-panel" data-action="project-panel" data-workspace="web" title="项目面板"><svg class="icon"><use href="#i-task" /></svg></button><button class="project-new" data-action="new-task-in-project" data-workspace="web" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button></div>
+                  </div>
+                  <div class="project-tasks" id="task-list-web">
+                    <button class="session-item" data-action="open-session" data-workspace="web" data-session="优化浏览器登录页">
+                      <span class="session-title">优化浏览器登录页</span>
+                      <span class="session-age">昨天</span>
+                      <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
+                    </button>
+                    <button class="session-item" data-action="open-session" data-workspace="web" data-session="检查 web 构建产物">
+                      <span class="session-title">检查 web 构建产物</span>
+                      <span class="session-age">2 天前</span>
+                      <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
+                    </button>
+                  </div>
                 </div>
-                <div class="project-tasks" id="task-list-kcode">
-                  <button class="session-item active" data-action="open-session" data-workspace="kcode" data-session="对比 apps 下 5 个应用">
-                    <span class="session-title">对比 apps 下 5 个应用</span>
-                    <span class="session-meta"><span>2 分钟前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
-                  </button>
-                  <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="修复桌面宿主启动">
-                    <span class="session-title">修复桌面宿主启动</span>
-                    <span class="session-meta"><span>1 小时前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
-                  </button>
-                  <button class="session-item" data-action="open-session" data-workspace="kcode" data-session="整理 CLI 优化计划">
-                    <span class="session-title">整理 CLI 优化计划</span>
-                    <span class="session-meta"><span>昨天</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
-                  </button>
-                </div>
-              </div>
 
-              <div class="project-group collapsed" data-project="web">
-                <div class="workspace-item project-row" data-action="select-workspace" data-workspace="web" data-path="E:\space\my_space\MyProject\kcode\apps\web" role="button" tabindex="0">
-                  <button class="project-caret" data-action="toggle-project" data-project="web" title="折叠项目"><svg class="icon"><use href="#i-chevron" /></svg></button>
-                  <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
-                  <span class="project-name">web</span>
-                  <button class="project-new" data-action="new-task-in-project" data-workspace="web" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button>
-                  <button class="project-more" data-action="project-menu" data-workspace="web" data-project-name="web" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button>
-                </div>
-                <div class="project-tasks" id="task-list-web">
-                  <button class="session-item" data-action="open-session" data-workspace="web" data-session="优化浏览器登录页">
-                    <span class="session-title">优化浏览器登录页</span>
-                    <span class="session-meta"><span>昨天</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
-                  </button>
-                  <button class="session-item" data-action="open-session" data-workspace="web" data-session="检查 web 构建产物">
-                    <span class="session-title">检查 web 构建产物</span>
-                    <span class="session-meta"><span>2 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
-                  </button>
+                <div class="project-group collapsed" data-project="infra">
+                  <div class="workspace-item project-row" data-action="select-workspace" data-workspace="infra" data-path="E:\space\my_space\MyProject\infra" role="button" tabindex="0">
+                    <span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span>
+                    <span class="project-name">infra</span>
+                    <div class="project-actions"><button class="project-more" data-action="project-menu" data-workspace="infra" data-project-name="infra" title="工作区操作"><svg class="icon"><use href="#i-more" /></svg></button><button class="project-panel" data-action="project-panel" data-workspace="infra" title="项目面板"><svg class="icon"><use href="#i-task" /></svg></button><button class="project-new" data-action="new-task-in-project" data-workspace="infra" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button></div>
+                  </div>
+                  <div class="project-tasks" id="task-list-infra"></div>
                 </div>
               </div>
             </div>
 
             <div class="task-inbox-group" id="inbox-group">
-              <div class="task-section-head task-section-inbox"><button class="task-section-caret" data-action="toggle-inbox" title="折叠任务"><svg class="icon"><use href="#i-chevron" /></svg></button><span data-action="select-inbox" role="button" tabindex="0">任务</span><div><button class="tiny-btn" data-action="new-inbox-task" title="新建未归类任务"><svg class="icon"><use href="#i-plus" /></svg></button></div></div>
+              <div class="task-section-head task-section-inbox" data-action="toggle-inbox" role="button" tabindex="0"><span>任务</span><button class="task-section-caret" data-action="toggle-inbox" title="折叠任务"><svg class="icon"><use href="#i-chevron" /></svg></button><div><button class="tiny-btn inbox-add" data-action="new-inbox-task" title="新建未归类任务"><svg class="icon"><use href="#i-plus" /></svg></button></div></div>
               <div id="ungrouped-task-list">
                 <button class="session-item" data-action="open-session" data-workspace="inbox" data-session="Nginx TCP 转发与内网 Ntrip Caster 中转方案">
                   <span class="session-title">Nginx TCP 转发与内网 Ntrip Caster 中转方案</span>
-                  <span class="session-meta"><span>10 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  <span class="session-age">11 天前</span>
+                  <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
                 </button>
                 <button class="session-item" data-action="open-session" data-workspace="inbox" data-session="分析降雨量与水情指标计算逻辑">
+                  <span class="task-dot"></span>
                   <span class="session-title">分析降雨量与水情指标计算逻辑</span>
-                  <span class="session-meta"><span>36 天前</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>
+                  <span class="session-age">36 天前</span>
+                  <span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>
                 </button>
               </div>
             </div>
@@ -160,8 +173,8 @@
 
               <div class="trust-banner" id="trust-banner">
                 <span class="trust-icon"><svg class="icon"><use href="#i-shield" /></svg></span>
-                <div class="trust-copy"><strong>项目尚未信任</strong><span>AGENTS.md、规则与项目技能尚未装载。信任后新会话生效。</span></div>
-                <button class="trust-action" data-action="trust">信任本项目</button>
+                <div class="trust-copy"><strong>工作区尚未信任</strong><span>AGENTS.md、规则与项目技能尚未装载。信任后新会话生效。</span></div>
+                <button class="trust-action" data-action="trust">信任本工作区</button>
                 <button class="icon-btn trust-close" data-action="dismiss-trust" title="关闭"><svg class="icon"><use href="#i-close" /></svg></button>
               </div>
 
@@ -222,8 +235,8 @@
             <div class="empty-wrap">
               <div class="trust-banner empty-trust" id="empty-trust">
                 <span class="trust-icon"><svg class="icon"><use href="#i-shield" /></svg></span>
-                <div class="trust-copy"><strong>项目尚未信任</strong><span>加载 AGENTS.md 与项目规则前，需要先确认工作区。</span></div>
-                <button class="trust-action" data-action="trust">信任本项目</button>
+                <div class="trust-copy"><strong>工作区尚未信任</strong><span>加载 AGENTS.md 与项目规则前，需要先确认工作区。</span></div>
+                <button class="trust-action" data-action="trust">信任本工作区</button>
                 <button class="icon-btn trust-close" data-action="dismiss-trust" title="关闭"><svg class="icon"><use href="#i-close" /></svg></button>
               </div>
               <div class="empty-hero">
@@ -358,8 +371,8 @@
         <div class="onboarding-card">
           <div class="onboarding-brand"><span class="brand-mark">k</span><span>kcode</span></div>
           <h1>把工作区连接起来</h1>
-          <p>选择一个项目目录，配置模型供应商。密钥只写入本机钥匙串。</p>
-          <label class="onboarding-field"><span>项目目录</span><div class="input-action"><input id="onboarding-cwd" value="E:\space\my_space\MyProject\kcode" readonly /><button class="small-action" data-action="pick-directory"><svg class="icon"><use href="#i-folder" /></svg>选择</button></div></label>
+          <p>选择一个工作区目录，配置模型供应商。密钥只写入本机钥匙串。</p>
+          <label class="onboarding-field"><span>工作区目录</span><div class="input-action"><input id="onboarding-cwd" value="E:\space\my_space\MyProject\kcode" readonly /><button class="small-action" data-action="pick-directory"><svg class="icon"><use href="#i-folder" /></svg>选择</button></div></label>
           <div class="onboarding-label">厂商预设</div>
           <div class="preset-row"><button class="preset active" data-preset="GLM">GLM-5.3</button><button class="preset" data-preset="DeepSeek">DeepSeek</button><button class="preset" data-preset="自定义">自定义</button></div>
           <div class="onboarding-grid"><label class="onboarding-field"><span>Provider</span><input id="onboarding-provider" value="Z.ai" /></label><label class="onboarding-field"><span>模型</span><input id="onboarding-model" value="glm-5.3" /></label></div>
@@ -540,7 +553,7 @@
 
             <div class="settings-panel hidden" data-settings-panel="permissions">
               <div class="setting-row"><div><strong>默认权限模式</strong><span>新会话打开时的审批级别</span></div><button class="select-like" data-action="open-mode-menu"><svg class="icon"><use href="#i-shield" /></svg>变更确认 <svg class="icon chevron"><use href="#i-chevron" /></svg></button></div>
-              <div class="permission-note"><svg class="icon"><use href="#i-lock" /></svg><div><strong>项目信任</strong><p>信任后才会加载 AGENTS.md、项目规则和项目级 MCP 配置。</p></div><button class="small-action" data-action="manage-trust">管理</button></div>
+              <div class="permission-note"><svg class="icon"><use href="#i-lock" /></svg><div><strong>工作区信任</strong><p>信任后才会加载 AGENTS.md、工作区规则和工作区级 MCP 配置。</p></div><button class="small-action" data-action="manage-trust">管理</button></div>
             </div>
             <div class="settings-panel hidden" data-settings-panel="plugins"><div class="plugin-list"><div class="plugin-row"><span class="plugin-icon">A</span><div><strong>automation</strong><span>定时任务 · 官方</span></div><span class="pill ok">已启用</span><button class="small-action" data-action="toggle-plugin">停用</button><button class="icon-btn" data-action="remove-plugin"><svg class="icon"><use href="#i-trash" /></svg></button></div><div class="plugin-row"><span class="plugin-icon">V</span><div><strong>voice-input</strong><span>语音输入 · 官方</span></div><span class="pill muted">未启用</span><button class="small-action" data-action="toggle-plugin">启用</button><button class="icon-btn" data-action="remove-plugin"><svg class="icon"><use href="#i-trash" /></svg></button></div><button class="ghost-btn plugin-add" data-action="add-plugin"><svg class="icon"><use href="#i-plus" /></svg>在会话中创建插件</button></div></div>
             <div class="settings-panel hidden" data-settings-panel="memory">

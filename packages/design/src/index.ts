@@ -2,3 +2,4 @@ export * from "./tokens.js";
 export * from "./terminal.js";
 export * from "./contrast.js";
 export * from "./web.js";
+export * from "./desktop.js";

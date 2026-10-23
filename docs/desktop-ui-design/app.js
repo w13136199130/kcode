@@ -126,13 +126,24 @@ function updateWorkspaceUI() {
 function selectWorkspace(workspace) {
   const item = document.querySelector(`.workspace-item[data-workspace="${workspace}"]`);
   if (!item) return;
-  document.querySelector(`.project-group[data-project="${workspace}"]`)?.classList.remove("collapsed");
+  const group = item.closest(".project-group");
+  const wasActive = state.workspace === workspace;
+  const willExpand = group?.classList.contains("collapsed") ?? false;
+  document.getElementById("project-group")?.classList.remove("collapsed");
+  if (group) {
+    if (willExpand) {
+      document.querySelectorAll(".project-group").forEach((node) => node.classList.add("collapsed"));
+      group.classList.remove("collapsed");
+    } else {
+      group.classList.add("collapsed");
+    }
+  }
   state.workspace = workspace;
   state.workspacePath = item.dataset.path ?? "";
   document.querySelectorAll(".session-item.active").forEach((node) => node.classList.remove("active"));
   updateWorkspaceUI();
-  setScreen("empty");
-  showToast(`项目：${workspace}${state.trusted.has(workspace) ? " · 已信任" : " · 待信任"}`);
+  if (!wasActive) setScreen("empty");
+  showToast(`工作区：${workspace}${state.trusted.has(workspace) ? " · 已信任" : " · 待信任"}`);
 }
 
 function selectInbox() {
@@ -145,8 +156,28 @@ function selectInbox() {
   showToast("任务：未归类");
 }
 
+function toggleProjects() {
+  const section = document.getElementById("project-group");
+  if (!section) return;
+  const expanding = section.classList.contains("collapsed");
+  section.classList.toggle("collapsed");
+  if (expanding) {
+    document.querySelectorAll(".project-group").forEach((group) => group.classList.add("collapsed"));
+  }
+}
+
 function toggleInbox() {
-  document.getElementById("inbox-group")?.classList.toggle("collapsed");
+  const group = document.getElementById("inbox-group");
+  if (!group) return;
+  const expanding = group.classList.contains("collapsed");
+  group.classList.toggle("collapsed");
+  if (expanding) {
+    state.workspace = "inbox";
+    state.workspacePath = "";
+    document.querySelectorAll(".session-item.active").forEach((node) => node.classList.remove("active"));
+    updateWorkspaceUI();
+    setScreen("empty");
+  }
 }
 
 function openWorkspaceSwitcher(anchor) {
@@ -154,10 +185,10 @@ function openWorkspaceSwitcher(anchor) {
     name: row.querySelector(".project-name")?.textContent ?? row.dataset.workspace,
     workspace: row.dataset.workspace,
   }));
-  openMenu(anchor, "切换项目", [
+  openMenu(anchor, "切换工作区", [
     ...projects.map((project) => ({
       label: project.name,
-      desc: "项目",
+      desc: "工作区",
       icon: "i-folder",
       active: state.workspace === project.workspace,
       action: () => selectWorkspace(project.workspace),
@@ -174,7 +205,7 @@ function createWorkspace(name, path, trusted = false) {
   const group = document.createElement("div");
   group.className = "project-group";
   group.dataset.project = slug;
-  group.innerHTML = `<div class="workspace-item project-row" data-action="select-workspace" data-workspace="${slug}" data-path="${escapeHtml(path)}" role="button" tabindex="0"><button class="project-caret" data-action="toggle-project" data-project="${slug}" title="折叠项目"><svg class="icon"><use href="#i-chevron" /></svg></button><span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span><span class="project-name">${escapeHtml(name)}</span><button class="project-new" data-action="new-task-in-project" data-workspace="${slug}" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button><button class="project-more" data-action="project-menu" data-workspace="${slug}" data-project-name="${escapeHtml(name)}" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button></div><div class="project-tasks" id="task-list-${slug}"></div>`;
+  group.innerHTML = `<div class="workspace-item project-row" data-action="select-workspace" data-workspace="${slug}" data-path="${escapeHtml(path)}" role="button" tabindex="0"><span class="project-folder"><svg class="icon"><use href="#i-folder" /></svg></span><span class="project-name">${escapeHtml(name)}</span><div class="project-actions"><button class="project-more" data-action="project-menu" data-workspace="${slug}" data-project-name="${escapeHtml(name)}" title="项目操作"><svg class="icon"><use href="#i-more" /></svg></button><button class="project-panel" data-action="project-panel" data-workspace="${slug}" title="项目面板"><svg class="icon"><use href="#i-task" /></svg></button><button class="project-new" data-action="new-task-in-project" data-workspace="${slug}" title="新建任务"><svg class="icon"><use href="#i-plus" /></svg></button></div></div><div class="project-tasks" id="task-list-${slug}"></div>`;
   document.getElementById("project-list")?.append(group);
   selectWorkspace(slug);
   return slug;
@@ -192,7 +223,7 @@ function pickWorkspaceFolder() {
 function promptTrustWorkspace(slug, name) {
   openDialog(
     "信任这个工作区？",
-    `后续新会话不会重复询问。信任后会加载 ${name} 的 AGENTS.md、规则与项目级配置。`,
+    `后续新会话不会重复询问。信任后会加载 ${name} 的 AGENTS.md、规则与工作区配置。`,
     '<div class="trust-preview"><span class="trust-preview-icon"><svg class="icon"><use href="#i-shield" /></svg></span><div><strong>只信任一次</strong><p>信任状态跟随工作区保存；随时可以在设置 → 权限里撤销。</p></div></div>',
     [
       { label: "稍后", action: () => closeDialog() },
@@ -212,10 +243,10 @@ function promptTrustWorkspace(slug, name) {
 
 function addWorkspaceManual() {
   openDialog(
-    "添加工作区",
-    "如果系统目录选择器不可用，可以直接输入目录；也可以从侧栏点“添加工作区”选择本地文件夹。",
+    "添加项目",
+    "如果系统目录选择器不可用，可以直接输入目录；也可以从侧栏点“添加项目”选择本地文件夹。",
     `<label class="onboarding-field"><span>工作区名称</span><input id="workspace-name" placeholder="例如：kcode-web" /></label>
-     <label class="onboarding-field"><span>项目目录</span><input id="workspace-path" placeholder="E:\\path\\to\\project" /></label>
+     <label class="onboarding-field"><span>项目目录</span><input id="workspace-path" placeholder="E:\\path\\to\\workspace" /></label>
      <label class="trust-check"><input id="workspace-trust" type="checkbox" checked /><span>信任此工作区并加载 AGENTS.md / 规则</span></label>`,
     [
       { label: "取消", action: () => closeDialog() },
@@ -271,7 +302,7 @@ function openSettings(tab = "models") {
     general: ["常规", "语言、界面模式、终端与网络代理。"],
     appearance: ["外观", "主题、字号、密度与代码预览。"],
     models: ["模型设置", "选择默认模型，配置 provider 与本地密钥引用。"],
-    permissions: ["权限", "默认审批级别与工作区信任。"],
+    permissions: ["权限", "默认审批级别与项目信任。"],
     browser: ["浏览器控制", "内置浏览器开关、证书与数据清理。"],
     shortcuts: ["键盘快捷键", "查看与恢复全局快捷键。"],
     memory: ["记忆", "工作区长期上下文与记忆文件。"],
@@ -449,7 +480,7 @@ function addSession(text, workspace = state.workspace, draft = false) {
   button.dataset.workspace = workspace || "inbox";
   button.dataset.session = text.slice(0, 40) || "新任务";
   if (draft) button.dataset.draft = "true";
-  button.innerHTML = `<span class="session-title">${escapeHtml(text.slice(0, 32) || "新任务")}</span><span class="session-meta"><span>刚刚</span><span class="session-tag">${draft ? "草稿" : "1 轮"}</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span></span>`;
+  button.innerHTML = `<span class="session-title">${escapeHtml(text.slice(0, 32) || "新任务")}</span><span class="session-age">刚刚</span><span class="session-more" data-action="session-menu" title="更多操作"><svg class="icon"><use href="#i-more" /></svg></span>`;
   list.prepend(button);
   document.getElementById("project-title").textContent = button.dataset.session;
   updateWorkspaceUI();
@@ -473,7 +504,6 @@ function send() {
       if (active?.dataset.draft) {
         active.dataset.session = text.slice(0, 40);
         active.querySelector(".session-title").textContent = text.slice(0, 32);
-        active.querySelector(".session-tag").textContent = "1 轮";
         delete active.dataset.draft;
         document.getElementById("project-title").textContent = active.dataset.session;
       } else {
@@ -508,7 +538,7 @@ function openWorkspaceMenu(anchor) {
   }));
   items.push(
     { divider: true },
-    { label: "添加工作区", icon: "i-plus", action: () => pickWorkspaceFolder() },
+    { label: "添加项目", icon: "i-plus", action: () => pickWorkspaceFolder() },
     { label: "手动输入目录", icon: "i-folder", action: () => addWorkspaceManual() },
     { label: "管理工作区", icon: "i-settings", action: () => openSettings() },
   );
@@ -516,16 +546,18 @@ function openWorkspaceMenu(anchor) {
 }
 
 function openProjectMenu(anchor, workspace, name) {
-  openMenu(anchor, "项目操作", [
+  openMenu(anchor, "工作区操作", [
     { label: "新建任务", icon: "i-plus", action: () => newTaskInProject(workspace) },
-    { label: "在编辑器中打开", icon: "i-external", action: () => showToast("打开项目目录（原型）") },
+    { label: "在编辑器中打开", icon: "i-external", action: () => showToast("打开工作区目录（原型）") },
     { divider: true },
-    { label: "归档项目", icon: "i-folder", action: () => archiveProject(workspace, name) },
-    { label: "删除项目", icon: "i-trash", danger: true, action: () => deleteProject(workspace, name) },
+    { label: "归档工作区", icon: "i-folder", action: () => archiveProject(workspace, name) },
+    { label: "删除工作区", icon: "i-trash", danger: true, action: () => deleteProject(workspace, name) },
   ]);
 }
 
 function newTaskInProject(workspace) {
+  document.getElementById("project-group")?.classList.remove("collapsed");
+  document.querySelectorAll(".project-group").forEach((group) => group.classList.add("collapsed"));
   document.querySelector(`.project-group[data-project="${workspace}"]`)?.classList.remove("collapsed");
   state.workspace = workspace;
   state.workspacePath = document.querySelector(`.workspace-item[data-workspace="${workspace}"]`)?.dataset.path ?? "";
@@ -545,14 +577,14 @@ function archiveProject(workspace, name) {
     setScreen("empty");
   }
   updateWorkspaceUI();
-  showToast(`已归档项目：${name}`);
+  showToast(`已归档工作区：${name}`);
 }
 
 function deleteProject(workspace, name) {
-  openDialog("删除项目", `确定删除「${name}」及其任务列表？项目目录不会被删除。`, "", [
+  openDialog("删除工作区", `确定删除「${name}」及其任务列表？工作区目录不会被删除。`, "", [
     { label: "取消", action: () => closeDialog() },
     {
-      label: "删除项目",
+      label: "删除工作区",
       danger: true,
       action: () => {
         const group = document.querySelector(`.project-group[data-project="${workspace}"]`);
@@ -564,7 +596,7 @@ function deleteProject(workspace, name) {
           setScreen("empty");
         }
         updateWorkspaceUI();
-        showToast(`已删除项目：${name}`);
+        showToast(`已删除工作区：${name}`);
         closeDialog();
       },
     },
@@ -793,14 +825,14 @@ function deleteSession(name) {
 }
 
 function openTrustDialog() {
-  openDialog("项目信任", "信任后会加载 AGENTS.md、项目规则、项目级 MCP 配置。", "", [
+  openDialog("工作区信任", "信任后会加载 AGENTS.md、工作区规则、工作区级 MCP 配置。", "", [
     { label: "取消", action: () => closeDialog() },
     {
-      label: "信任本项目",
+      label: "信任本工作区",
       primary: true,
       action: () => {
         document.querySelectorAll(".trust-banner").forEach((banner) => banner.remove());
-        showToast("已信任本项目（原型）");
+        showToast("已信任本工作区（原型）");
         closeDialog();
       },
     },
@@ -1385,6 +1417,13 @@ document.addEventListener("click", (event) => {
     case "select-inbox":
       selectInbox();
       break;
+    case "toggle-projects":
+      event.stopPropagation();
+      toggleProjects();
+      break;
+    case "project-panel":
+      showToast(`项目面板：${actionTarget.dataset.workspace}`);
+      break;
     case "toggle-inbox":
       event.stopPropagation();
       toggleInbox();
@@ -1414,8 +1453,8 @@ document.addEventListener("click", (event) => {
       ]);
       break;
     case "task-filter":
-      openMenu(actionTarget, "筛选项目", [
-        { label: "全部项目", icon: "i-folder", active: true, action: () => showToast("显示全部项目") },
+      openMenu(actionTarget, "筛选工作区", [
+        { label: "全部工作区", icon: "i-folder", active: true, action: () => showToast("显示全部工作区") },
         { label: "已信任", icon: "i-shield", action: () => showToast("筛选：已信任") },
         { label: "待信任", icon: "i-lock", action: () => showToast("筛选：待信任") },
       ]);
@@ -1423,7 +1462,7 @@ document.addEventListener("click", (event) => {
     case "task-sort":
       openMenu(actionTarget, "任务排序", [
         { label: "最近更新", icon: "i-clock", active: true, action: () => showToast("按最近更新排序") },
-        { label: "按项目分组", icon: "i-folder", action: () => showToast("按项目分组") },
+        { label: "按工作区分组", icon: "i-folder", action: () => showToast("按工作区分组") },
         { label: "较早优先", icon: "i-arrow-up", action: () => showToast("按时间正序") },
       ]);
       break;

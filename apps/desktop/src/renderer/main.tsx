@@ -1,10 +1,12 @@
 import { createRoot } from "react-dom/client";
-import { webCssTheme } from "@kcode/design";
+import { desktopCssTheme, webCssTheme } from "@kcode/design";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import type { PermissionMode, SessionEvent } from "@kcode/contracts";
 import { useDesktopConnection } from "./hooks/useDesktopConnection.js";
+import { useDesktopSessionSwitching } from "./hooks/useDesktopSessionSwitching.js";
 import { WorkspaceLayout } from "./components/WorkspaceLayout.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
+import { DesktopSidebar } from "./components/DesktopSidebar.js";
 import { WorkspaceHeader } from "./components/WorkspaceHeader.js";
 import { Timeline } from "./components/Timeline.js";
 import { Composer } from "./components/Composer.js";
@@ -19,6 +21,7 @@ import { SettingsOverlay } from "./components/SettingsOverlay.js";
 import { Onboarding } from "./components/Onboarding.js";
 
 import "./styles.css";
+import "./desktop-v2.css";
 
 /**
  * kcode 桌面 renderer（M2b，§8.4h）：在 M2a 三栏之上补交互闭环——
@@ -28,6 +31,14 @@ import "./styles.css";
 const styleEl = document.createElement("style");
 styleEl.textContent = webCssTheme();
 document.head.appendChild(styleEl);
+const desktopStyleEl = document.createElement("style");
+desktopStyleEl.textContent = desktopCssTheme();
+document.head.appendChild(desktopStyleEl);
+
+/** D3-UI 开关：默认启用；`?ui=classic` 或 localStorage 对应值可回退旧侧栏。 */
+const UI_V2 =
+  new URLSearchParams(window.location.search).get("ui") !== "classic" &&
+  localStorage.getItem("kcode-desktop-ui-v2") !== "classic";
 
 interface AskState {
   requestId: string;
@@ -267,36 +278,17 @@ function DesktopApp() {
     void conn.send("session/interrupt").catch(() => undefined);
   };
 
-  /** 同窗口新建会话（反馈修订：不开新窗——zcode 同款侧栏切换体验） */
-  const onNewSession = useCallback((): void => {
-    if (modelDefault === null || defaultCwd === "") return;
-    setQueuedCount(0);
-    void conn
-      .send("session/dispose")
-      .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd }))
-      .then((r) => {
-        setSessionId((r as { sessionId: string }).sessionId);
-        setSessionVersion((v) => v + 1);
-      })
-      .catch(() => undefined);
-  }, [conn, modelDefault, defaultCwd]);
-
-  /** 会话续接：同窗口 dispose→resume 重建 */
-  const onResume = useCallback(
-    (id: string): void => {
-      if (modelDefault === null || defaultCwd === "" || id === sessionId) return;
-      setQueuedCount(0);
-      void conn
-        .send("session/dispose")
-        .then(() => conn.send("session/create", { model: modelDefault, cwd: defaultCwd, resumeFrom: id }))
-        .then(() => {
-          setSessionId(id);
-          setSessionVersion((v) => v + 1);
-        })
-        .catch(() => undefined);
-    },
-    [conn, modelDefault, defaultCwd, sessionId],
-  );
+  /** 同窗口新建/续接会话；工作区路径由侧栏传入 */
+  const { onNewSession, onResume } = useDesktopSessionSwitching({
+    conn,
+    modelDefault,
+    defaultCwd,
+    sessionId,
+    setDefaultCwd,
+    setSessionId,
+    setSessionVersion,
+    setQueuedCount,
+  });
 
   /** 切换工作区（D0-07）：同窗口 dispose→create，cwd 改变后旧会话不带走 */
   const onPickWorkspace = useCallback((): void => {
@@ -341,12 +333,10 @@ function DesktopApp() {
         });
     });
   }, [conn, defaultCwd, modelDefault, sessionId, timeline.busy]);
-
   const ready = conn.status === "ready" && sessionId !== null;
   const projectName = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
   onNewSessionRef.current = onNewSession;
   const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
-
   if (conn.status === "error") {
     return <div className="center-note">⚠ 宿主连接失败：{conn.error}</div>;
   }
@@ -387,14 +377,25 @@ function DesktopApp() {
       sidePaneOpen={panes.sidePaneOpen}
       onCloseSidePane={panes.close}
       sidebar={
-        <SessionSidebar
-          conn={conn}
-          currentId={sessionId}
-          workspace={defaultCwd}
-          onOpen={onResume}
-          onNewSession={onNewSession}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+        UI_V2 ? (
+          <DesktopSidebar
+            conn={conn}
+            currentId={sessionId}
+            currentWorkspace={defaultCwd}
+            onOpen={onResume}
+            onNewSession={onNewSession}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        ) : (
+          <SessionSidebar
+            conn={conn}
+            currentId={sessionId}
+            workspace={defaultCwd}
+            onOpen={onResume}
+            onNewSession={onNewSession}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        )
       }
       main={
         <div className={`main-column ${isEmpty ? "draft" : ""}`}>

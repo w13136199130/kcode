@@ -52,9 +52,9 @@ export function SessionSidebar(props: {
 
   useEffect(() => {
     if (props.conn.status !== "ready") return;
+    const send = props.conn.send;
     let cancelled = false;
-    void props.conn
-      .send("sessions/list")
+    void send("sessions/list")
       .then((r) => {
         if (cancelled) return;
         const list = r as { sessions?: SessionSummary[] };
@@ -63,8 +63,7 @@ export function SessionSidebar(props: {
       .catch(() => undefined);
     const timer = window.setInterval(() => {
       // 轻刷新：侧栏活跃度（会话完成后列表时间/排序更新）
-      void props.conn
-        .send("sessions/list")
+      void send("sessions/list")
         .then((r) => {
           if (cancelled) return;
           setSessions((r as { sessions?: SessionSummary[] }).sessions ?? []);
@@ -75,7 +74,7 @@ export function SessionSidebar(props: {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [props.conn.status, props.conn, refreshKey]);
+  }, [props.conn.send, props.conn.status, refreshKey]);
 
   const workspaceKey = (props.workspace ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
   const visible =
