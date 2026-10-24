@@ -1,6 +1,6 @@
 # Desktop 原型范围矩阵
 
-> 状态：**P0 范围已冻结；Slice 1 已落地（v2 侧栏）**
+> 状态：**P0 范围已冻结；Slice 1 / 工作区注册与信任 / Slice 2 Composer / Slice 3 设置页 / 主区域壳层 / 时间线 v2 / diff 详情栏 / 任务归档 / host 会话索引与回收站已落地（2026-10-24）**
 > 目的：在 Slice 1 前冻结“哪些按钮真的做、哪些等 host、哪些先删”。
 > 基线：`docs/desktop-ui-design/index.html` v23
 > 落地计划：`docs/desktop-ui-implementation-plan.md`

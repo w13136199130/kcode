@@ -138,6 +138,8 @@ export const HostEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ask/cancelled"), requestId: z.string().min(1) }),
   z.object({ type: z.literal("plan/cancelled"), requestId: z.string().min(1) }),
   z.object({ type: z.literal("notice"), message: z.string() }),
+  /** 会话索引变更（新建/删除/恢复/归档/重命名）：多窗口侧栏据此刷新。 */
+  z.object({ type: z.literal("sessions/changed"), reason: z.string() }),
   z.object({ type: z.literal("host/closing"), reason: z.string() }),
 ]);
 export type HostEvent = z.infer<typeof HostEvent>;

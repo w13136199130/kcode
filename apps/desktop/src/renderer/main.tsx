@@ -17,12 +17,12 @@ import { CommandPalette } from "./components/CommandPalette.js";
 import { useWorkspacePanes } from "./hooks/useWorkspacePanes.js";
 import { useCommandCatalog } from "./hooks/useCommandCatalog.js";
 import { useDesktopCommands } from "./hooks/useDesktopCommands.js";
-import { SettingsOverlay } from "./components/SettingsOverlay.js";
+import { SettingsPage } from "./components/SettingsPage.js";
+import { EmptyState } from "./components/EmptyState.js";
+import { rememberSessionWorkspace } from "./lib/session-workspaces.js";
 import { Onboarding } from "./components/Onboarding.js";
-
 import "./styles.css";
 import "./desktop-v2.css";
-
 /**
  * kcode 桌面 renderer（M2b，§8.4h）：在 M2a 三栏之上补交互闭环——
  * 审批四档面板（N3I-5 参数级规则内联）、ask_user 结构化提问弹层、
@@ -34,12 +34,10 @@ document.head.appendChild(styleEl);
 const desktopStyleEl = document.createElement("style");
 desktopStyleEl.textContent = desktopCssTheme();
 document.head.appendChild(desktopStyleEl);
-
 /** D3-UI 开关：默认启用；`?ui=classic` 或 localStorage 对应值可回退旧侧栏。 */
 const UI_V2 =
   new URLSearchParams(window.location.search).get("ui") !== "classic" &&
   localStorage.getItem("kcode-desktop-ui-v2") !== "classic";
-
 interface AskState {
   requestId: string;
   tool: string;
@@ -54,7 +52,6 @@ interface PlanState {
   requestId: string;
   plan: string;
 }
-
 function DesktopApp() {
   const conn = useDesktopConnection();
   const panes = useWorkspacePanes(conn);
@@ -74,6 +71,7 @@ function DesktopApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [appVersion, setAppVersion] = useState("dev");
 
   useEffect(() => {
@@ -163,7 +161,7 @@ function DesktopApp() {
     const create = (): void => {
       void conn
         .send("session/create", { model: modelDefault, cwd: defaultCwd })
-        .then((r) => setSessionId((r as { sessionId: string }).sessionId))
+        .then((r) => { const id = (r as { sessionId: string }).sessionId; rememberSessionWorkspace(id, defaultCwd); setSessionId(id); })
         .catch(() => {
           createdRef.current = false;
           if (attempts >= 3) return;
@@ -224,7 +222,7 @@ function DesktopApp() {
         continue;
       }
       if (ev.type === "session/created") {
-        setSessionId(ev.sessionId);
+        // 会话 id 以 session/create 的响应为准；事件可能来自被取消的旧切换，不能覆盖当前会话。
         continue;
       }
       if (ev.type === "ask/request") {
@@ -288,8 +286,8 @@ function DesktopApp() {
     setSessionId,
     setSessionVersion,
     setQueuedCount,
+    resetTimeline: () => setTimeline(initialTimeline()),
   });
-
   /** 切换工作区（D0-07）：同窗口 dispose→create，cwd 改变后旧会话不带走 */
   const onPickWorkspace = useCallback((): void => {
     if (timeline.busy) {
@@ -382,6 +380,9 @@ function DesktopApp() {
             conn={conn}
             currentId={sessionId}
             currentWorkspace={defaultCwd}
+            currentPreview={timeline.rows.find((row) => row.kind === "user")?.text ?? ""}
+            activityKey={timeline.rows.length}
+            sessionsSignal={conn.events.filter((event) => event.type === "sessions/changed").length}
             onOpen={onResume}
             onNewSession={onNewSession}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -409,12 +410,9 @@ function DesktopApp() {
             onShowTasks={panes.openTasks}
           />
           <div className="timeline-stack">
-              <Timeline state={timeline} onOpenDiff={panes.openDiff} />
+              <Timeline state={timeline} model={modelDefault} onOpenDiff={panes.openDiff} />
               {isEmpty ? (
-                <div className="draft-welcome">
-                  <div className="draft-welcome-title">kcode</div>
-                  <div className="draft-welcome-sub">描述任务，Enter 发送</div>
-                </div>
+                <EmptyState cwd={defaultCwd} onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
               ) : null}
             {ask !== null ? (
               <AskPanel
@@ -449,9 +447,11 @@ function DesktopApp() {
           <Composer
             busy={timeline.busy}
             disabled={!ready}
+            inputDisabled={conn.status !== "ready"}
             queuedCount={queuedCount}
             mode={mode}
             model={modelDefault}
+            prefill={prefill}
             commands={commands}
             onListFiles={async (query) => {
               const r = (await conn.send("session/files", { query }).catch(() => null)) as { files?: string[] } | null;
@@ -481,7 +481,8 @@ function DesktopApp() {
         />
       ) : null}
       {settingsOpen ? (
-        <SettingsOverlay
+        <SettingsPage
+          conn={conn}
           onClose={() => setSettingsOpen(false)}
           appVersion={appVersion}
           model={modelDefault}
@@ -491,10 +492,9 @@ function DesktopApp() {
     </>
   );
 }
-
 const root = createRoot(document.getElementById("root")!);
 root.render(
   <StrictMode>
     <DesktopApp />
   </StrictMode>,
-);
+);

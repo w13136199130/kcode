@@ -82,6 +82,40 @@ function EditDetail({ args }: { args: unknown }): React.ReactNode {
   );
 }
 
+function DiffCard({
+  row,
+  preview,
+  onOpenDiff,
+}: {
+  row: Extract<Row, { kind: "tool" }>;
+  preview: { path?: string; diff: string };
+  onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+}) {
+  const path = preview.path ?? (str(row.args, "path") || "(未知文件)");
+  const added = preview.diff.split("\n").filter((line) => line.startsWith("+")).length;
+  const removed = preview.diff.split("\n").filter((line) => line.startsWith("-")).length;
+  const name = path.split(/[\\/]/).at(-1) ?? path;
+  const ext = name.includes(".") ? name.split(".").at(-1)?.toUpperCase() ?? "FILE" : "FILE";
+  return (
+    <div className="diff-card">
+      <span className="diff-card-icon">{ext.slice(0, 3)}</span>
+      <div className="diff-card-copy">
+        <strong>{name}</strong>
+        <span>{path}</span>
+      </div>
+      <span className="diff-card-stat">
+        <span className="stat-add">+{added}</span>
+        <span className="stat-del">-{removed}</span>
+      </span>
+      {onOpenDiff !== undefined ? (
+        <button type="button" className="diff-card-open" onClick={() => onOpenDiff(row)}>
+          查看 <Maximize2 size={11} strokeWidth={1.8} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function ToolCallRowView({
   row,
   onOpenDiff,
@@ -91,8 +125,11 @@ export function ToolCallRowView({
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  if (row.preview !== undefined && (row.tool === "edit" || row.tool === "write")) {
+    return <DiffCard row={row} preview={row.preview} onOpenDiff={onOpenDiff} />;
+  }
   const renderer = REGISTRY[row.tool] ?? FALLBACK;
-  const status = row.status === "done" ? "✓" : row.status === "failed" ? "✗" : "⋯";
+  const status = row.status === "done" ? "✓ 通过" : row.status === "failed" ? "✕ 失败" : "⋯ 运行中";
   const statusClass = row.status === "done" ? "tool-ok" : row.status === "failed" ? "tool-fail" : "tool-run";
   const duration = row.durationMs !== undefined ? ` ${(row.durationMs / 1000).toFixed(1)}s` : "";
   const hasBody = row.output !== undefined || row.error !== undefined || renderer.detail !== undefined;

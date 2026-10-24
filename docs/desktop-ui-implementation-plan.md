@@ -1,12 +1,12 @@
 # Desktop UI v2 落地计划
 
-> 状态：**Slice 1 已落地（v2 侧栏，feature flag 可回退）**
+> 状态：**Slice 1、工作区注册/信任 RPC、Slice 2 Composer、Slice 3 设置页、主区域壳层、时间线 v2、diff 详情栏、任务归档、host 会话索引/软删除已落地**
 > 基线原型：`docs/desktop-ui-design/index.html`（v23）
 > 设计说明：`docs/desktop-ui-design.md`
 > 范围矩阵：`docs/desktop-ui-scope-matrix.md`（P0 按钮/交互冻结）
 > 目标：把已定形的纯白桌面原型拆成可实施的最小 UI 版本，不把原型里的 mock 当成产品能力。
 >
-> 决策前提：**D3-UI 例外已登记**（2026-10-23，见 [desktop-ui-exception.md](./desktop-ui-exception.md)）。它只允许 UI-only：不改 CLI、host 协议语义和会话语义。
+> 决策前提：**D3-UI 例外已登记**（2026-10-23，见 [desktop-ui-exception.md](./desktop-ui-exception.md)）；**工作区 RPC 例外已登记**（2026-10-24，见 [desktop-workspace-rpc-approval.md](./desktop-workspace-rpc-approval.md)）。
 
 ---
 
@@ -328,13 +328,24 @@ pnpm --filter @kcode/desktop dev
 
 `dev.mjs` 会清理 `ELECTRON_RUN_AS_NODE`，使用独立的 dev userData，并在 Windows dev 下关闭 sandbox/GPU，避免 Chromium singleton 与受限会话启动失败。
 
-P0 限制：
+P0 限制（工作区注册/信任 RPC 后）：
 
-- “文件夹加号”新增工作区暂存 `localStorage["kcode-desktop-workspaces"]`，等 host 注册表 RPC 替换；
-- 未做工作区信任提示；
-- 未做任务归档；
+- 历史空会话不进入树；当前空会话显示“新任务”，即使 `sessions/list` 还没落盘也会显示当前草稿；
+- 发送首条消息后侧栏立即刷新 `sessions/list`；文件摘要未更新时先用时间线首条用户消息更新标题；
+- 新建会话立即写入 renderer 本地会话索引（sessionId / cwd / createdAt / preview）；host 列表未及时返回时先乐观显示，host 返回后按 id 合并；
+- 切换会话先清空时间线并临时关闭“可发送”，等 `session/create` 返回新 id 后再恢复，避免消息写入已 dispose 的旧会话；
+- 工作区展开状态按 key 独立保存（Set），打开一个工作区不会折叠其他工作区；顶层“工作区”只统一收起/展开分组行；
+- 只有当前空草稿会临时归入当前工作区；点击无 `workspaceKey` 的历史会话不会“搬进”分组，仍留在“任务”；
+- 旧版 `session_start` 没有 `workspaceKey` 时，renderer 用创建/续接时记录的 sessionId → cwd 兜底分组；v2 映射会丢弃旧版误记的点击归属；
+- 会话 id 以 `session/create` 响应为准，事件流里的旧 `session/created` 不再覆盖当前会话；
+- “任务”组默认折叠；搜索非空时强制显示匹配结果；
+- 工作区顺序固定为注册表创建顺序，切换/新建任务不会改变分组顺序；未注册工作区按名称稳定排序；
+- `workspaceKey="/"` 的旧会话不生成根工作区，非空内容归入“任务”；
+- 工作区注册表在 host：`~/.kcode/desktop/projects.json`；
+- 任务归档：`~/.kcode/desktop/task-state.json`；
+- 信任复用 `~/.kcode/trusted-projects.json`，UI 只调用 host RPC；
 - 未做附件/上下文/思考；
-- 工作区菜单只提供“复制路径 / 新建任务”，不显示无后端依据的归档/删除。
+- 工作区菜单提供“信任 / 新建任务 / 复制路径 / 从列表移除”，不做无后端依据的归档。
 
 验收：
 
@@ -344,13 +355,15 @@ P0 限制：
 - 点击任务调用现有 `onResume`；
 - 原有 E2E 仍绿。
 
-### Slice 2：Composer 视觉重排（1–2 天）
+### Slice 2：Composer 视觉重排（已落地）
 
-- `+` 附件按钮先保留占位（不真正上传）；
+- 纯白 12px 圆角输入框，与侧栏同一组 `--kc-*` 色；
+- 宽度上限 820px，与时间线对齐；
 - 权限选择左侧；
-- 模型只读标签移到右侧；
-- 用现有 `onModeChange` / `onSend`；
-- 不接模型选择、思考、上下文容量。
+- 模型只读标签右侧；
+- 发送/停止为圆形按钮；
+- 不加附件、思考、上下文控件；
+- 复用现有 `onModeChange` / `onSend` / 队列 / `/` / `@`。
 
 验收：
 
@@ -358,43 +371,114 @@ P0 限制：
 - `/` 与 `@` 菜单仍可用；
 - 不新增伪造控件。
 
-### Slice 3：设置最小版（2–3 天）
+![Composer v2](desktop-ui-design/screens/desktop-v2-composer-1440-light.png)
 
-- 外观（亮/暗/系统）
-- 默认模型显示
-- Provider 列表读取：`config/get`
-- Provider 编辑：`config/save`
-- 不显示套餐/额度
+### Slice 3：设置最小版（已落地）
+
+- 原型式全页设置：左侧导航 + 右侧内容；
+- 模型：默认模型、provider 列表、Base URL / keyRef、测试连接（host `provider/probe`）；
+- 外观：跟随系统 / 亮色 / 暗色；
+- 权限：当前工作区信任 + 已登记工作区信任（host `workspace/trust`）；
+- 关于：版本、默认模型、工作目录、配置位置；
+- 不显示套餐额度、MCP/Hooks/技能等无后端页面。
+
+![Settings v2](desktop-ui-design/screens/desktop-settings-v2-1440-light.png)
 
 验收：
 
-- 密钥不进入 renderer；
-- 保存后重启仍生效；
-- 旧设置入口可关闭。
+- 设置可打开/关闭（Esc）；
+- 模型信息来自 `config/get`；
+- 测试连接调用 `provider/probe`；
+- 工作区信任调用 `workspace/trust`；
+- 不新增假数据。
 
-### Slice 4：项目注册 + 信任（2–3 天，需 host RPC）
+### 主区域壳层（已落地）
 
-- `workspace/list/add/remove/trust`
-- 添加项目：`pickDirectory`
-- 信任提示：只对新项目显示
-- 项目删除/归档
-- 新项目创建后自动展开
+- `WorkspaceHeader` 改为项目图标 + 标题 + cwd + 右侧紧凑操作；
+- 空会话改为原型式“开始一个任务”+ 三个可点击提示卡；
+- 提示卡点击后填入 Composer，可直接编辑再发送；
+- 当前工作区显示在空态底部；
+- 不增加附件/上下文等未实现控件。
+
+![主区域壳层](desktop-ui-design/screens/desktop-v2-shell-1440-light.png)
+
+### 时间线 v2（已落地）
+
+- 用户消息右对齐浅灰气泡；
+- 助手行黑底 `k` 头像 + `kcode` + 模型；
+- 工具卡改为白底圆角，状态显示“通过/失败/运行中”；
+- 信息提示（信任警告等）改为浅色 inline 条；
+- Markdown 正文、行内代码、链接、代码块按浅色背景重新取色；
+- 虚拟滚动、流式 live-tail、审批/计划面板逻辑不变。
+
+![时间线 v2](desktop-ui-design/screens/desktop-v2-conversation-1440-light.png)
+
+### 流式布局稳定性
+
+- live-tail 外层新增与虚拟列表同宽（820px）的 `timeline-live-wrap`；
+- 流式内容与落定 assistant 行使用同一 padding/meta/宽度；
+- 不再每个 token 调 `scrollToIndex`；只在新行落定时定位，流式内容只贴底；
+- 避免“输出内容闪到旁边再跳回来”的横向/纵向跳动。
+
+### 详情栏 / diff（已落地）
+
+- `edit` / `write` 有 `preview` 时改为独立 diff 卡：文件图标、文件名、路径、`+/-`、查看；
+- 右侧详情栏改为 360px 纯白栏；
+- 变更列表、逐文件回退、全部回退；
+- diff 行浅色增删背景；
+- 不是 `main.tsx` 的 fake diff，仍使用 host 的 `row.preview` / `session/changes`。
+
+![详情栏](desktop-ui-design/screens/desktop-v2-changes-1440-light.png)
+
+### Slice 4：工作区注册 + 信任（已落地）
+
+- `workspace/list/add/remove/trust/status`
+- 存储 `~/.kcode/desktop/projects.json`
+- 添加工作区：`pickDirectory` → `workspace/add`
+- 新工作区可选立即信任；旧工作区菜单可补信任
+- 信任复用 `@kcode/session` 的 `trustProject` / `isProjectTrusted`
+- 新工作区创建后自动选中并展开
 - 信任后下一次 `session/create` 生效
+- 移除只删注册项，不删目录/会话
 
 验收：
 
-- 选文件夹 → 项目出现；
+- 选文件夹 → 工作区出现；
 - 取消 → 不写入；
-- 已信任项目不再询问；
-- 删除项目不删除目录；
-- 当前会话的项目不可静默删除。
+- 已信任工作区不再显示“信任工作区”；
+- 移除工作区不删除目录；
+- 当前工作区不可静默移除；
+- host store 3 tests passed。
 
-### Slice 5：任务删除 & 空态（1 天）
+### 会话索引（Phase 1/2，已落地）
 
-- 删除非当前任务；
-- 当前任务删除前先切换；
-- 空项目/空任务态；
-- 新建任务归属规则。
+- host 新增 `~/.kcode/desktop/session-index.json`；
+- `session/create` 在返回前写入 `{sessionId, workspaceKey, createdAt}`；
+- `sessions/list` 合并索引：空会话、刚创建未写 JSONL 的会话也能出现；
+- 每次列表用 JSONL 摘要回填索引（preview/title/updatedAt）；
+- `sessions/rename` 同步标题到索引；
+- 实际 JSONL 有摘要/标题/更新时间时以文件为准，索引只补归属；
+- `sessions/delete` 改为软删除：写 `session-trash.json`，不删 JSONL；
+- `sessions/restore` 恢复；侧栏“回收站”可展开恢复；
+- 回收站“清空”调用 `sessions/empty_trash`，只物理删除回收站内会话；
+- 不自动按时间清理回收站，避免误删；
+- host 在 create/delete/restore/archive/rename/purge 后广播 `sessions/changed`，多窗口侧栏立即刷新；
+- 索引最多 500 条，原子临时文件 rename，进程内串行写；
+- renderer localStorage 仍是乐观 UI 缓存，host 索引是权威补充。
+
+### Slice 5：任务删除 & 空态（部分落地）
+
+- 删除非当前任务（已有）；
+- 当前任务删除保护（已有）；
+- 空工作区/空任务态（已有）；
+- 新建任务归属规则（已有）；
+- **任务归档**（新增）：
+  - host `sessions/archive`；
+  - 状态 `~/.kcode/desktop/task-state.json`；
+  - 工作区树隐藏归档任务；
+  - 侧栏底部“已归档”分组，默认折叠；
+  - 菜单支持“归档任务 / 取消归档”；
+  - 删除任务时同步清理归档状态。
 
 ---
 

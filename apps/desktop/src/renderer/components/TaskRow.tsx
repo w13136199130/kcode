@@ -19,7 +19,12 @@ export function TaskRow(props: {
   onCancel(): void;
   onRename(): void;
   onDelete(): void;
+  onArchive(): void;
+  onRestore?: () => void;
   canDelete: boolean;
+  canArchive: boolean;
+  archived: boolean;
+  deleted?: boolean;
 }) {
   return (
     <div
@@ -57,16 +62,29 @@ export function TaskRow(props: {
       </button>
       {props.menu ? (
         <div className="d2-menu d2-task-menu" onClick={(event) => event.stopPropagation()}>
-          <button type="button" onClick={props.onRename}>
-            <Pencil size={12} strokeWidth={1.8} />
-            重命名
-          </button>
-          {props.canDelete ? (
-            <button type="button" className="danger" onClick={props.onDelete}>
-              <Trash2 size={12} strokeWidth={1.8} />
-              删除任务
+          {props.deleted === true ? (
+            <button type="button" onClick={props.onRestore}>
+              恢复任务
             </button>
-          ) : null}
+          ) : (
+            <>
+              <button type="button" onClick={props.onRename}>
+                <Pencil size={12} strokeWidth={1.8} />
+                重命名
+              </button>
+              {props.canArchive ? (
+                <button type="button" onClick={props.onArchive}>
+                  {props.archived ? "取消归档" : "归档任务"}
+                </button>
+              ) : null}
+              {props.canDelete ? (
+                <button type="button" className="danger" onClick={props.onDelete}>
+                  <Trash2 size={12} strokeWidth={1.8} />
+                  删除任务
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </div>

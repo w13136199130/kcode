@@ -68,7 +68,7 @@ export function WorkspaceLayout(props: {
       />
       <div className="workspace-main">{props.main}</div>
       {props.sidePane !== undefined && props.sidePaneOpen === true ? (
-        <aside className="side-pane">
+        <aside className="side-pane side-pane-v2">
           <div className="side-pane-head">
             <span>详情</span>
             <button type="button" className="side-pane-close" onClick={props.onCloseSidePane} title="关闭">

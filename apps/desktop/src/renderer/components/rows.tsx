@@ -9,22 +9,29 @@ import { ToolCallRowView } from "./ToolCallRow.js";
 
 export function RowView({
   row,
+  model,
   onOpenDiff,
 }: {
   row: Row;
+  model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
-}) {
-  switch (row.kind) {
+}) {  switch (row.kind) {
     case "user":
       return (
         <div className="row-user">
           <div className="row-user-label">你</div>
           <div className="row-user-text">{row.text}</div>
+          {row.at !== undefined ? <div className="row-user-time">{formatTime(row.at)} · 你</div> : null}
         </div>
       );
     case "assistant":
       return (
         <div className="row-assistant">
+          <div className="assistant-meta">
+            <span className="assistant-brand">kcode</span>
+            {model !== null && model !== undefined && model !== "" ? <span>{model}</span> : null}
+            {row.at !== undefined ? <span>{formatTime(row.at)}</span> : null}
+          </div>
           <RichMarkdown text={row.text} />
         </div>
       );
@@ -52,4 +59,12 @@ export function RowView({
     case "separator":
       return <div className="row-separator">{row.label}</div>;
   }
+}
+
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }

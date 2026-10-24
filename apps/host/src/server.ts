@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { newId } from "@kcode/shared";
+import { newId, workspaceKey } from "@kcode/shared";
 import {
   ConfigSaveParams,
   PROTOCOL_MAJOR,
@@ -12,11 +12,21 @@ import {
   type SessionSubmitParams,
 } from "@kcode/contracts";
 import { createProviderRouter, openKeychain } from "@kcode/platform";
-import { deleteSession, listSessions, renameSession } from "@kcode/runtime";
+import { deleteSession, listSessions, renameSession } from "@kcode/runtime";import { isProjectTrusted, trustProject } from "@kcode/session";
 import { HostSession } from "./session.js";
 import { createCliPlatformService } from "./platform.js";
 import { loadUserModelsConfig } from "./boot.js";
 import { saveUserProvider } from "./config.js";
+import { addWorkspace, listWorkspaces, removeWorkspace } from "./workspace-store.js";
+import { listArchived, setArchived } from "./task-state.js";
+import { listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
+import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
+
+function workspacePathParam(params: unknown): string {
+  const path = (params as { path?: unknown } | undefined)?.path;
+  if (typeof path !== "string" || path.trim() === "") throw new Error("工作区路径不能为空");
+  return path.trim();
+}
 
 /**
  * 宿主服务（N3-1 注 A/D）：持有最多一个会话（每会话一进程），排空权威在本进程。
@@ -31,6 +41,16 @@ export class HostServer {
 
   constructor(private readonly send: (frame: HostFrame) => void) {
     this.kcodeHomeDir = process.env["KCODE_HOME"] ?? join(homedir(), ".kcode");
+  }
+
+  /** 启动时把 JSONL 摘要回填索引；不阻塞 hello，失败只影响索引新鲜度。 */
+  async reconcile(): Promise<void> {
+    const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions")).catch(() => []);
+    await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
+  }
+
+  #sessionsChanged(reason: string): void {
+    this.send({ kind: "ev", event: { type: "sessions/changed", reason } });
   }
 
   /** 宿主侧平台服务（完整 IPlatformService——key 不出宿主，N3-2 注 E） */
@@ -71,15 +91,52 @@ export class HostServer {
 
   async #dispatch(method: string, params: unknown): Promise<unknown> {
     switch (method) {
+      case "workspace/list": {
+        const workspaces = await listWorkspaces(this.kcodeHomeDir);
+        return {
+          workspaces: workspaces.map((workspace) => ({
+            ...workspace,
+            trusted: isProjectTrusted(workspace.path, this.kcodeHomeDir),
+          })),
+        };
+      }
+      case "workspace/add": {
+        const workspace = await addWorkspace(this.kcodeHomeDir, workspacePathParam(params));
+        return {
+          workspace: {
+            ...workspace,
+            trusted: isProjectTrusted(workspace.path, this.kcodeHomeDir),
+          },
+        };
+      }
+      case "workspace/remove": {
+        return { removed: await removeWorkspace(this.kcodeHomeDir, workspacePathParam(params)) };
+      }
+      case "workspace/trust": {
+        const path = workspacePathParam(params);
+        await trustProject(path, this.kcodeHomeDir);
+        return { path, trusted: true };
+      }
+      case "workspace/status": {
+        const path = workspacePathParam(params);
+        return { path, trusted: isProjectTrusted(path, this.kcodeHomeDir) };
+      }
       case "session/create": {
+        const p = params as SessionCreateParams;
         // 幂等（M1 实测修订）：reload/StrictMode 重挂后 renderer 会重复 create——
         // 每会话一进程（注 D）语义下宿主会话不重建，直接返回既有会话（对话上下文在宿主侧未丢）
         if (this.#session !== null) {
           return this.#session.describe();
         }
-        const p = params as SessionCreateParams;
         this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
-        return this.#session.create(p);
+        const created = await this.#session.create(p);
+        // 先落索引再返回：即使首条消息前崩溃/重启，空会话也不会从侧栏消失。
+        await upsertSessionIndex(this.kcodeHomeDir, {
+          sessionId: created.sessionId,
+          workspaceKey: workspaceKey(p.cwd),
+        }).catch(() => undefined);
+        this.#sessionsChanged("create");
+        return created;
       }
       case "session/dispose": {
         // 同窗口切会话：释放旧会话（host 进程保持活——新建/续接接续而来）
@@ -232,20 +289,49 @@ export class HostServer {
       }
       case "sessions/list": {
         const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions"));
-        return {
-          sessions: summaries.slice(0, 100).map((s) => ({
+        await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
+        const indexed = await listSessionIndex(this.kcodeHomeDir);
+        const deleted = await listDeletedSessions(this.kcodeHomeDir);
+        const byId = new Map(summaries.map((s) => [s.sessionId, s]));
+        const merged = summaries.map((s) => {
+          const meta = indexed.find((item) => item.sessionId === s.sessionId);
+          return {
             sessionId: s.sessionId,
             preview: s.preview,
             turns: s.turns,
             modifiedAt: s.modifiedAt,
-            workspaceKey: s.workspaceKey,
+            workspaceKey: s.workspaceKey !== "" ? s.workspaceKey : (meta?.workspaceKey ?? ""),
             ...(s.title !== undefined ? { title: s.title } : {}),
-          })),
+          };
+        });
+        for (const meta of indexed) {
+          if (byId.has(meta.sessionId)) continue;
+          merged.push({
+            sessionId: meta.sessionId,
+            preview: meta.preview ?? "",
+            turns: meta.preview !== undefined && meta.preview !== "" ? 1 : 0,
+            modifiedAt: meta.updatedAt,
+            workspaceKey: meta.workspaceKey,
+            ...(meta.title !== undefined ? { title: meta.title } : {}),
+          });
+        }
+        const archived = await listArchived(this.kcodeHomeDir);
+        return {
+          sessions: merged
+            .sort((a, b) => b.modifiedAt - a.modifiedAt)
+            .slice(0, 100)
+            .map((s) => ({
+              ...s,
+              ...(archived.has(s.sessionId) ? { archived: true } : {}),
+              ...(deleted.has(s.sessionId) ? { deleted: true } : {}),
+            })),
         };
       }
       case "sessions/rename": {
         const p = params as { sessionId: string; title: string };
         await renameSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId, p.title);
+        await patchSessionIndex(this.kcodeHomeDir, p.sessionId, { title: p.title }).catch(() => undefined);
+        this.#sessionsChanged("rename");
         return;
       }
       case "sessions/delete": {
@@ -253,8 +339,54 @@ export class HostServer {
         if (this.#session?.describe().sessionId === p.sessionId) {
           throw new Error("不能删除正在使用的会话（先新建或切换到其他会话）");
         }
-        await deleteSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId);
+        await setSessionDeleted(this.kcodeHomeDir, p.sessionId, true);
+        await setArchived(this.kcodeHomeDir, p.sessionId, false);
+        this.#sessionsChanged("delete");
         return;
+      }
+      case "sessions/restore": {
+        const p = params as { sessionId?: unknown };
+        if (typeof p.sessionId !== "string" || p.sessionId.trim() === "") {
+          throw new Error("sessionId 不能为空");
+        }
+        await setSessionDeleted(this.kcodeHomeDir, p.sessionId, false);
+        this.#sessionsChanged("restore");
+        return { sessionId: p.sessionId, deleted: false };
+      }
+      case "sessions/purge": {
+        const p = params as { sessionId?: unknown };
+        if (typeof p.sessionId !== "string" || p.sessionId.trim() === "") {
+          throw new Error("sessionId 不能为空");
+        }
+        const deleted = await listDeletedSessions(this.kcodeHomeDir);
+        if (!deleted.has(p.sessionId)) throw new Error("只能永久清理回收站里的会话");
+        await deleteSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId).catch(() => undefined);
+        await removeSessionIndex(this.kcodeHomeDir, p.sessionId);
+        await setArchived(this.kcodeHomeDir, p.sessionId, false);
+        await setSessionDeleted(this.kcodeHomeDir, p.sessionId, false);
+        this.#sessionsChanged("purge");
+        return { sessionId: p.sessionId, purged: true };
+      }
+      case "sessions/empty_trash": {
+        const deleted = await listDeletedSessions(this.kcodeHomeDir);
+        for (const sessionId of deleted) {
+          await deleteSession(join(this.kcodeHomeDir, "cli", "sessions"), sessionId).catch(() => undefined);
+          await removeSessionIndex(this.kcodeHomeDir, sessionId);
+          await setArchived(this.kcodeHomeDir, sessionId, false);
+        }
+        await clearDeletedSessions(this.kcodeHomeDir);
+        this.#sessionsChanged("empty-trash");
+        return { purged: deleted.size };
+      }
+      case "sessions/archive": {
+        const p = params as { sessionId?: unknown; archived?: unknown };
+        if (typeof p.sessionId !== "string" || p.sessionId.trim() === "") {
+          throw new Error("sessionId 不能为空");
+        }
+        const archived = p.archived !== false;
+        await setArchived(this.kcodeHomeDir, p.sessionId, archived);
+        this.#sessionsChanged("archive");
+        return { sessionId: p.sessionId, archived };
       }
       default:
         throw new Error(`未知方法 ${method}`);

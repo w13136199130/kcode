@@ -1,165 +1,121 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpDown,
   ChevronDown,
-  Folder,
   FolderPlus,
-  MoreHorizontal,
   Plus,
   Search,
   Settings,
 } from "lucide-react";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
-import { TaskRow } from "./TaskRow.js";
-
+import { useWorkspaceRegistry } from "../hooks/useWorkspaceRegistry.js";
+import { useSidebarSessions } from "../hooks/useSidebarSessions.js";
+import { TaskList } from "./TaskList.js";
+import { ArchivedTaskList } from "./ArchivedTaskList.js";
+import { TrashTaskList } from "./TrashTaskList.js";
+import { WorkspaceRow } from "./WorkspaceRow.js";
+import {
+  hasContent,
+  normalizePath,
+  pathName,
+  workspaceOf,
+  type SessionSummary,
+  type SortMode,
+  type VisibleWorkspace,
+  type Workspace,
+} from "./desktop-sidebar-model.js";
 /**
  * D3-UI Slice 1：桌面工作区/任务侧栏。
  *
  * 只使用现有 sessions/list / sessions/rename / sessions/delete 与窗口目录选择，
- * 不改 host 协议；尚未有 RPC 的项目归档/信任不在这里假装可用。
+ * 不改 host 协议；工作区/归档通过独立例外 RPC。
  */
-interface SessionSummary {
-  sessionId: string;
-  preview: string;
-  turns: number;
-  modifiedAt?: number;
-  workspaceKey?: string;
-  title?: string;
-}
-
-interface Workspace {
-  key: string;
-  path: string;
-  name: string;
-  sessions: SessionSummary[];
-  latest: number;
-}
-
-type VisibleWorkspace = Workspace & { visibleSessions: SessionSummary[] };
-
-type SortMode = "recent" | "name";
 type MenuState = { kind: "workspace" | "task"; key: string } | null;
-
-const KNOWN_WORKSPACES = "kcode-desktop-workspaces";
-
-function normalizePath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function pathName(value: string): string {
-  const parts = value.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.at(-1) ?? value;
-}
-
-function relativeTime(ts: number | undefined): string {
-  if (ts === undefined) return "";
-  const diff = Date.now() - ts;
-  if (diff < 5 * 60_000) return "刚刚";
-  if (diff < 60 * 60_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 24 * 60 * 60_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  if (diff < 365 * 24 * 60 * 60_000) return `${Math.floor(diff / 86_400_000)} 天前`;
-  return new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-}
-
-function loadKnown(): string[] {
-  try {
-    const raw = localStorage.getItem(KNOWN_WORKSPACES);
-    if (raw === null) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? [...new Set(parsed.filter((item): item is string => typeof item === "string" && item.trim() !== ""))]
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 export function DesktopSidebar(props: {
   conn: HostConnection;
   currentId: string | null;
   currentWorkspace: string;
+  currentPreview: string;
+  activityKey: number;
+  sessionsSignal: number;
   onOpen(sessionId: string, workspacePath: string): void;
   onNewSession(workspacePath: string): void;
   onOpenSettings(): void;
 }) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [known, setKnown] = useState<string[]>(loadKnown);
   const [selected, setSelected] = useState(normalizePath(props.currentWorkspace));
-  const [expanded, setExpanded] = useState<string | null>(normalizePath(props.currentWorkspace));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([normalizePath(props.currentWorkspace)]));
   const [projectsOpen, setProjectsOpen] = useState(true);
-  const [tasksOpen, setTasksOpen] = useState(true);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("recent");
+  const [sortMode, setSortMode] = useState<SortMode>("created");
   const [menu, setMenu] = useState<MenuState>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
-  const [refreshKey, setRefreshKey] = useState(0);
-
+  const { effectiveSessions, refreshSessions } = useSidebarSessions({
+    conn: props.conn,
+    currentId: props.currentId,
+    currentWorkspace: props.currentWorkspace,
+    currentPreview: props.currentPreview,
+    activityKey: props.activityKey,
+    sessionsSignal: props.sessionsSignal,
+  });
+  const {
+    registered,
+    trusted,
+    notice,
+    addWorkspace: registerWorkspace,
+    trustWorkspace: trustRegisteredWorkspace,
+    removeWorkspace: unregisterWorkspace,
+  } = useWorkspaceRegistry({ conn: props.conn, currentWorkspace: props.currentWorkspace });
   // 当前主会话切换（打开任务/新建任务/切目录）后，侧栏跟随所选工作区。
   useEffect(() => {
     const key = normalizePath(props.currentWorkspace);
     if (key === "") return;
     setSelected(key);
-    setExpanded(key);
-    setKnown((prev) => (prev.some((item) => normalizePath(item) === key) ? prev : [...prev, props.currentWorkspace]));
+    setExpanded((prev) => new Set(prev).add(key));
   }, [props.currentWorkspace]);
-
-  useEffect(() => {
-    localStorage.setItem(KNOWN_WORKSPACES, JSON.stringify(known));
-  }, [known]);
-
-  useEffect(() => {
-    if (props.conn.status !== "ready") return;
-    const send = props.conn.send;
-    let cancelled = false;
-    const load = (): void => {
-      void send("sessions/list")
-        .then((result) => {
-          if (cancelled) return;
-          const list = result as { sessions?: SessionSummary[] };
-          setSessions((list.sessions ?? []).slice(0, 200));
-        })
-        .catch(() => undefined);
-    };
-    load();
-    const timer = window.setInterval(load, 30_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [props.conn.send, props.conn.status, refreshKey]);
-
   const workspaces = useMemo(() => {
     const map = new Map<string, Workspace>();
-    const ensure = (path: string): Workspace => {
+    const registeredByKey = new Map(registered.map((item) => [normalizePath(item.path), item]));
+    const ensure = (path: string, createdAt: number): Workspace => {
       const key = normalizePath(path);
       let workspace = map.get(key);
       if (workspace === undefined) {
-        workspace = { key, path, name: pathName(path), sessions: [], latest: 0 };
+        workspace = { key, path, name: pathName(path), sessions: [], createdAt };
         map.set(key, workspace);
       } else if (path !== key) {
         workspace.path = path;
         workspace.name = pathName(path);
       }
+      if (createdAt > 0 && (workspace.createdAt === 0 || createdAt < workspace.createdAt)) {
+        workspace.createdAt = createdAt;
+      }
       return workspace;
     };
 
-    if (props.currentWorkspace !== "") ensure(props.currentWorkspace);
-    for (const path of known) ensure(path);
-    for (const session of sessions) {
-      if (session.workspaceKey === undefined || session.workspaceKey === "") continue;
-      ensure(session.workspaceKey).sessions.push(session);
-    }
-    for (const workspace of map.values()) {
-      workspace.latest = workspace.sessions.reduce((latest, session) => Math.max(latest, session.modifiedAt ?? 0), 0);
+    if (props.currentWorkspace !== "") ensure(props.currentWorkspace, 0);
+    for (const workspace of registered) ensure(workspace.path, workspace.createdAt);
+    const currentKey = normalizePath(props.currentWorkspace);
+    for (const session of effectiveSessions) {
+      if (session.archived === true || session.deleted === true) continue;
+      const ownKey = workspaceOf(session);
+      // 只有“当前空草稿”才强制归到当前工作区；历史无 workspaceKey 会话留在“任务”，
+      // 否则点击旧会话会看起来被搬进某个分组。
+      const isCurrentDraft = session.sessionId === props.currentId && !hasContent(session);
+      const key = ownKey === "" && isCurrentDraft ? currentKey : ownKey;
+      if (key === "") continue;
+      if (!hasContent(session) && session.sessionId !== props.currentId) continue;
+      const path = key === currentKey && currentKey !== "" ? props.currentWorkspace : (session.workspaceKey ?? key);
+      ensure(path, registeredByKey.get(key)?.createdAt ?? 0).sessions.push(session);
     }
     return [...map.values()].sort((a, b) => {
       if (sortMode === "name") return a.name.localeCompare(b.name, "zh-CN");
-      return b.latest - a.latest || a.name.localeCompare(b.name, "zh-CN");
+      return a.createdAt - b.createdAt || a.name.localeCompare(b.name, "zh-CN");
     });
-  }, [known, props.currentWorkspace, sessions, sortMode]);
-
+  }, [effectiveSessions, registered, props.currentId, props.currentWorkspace, sortMode]);
   const q = query.trim().toLocaleLowerCase();
   const visibleWorkspaces: VisibleWorkspace[] = workspaces
     .map((workspace) => {
@@ -173,7 +129,6 @@ export function DesktopSidebar(props: {
       return { ...workspace, visibleSessions };
     })
     .filter((workspace) => q === "" || workspace.visibleSessions.length > 0 || workspace.name.toLocaleLowerCase().includes(q) || workspace.path.toLocaleLowerCase().includes(q));
-
   const sortSessions = (items: SessionSummary[]): SessionSummary[] =>
     [...items].sort((a, b) => {
       if (sortMode === "name") {
@@ -181,54 +136,76 @@ export function DesktopSidebar(props: {
       }
       return (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0);
     });
-
-  const allInbox = sessions.filter((session) => session.workspaceKey === undefined || session.workspaceKey === "");
+  const hasCurrentWorkspace = normalizePath(props.currentWorkspace) !== "";
+  const allInbox = effectiveSessions.filter(
+    (session) =>
+      session.archived !== true &&
+      session.deleted !== true &&
+      workspaceOf(session) === "" &&
+      !(session.sessionId === props.currentId && hasCurrentWorkspace && !hasContent(session)) &&
+      (hasContent(session) || session.sessionId === props.currentId),
+  );
   const inbox = sortSessions(
     allInbox.filter((session) => {
       if (q === "") return true;
       return (session.title ?? session.preview).toLocaleLowerCase().includes(q);
     }),
   );
-
+  const archived = sortSessions(
+    effectiveSessions.filter(
+      (session) => session.archived === true && session.deleted !== true && hasContent(session),
+    ),
+  );
+  const trash = sortSessions(effectiveSessions.filter((session) => session.deleted === true));
   const selectedWorkspace = workspaces.find((workspace) => workspace.key === selected);
   const targetPath = selectedWorkspace?.path ?? props.currentWorkspace;
-
-  const remember = (path: string): void => {
-    setKnown((prev) => (prev.some((item) => normalizePath(item) === normalizePath(path)) ? prev : [...prev, path]));
-  };
-
   const addWorkspace = async (): Promise<void> => {
-    const dir = await window.kcodeHost?.pickDirectory();
-    if (dir === null || dir === undefined || dir === "") return;
-    remember(dir);
-    setSelected(normalizePath(dir));
-    setExpanded(normalizePath(dir));
+    const result = await registerWorkspace();
+    if (result === null) return;
+    const key = normalizePath(result.path);
+    setSelected(key);
+    setExpanded((prev) => new Set(prev).add(key));
     setProjectsOpen(true);
-    props.onNewSession(dir);
+    props.onNewSession(result.path);
   };
-
-  const toggleProjectSection = (): void => {
-    if (projectsOpen) {
-      setProjectsOpen(false);
-      return;
+  const trustWorkspace = async (workspace: Workspace): Promise<void> => {
+    setMenu(null);
+    await trustRegisteredWorkspace(workspace);
+  };
+  const removeWorkspace = async (workspace: Workspace): Promise<void> => {
+    setMenu(null);
+    const removed = await unregisterWorkspace(workspace);
+    if (!removed) return;
+    const currentKey = normalizePath(props.currentWorkspace);
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.delete(workspace.key);
+      return next;
+    });
+    if (selected === workspace.key) {
+      setSelected(currentKey);
+      setExpanded((prev) => new Set(prev).add(currentKey));
     }
-    // 整体展开时只展开工作区行，不自动展开某个工作区的会话。
-    setProjectsOpen(true);
-    setExpanded(null);
   };
-
+  const toggleProjectSection = (): void => {
+    // 整体收起/展开只控制工作区行；各工作区的会话展开状态互不影响。
+    setProjectsOpen((open) => !open);
+  };
   const openWorkspace = (workspace: Workspace): void => {
     setSelected(workspace.key);
-    setExpanded((prev) => (prev === workspace.key ? null : workspace.key));
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(workspace.key)) next.delete(workspace.key);
+      else next.add(workspace.key);
+      return next;
+    });
     setMenu(null);
   };
-
   const startRename = (session: SessionSummary): void => {
     setEditingId(session.sessionId);
     setDraftTitle(session.title ?? session.preview);
     setMenu(null);
   };
-
   const saveTitle = async (sessionId: string): Promise<void> => {
     const title = draftTitle.trim();
     if (title === "") {
@@ -238,27 +215,53 @@ export function DesktopSidebar(props: {
     try {
       await props.conn.send("sessions/rename", { sessionId, title });
       setEditingId(null);
-      setRefreshKey((value) => value + 1);
+      refreshSessions();
     } catch {
       // 保持编辑态，让用户重试。
     }
   };
-
   const removeSession = async (session: SessionSummary): Promise<void> => {
     if (session.sessionId === props.currentId) {
       window.alert("不能删除正在使用的会话，先切换到其他任务或新建任务。");
       return;
     }
-    if (!window.confirm("删除这个任务？会话文件不可恢复。")) return;
+    if (!window.confirm("把这个任务移到回收站？之后可以恢复。")) return;
     try {
       await props.conn.send("sessions/delete", { sessionId: session.sessionId });
       setMenu(null);
-      setRefreshKey((value) => value + 1);
+      refreshSessions();
     } catch {
       // host 拒绝时保留现状，不做静默删除。
     }
   };
-
+  const restoreSession = async (session: SessionSummary): Promise<void> => {
+    try {
+      await props.conn.send("sessions/restore", { sessionId: session.sessionId });
+      setMenu(null);
+      refreshSessions();
+    } catch (error) {
+      window.alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  const emptyTrash = async (): Promise<void> => {
+    if (!window.confirm("永久清空回收站？会话文件将被删除，无法恢复。")) return;
+    try {
+      await props.conn.send("sessions/empty_trash");
+      setShowTrash(false);
+      refreshSessions();
+    } catch (error) {
+      window.alert(`清空回收站失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  const archiveSession = async (session: SessionSummary, archived: boolean): Promise<void> => {
+    try {
+      await props.conn.send("sessions/archive", { sessionId: session.sessionId, archived });
+      setMenu(null);
+      refreshSessions();
+    } catch (error) {
+      window.alert(`归档失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const copyPath = async (path: string): Promise<void> => {
     try {
       await navigator.clipboard.writeText(path);
@@ -266,39 +269,6 @@ export function DesktopSidebar(props: {
       // 剪贴板不可用时忽略；不伪造成功提示。
     }
     setMenu(null);
-  };
-
-  const renderSessions = (workspace: VisibleWorkspace): ReactNode => {
-    const items = sortSessions(q === "" ? workspace.sessions : workspace.visibleSessions);
-    return (
-      <div className="d2-tasks">
-        {items.map((session) => (
-          <TaskRow
-            key={session.sessionId}
-            title={session.title ?? (session.preview === "" ? "（空会话）" : session.preview)}
-            age={relativeTime(session.modifiedAt)}
-            active={session.sessionId === props.currentId}
-            menu={menu?.kind === "task" && menu.key === session.sessionId}
-            editing={editingId === session.sessionId}
-            draftTitle={draftTitle}
-            onOpen={() => {
-              setMenu(null);
-              props.onOpen(session.sessionId, workspace.path);
-            }}
-            onMenu={(event) => {
-              event.stopPropagation();
-              setMenu({ kind: "task", key: session.sessionId });
-            }}
-            onDraft={setDraftTitle}
-            onSave={() => void saveTitle(session.sessionId)}
-            onCancel={() => setEditingId(null)}
-            onRename={() => startRename(session)}
-            onDelete={() => void removeSession(session)}
-            canDelete={session.sessionId !== props.currentId}
-          />
-        ))}
-      </div>
-    );
   };
 
   return (
@@ -318,6 +288,8 @@ export function DesktopSidebar(props: {
         <span>新建会话</span>
         <kbd>⌘N</kbd>
       </button>
+
+      {notice !== "" ? <div className="d2-notice" role="status">{notice}</div> : null}
 
       <div className="d2-scroll">
         <section className="d2-section">
@@ -345,8 +317,8 @@ export function DesktopSidebar(props: {
               <button
                 type="button"
                 className="d2-icon"
-                title={sortMode === "recent" ? "按名称排序" : "按最近更新排序"}
-                onClick={() => setSortMode((mode) => (mode === "recent" ? "name" : "recent"))}
+                title={sortMode === "created" ? "按名称排序" : "按创建顺序排序"}
+                onClick={() => setSortMode((mode) => (mode === "created" ? "name" : "created"))}
               >
                 <ArrowUpDown size={13} strokeWidth={1.8} />
               </button>
@@ -378,64 +350,56 @@ export function DesktopSidebar(props: {
             <div className="d2-workspaces">
               {visibleWorkspaces.map((workspace) => {
                 const isActive = workspace.key === selected;
-                const isExpanded = expanded === workspace.key;
+                const isExpanded = expanded.has(workspace.key);
+                const isTrusted = trusted[workspace.key] === true;
                 return (
-                  <div className="d2-project" key={workspace.key}>
-                    <div
-                      className={`d2-project-row ${isActive ? "active" : ""}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => openWorkspace(workspace)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openWorkspace(workspace);
-                        }
+                  <WorkspaceRow
+                    key={workspace.key}
+                    workspace={workspace}
+                    active={isActive}
+                    expanded={isExpanded}
+                    trusted={isTrusted}
+                    menuOpen={menu?.kind === "workspace" && menu.key === workspace.key}
+                    current={workspace.key === normalizePath(props.currentWorkspace)}
+                    onOpen={() => openWorkspace(workspace)}
+                    onNew={() => {
+                      setSelected(workspace.key);
+                      setExpanded((prev) => new Set(prev).add(workspace.key));
+                      setMenu(null);
+                      props.onNewSession(workspace.path);
+                    }}
+                    onMenu={(event) => {
+                      event.stopPropagation();
+                      setMenu({ kind: "workspace", key: workspace.key });
+                    }}
+                    onTrust={() => void trustWorkspace(workspace)}
+                    onRemove={() => void removeWorkspace(workspace)}
+                    onCopy={() => void copyPath(workspace.path)}
+                  >
+                    <TaskList
+                      sessions={sortSessions(q === "" ? workspace.sessions : workspace.visibleSessions)}
+                      currentId={props.currentId}
+                      menuKey={menu?.kind === "task" ? menu.key : null}
+                      editingId={editingId}
+                      draftTitle={draftTitle}
+                      emptyText={q === "" ? "暂无任务" : "没有匹配任务"}
+                      archived={false}
+                      onOpen={(session) => {
+                        setMenu(null);
+                        props.onOpen(session.sessionId, workspace.path);
                       }}
-                    >
-                      <Folder size={14} strokeWidth={1.7} className="d2-folder" />
-                      <span className="d2-project-name">{workspace.name}</span>
-                      <div className="d2-project-actions">
-                        <button
-                          type="button"
-                          title="新建任务"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelected(workspace.key);
-                            setExpanded(workspace.key);
-                            setMenu(null);
-                            props.onNewSession(workspace.path);
-                          }}
-                        >
-                          <Plus size={13} strokeWidth={1.8} />
-                        </button>
-                        <button
-                          type="button"
-                          title="工作区操作"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setMenu({ kind: "workspace", key: workspace.key });
-                          }}
-                        >
-                          <MoreHorizontal size={14} strokeWidth={1.8} />
-                        </button>
-                      </div>
-                    </div>
-                    {menu?.kind === "workspace" && menu.key === workspace.key ? (
-                      <div className="d2-menu d2-project-menu">
-                        <button type="button" onClick={() => void copyPath(workspace.path)}>
-                          复制工作区路径
-                        </button>
-                        <button type="button" onClick={() => {
-                          setMenu(null);
-                          props.onNewSession(workspace.path);
-                        }}>
-                          新建任务
-                        </button>
-                      </div>
-                    ) : null}
-                    {isExpanded ? renderSessions(workspace) : null}
-                  </div>
+                      onMenu={(session, event) => {
+                        event.stopPropagation();
+                        setMenu({ kind: "task", key: session.sessionId });
+                      }}
+                      onDraft={setDraftTitle}
+                      onSave={(sessionId) => void saveTitle(sessionId)}
+                      onCancel={() => setEditingId(null)}
+                      onRename={startRename}
+                      onDelete={(session) => void removeSession(session)}
+                      onArchive={(session, archived) => void archiveSession(session, archived)}
+                    />
+                  </WorkspaceRow>
                 );
               })}
               {visibleWorkspaces.length === 0 && q !== "" ? <div className="d2-empty">没有匹配的工作区</div> : null}
@@ -450,37 +414,78 @@ export function DesktopSidebar(props: {
               <ChevronDown size={12} strokeWidth={2} className={tasksOpen ? "" : "d2-chevron-closed"} />
             </button>
           </div>
-          {tasksOpen ? (
-            <div className="d2-inbox-list">
-              {inbox.map((session) => (
-                <TaskRow
-                  key={session.sessionId}
-                  title={session.title ?? (session.preview === "" ? "（空会话）" : session.preview)}
-                  age={relativeTime(session.modifiedAt)}
-                  active={session.sessionId === props.currentId}
-                  menu={menu?.kind === "task" && menu.key === session.sessionId}
-                  editing={editingId === session.sessionId}
-                  draftTitle={draftTitle}
-                  onOpen={() => {
-                    setMenu(null);
-                    props.onOpen(session.sessionId, props.currentWorkspace);
-                  }}
-                  onMenu={(event) => {
-                    event.stopPropagation();
-                    setMenu({ kind: "task", key: session.sessionId });
-                  }}
-                  onDraft={setDraftTitle}
-                  onSave={() => void saveTitle(session.sessionId)}
-                  onCancel={() => setEditingId(null)}
-                  onRename={() => startRename(session)}
-                  onDelete={() => void removeSession(session)}
-                  canDelete={session.sessionId !== props.currentId}
-                />
-              ))}
-              {inbox.length === 0 ? <div className="d2-empty">暂无未归类任务</div> : null}
-            </div>
+          {tasksOpen || q !== "" ? (
+            <TaskList
+              sessions={inbox}
+              currentId={props.currentId}
+              menuKey={menu?.kind === "task" ? menu.key : null}
+              editingId={editingId}
+              draftTitle={draftTitle}
+              emptyText="暂无未归类任务"
+              archived={false}
+              onOpen={(session) => {
+                setMenu(null);
+                props.onOpen(session.sessionId, props.currentWorkspace);
+              }}
+              onMenu={(session, event) => {
+                event.stopPropagation();
+                setMenu({ kind: "task", key: session.sessionId });
+              }}
+              onDraft={setDraftTitle}
+              onSave={(sessionId) => void saveTitle(sessionId)}
+              onCancel={() => setEditingId(null)}
+              onRename={startRename}
+              onDelete={(session) => void removeSession(session)}
+              onArchive={(session, archived) => void archiveSession(session, archived)}
+            />
           ) : null}
         </section>
+
+        {archived.length > 0 ? (
+          <ArchivedTaskList
+            sessions={archived}
+            open={showArchived}
+            onToggle={() => setShowArchived((open) => !open)}
+            currentId={props.currentId}
+            menuKey={menu?.kind === "task" ? menu.key : null}
+            editingId={editingId}
+            draftTitle={draftTitle}
+            onOpen={(session) => {
+              setMenu(null);
+              props.onOpen(session.sessionId, session.workspaceKey || props.currentWorkspace);
+            }}
+            onMenu={(session, event) => {
+              event.stopPropagation();
+              setMenu({ kind: "task", key: session.sessionId });
+            }}
+            onDraft={setDraftTitle}
+            onSave={(sessionId) => void saveTitle(sessionId)}
+            onCancel={() => setEditingId(null)}
+            onRename={startRename}
+            onDelete={(session) => void removeSession(session)}
+            onArchive={(session) => void archiveSession(session, false)}
+          />
+        ) : null}
+
+        {trash.length > 0 ? (
+          <TrashTaskList
+            sessions={trash}
+            open={showTrash}
+            onToggle={() => setShowTrash((open) => !open)}
+            currentId={props.currentId}
+            menuKey={menu?.kind === "task" ? menu.key : null}
+            onOpen={(session) => {
+              setMenu(null);
+              props.onOpen(session.sessionId, session.workspaceKey || props.currentWorkspace);
+            }}
+            onMenu={(session, event) => {
+              event.stopPropagation();
+              setMenu({ kind: "task", key: session.sessionId });
+            }}
+            onRestore={(session) => void restoreSession(session)}
+            onEmpty={() => void emptyTrash()}
+          />
+        ) : null}
       </div>
 
       <div className="d2-foot">
@@ -492,3 +497,4 @@ export function DesktopSidebar(props: {
     </aside>
   );
 }
+

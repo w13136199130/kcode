@@ -1,3 +1,4 @@
+import { FileText } from "lucide-react";
 import type { PermissionMode } from "@kcode/contracts";
 
 /**
@@ -26,27 +27,27 @@ export function WorkspaceHeader(props: {
       ? props.cwd.split(/[\\/]/).filter((s) => s !== "").pop() ?? props.cwd
       : props.title;
   return (
-    <header className="workspace-header">
-      <div className="workspace-title" title={props.cwd ?? props.title}>
-        {cwdName}
+    <header className="workspace-header workspace-header-v2">
+      <div className="wh-left">
+        <span className="wh-icon"><FileText size={14} strokeWidth={1.7} /></span>
+        <div className="wh-copy">
+          <div className="workspace-title wh-title" title={props.cwd ?? props.title}>{cwdName}</div>
+          {props.cwd !== undefined && props.cwd !== "" ? (
+            <div className="wh-path" title={props.cwd}>{props.cwd}</div>
+          ) : null}
+        </div>
       </div>
-      <div className="workspace-badges">
-        {props.model !== null ? <span className="badge">{props.model}</span> : null}
-        <span className="badge">{modeLabel[props.mode]}</span>
+      <div className="workspace-badges wh-actions">
+        {props.model !== null ? <span className="wh-chip" title={props.model}>{props.model}</span> : null}
+        <span className="wh-chip">{modeLabel[props.mode]}</span>
         {props.onShowChanges !== undefined ? (
-          <button type="button" className="badge workspace-pick" onClick={props.onShowChanges}>
-            变更
-          </button>
+          <button type="button" className="wh-action" onClick={props.onShowChanges}>变更</button>
         ) : null}
         {props.onShowTasks !== undefined ? (
-          <button type="button" className="badge workspace-pick" onClick={props.onShowTasks}>
-            任务
-          </button>
+          <button type="button" className="wh-action" onClick={props.onShowTasks}>任务</button>
         ) : null}
         {props.onPickWorkspace !== undefined ? (
-          <button type="button" className="badge workspace-pick" onClick={props.onPickWorkspace}>
-            打开文件夹
-          </button>
+          <button type="button" className="wh-action" onClick={props.onPickWorkspace}>打开文件夹</button>
         ) : null}
       </div>
     </header>

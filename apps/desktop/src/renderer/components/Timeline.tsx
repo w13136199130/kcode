@@ -11,9 +11,11 @@ import { RichMarkdown } from "./RichMarkdown.js";
  */
 export function Timeline({
   state,
+  model,
   onOpenDiff,
 }: {
   state: TimelineState;
+  model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -50,16 +52,29 @@ export function Timeline({
   };
 
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
-    }
-  }, [rows.length, state.streamText, state.streamThinking, virtualizer]);
+    if (!stickToBottomRef.current || rows.length === 0) return;
+    virtualizer.scrollToIndex(rows.length - 1, { align: "end" });
+  }, [rows.length, virtualizer]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const el = parentRef.current;
+    if (el === null) return;
+    // live-tail 在虚拟列表之外；只贴底，不按 token 重新定位虚拟行。
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [state.streamText, state.streamThinking, rows.length]);
 
   const liveTail =
     state.streamThinking !== "" ? (
       <div className="row-thinking-live">💭 思考中…</div>
     ) : state.streamText !== "" ? (
       <div className="row-assistant live">
+        <div className="assistant-meta">
+          <span className="assistant-brand">kcode</span>
+          {model !== null && model !== undefined && model !== "" ? <span>{model}</span> : null}
+        </div>
         <RichMarkdown text={state.streamText} />
       </div>
     ) : state.busy ? (
@@ -69,7 +84,7 @@ export function Timeline({
     ) : null;
 
   return (
-    <div className="timeline" ref={parentRef} onScroll={onScroll}>
+    <div className="timeline timeline-v2" ref={parentRef} onScroll={onScroll}>
       <div className="timeline-inner" style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
         {virtualizer.getVirtualItems().map((item) => (
           <div
@@ -78,11 +93,11 @@ export function Timeline({
             ref={virtualizer.measureElement}
             style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
           >
-            <RowView row={rows[item.index]!} onOpenDiff={onOpenDiff} />
+            <RowView row={rows[item.index]!} model={model} onOpenDiff={onOpenDiff} />
           </div>
         ))}
       </div>
-      {liveTail}
+      {liveTail !== null ? <div className="timeline-live-wrap">{liveTail}</div> : null}
       <div className="timeline-bottom-sentinel" style={{ height: 1 }} />
     </div>
   );

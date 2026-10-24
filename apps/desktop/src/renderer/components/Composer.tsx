@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Square } from "lucide-react";
 import type { CommandInfo, PermissionMode } from "@kcode/contracts";
 
@@ -19,9 +19,13 @@ type MenuKind = "slash" | "file";
 export function Composer(props: {
   busy: boolean;
   disabled: boolean;
+  /** 仅输入框禁用（连接未就绪）；会话准备中仍可先输入草稿。 */
+  inputDisabled?: boolean;
   queuedCount: number;
   mode: PermissionMode;
   model: string | null;
+  /** 空态快捷入口：由外层填入一段可编辑草稿。 */
+  prefill?: { text: string; nonce: number } | null;
   commands: readonly CommandInfo[];
   onListFiles(query: string): Promise<string[]>;
   onModeChange(mode: PermissionMode): void;
@@ -47,6 +51,16 @@ export function Composer(props: {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
+
+  useEffect(() => {
+    if (props.prefill === null || props.prefill === undefined) return;
+    setText(props.prefill.text);
+    setMenu(null);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      autoSize();
+    });
+  }, [props.prefill]);
 
   const refreshMenu = (value: string, caret: number): void => {
     const before = value.slice(0, caret);
@@ -111,7 +125,7 @@ export function Composer(props: {
     : props.model;
 
   return (
-    <div className="composer">
+    <div className="composer composer-v2">
       {props.queuedCount > 0 ? <div className="composer-queued">已排队 {props.queuedCount} 条（Esc 可中断清空）</div> : null}
       {menu !== null && items.length > 0 ? (
         <div className="composer-menu" role="listbox">
@@ -142,8 +156,8 @@ export function Composer(props: {
           ref={ref}
           className="composer-input"
           value={text}
-          placeholder={props.disabled ? "连接宿主中…" : "描述任务，Enter 发送 · / 命令 · @ 文件 · Shift+Enter 换行"}
-          disabled={props.disabled}
+          placeholder={props.inputDisabled === true ? "连接宿主中…" : "描述任务，Enter 发送 · / 命令 · @ 文件 · Shift+Enter 换行"}
+          disabled={props.inputDisabled ?? props.disabled}
           rows={1}
           onChange={(e) => {
             setText(e.target.value);

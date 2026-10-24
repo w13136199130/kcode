@@ -7,8 +7,8 @@ import type { HostEvent } from "@kcode/contracts";
  */
 
 export type Row =
-  | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
+  | { kind: "user"; text: string; at?: number }
+  | { kind: "assistant"; text: string; at?: number }
   | { kind: "thinking"; text: string; ms?: number }
   | {
       kind: "tool";
@@ -69,10 +69,27 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
       // 续接前的全部历史都会消失。新会话的清空由 main.tsx 的 switch/replay 负责。
       return { ...state, streamText: "", streamThinking: "" };
     case "user_message":
-      return { ...state, rows: [...state.rows, { kind: "user", text: String(se["content"] ?? "") }] };
+      return {
+        ...state,
+        rows: [
+          ...state.rows,
+          {
+            kind: "user",
+            text: String(se["content"] ?? ""),
+            ...(typeof se["ts"] === "number" ? { at: se["ts"] } : {}),
+          },
+        ],
+      };
     case "assistant_message": {
       // 直播流落定成行；思考随正文落定（无独立 reasoning 事件时）
-      const rows = [...state.rows, { kind: "assistant", text: String(se["content"] ?? "") }] as Row[];
+      const rows = [
+        ...state.rows,
+        {
+          kind: "assistant",
+          text: String(se["content"] ?? ""),
+          ...(typeof se["ts"] === "number" ? { at: se["ts"] } : {}),
+        },
+      ] as Row[];
       const reasoning = se["reasoning"];
       if (typeof reasoning === "string" && reasoning !== "") {
         rows.splice(rows.length - 1, 0, { kind: "thinking", text: reasoning });
