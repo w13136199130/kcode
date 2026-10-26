@@ -76,6 +76,8 @@ function DesktopApp() {
   const [appVersion, setAppVersion] = useState("dev");
   /** P0-2：创建/续接失败（非静默）——主区失败卡片的来源；会话成功建立后自动清除 */
   const [createFailure, setCreateFailure] = useState<CreateFailure | null>(null);
+  /** P1-2：sessions/changed 计数——此前在渲染路径里对全量事件数组 filter，流式期间每次重渲染都扫一遍 */
+  const [sessionsSignal, setSessionsSignal] = useState(0);
 
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
@@ -268,6 +270,16 @@ function DesktopApp() {
     }
   }, [conn.events, conn]);
 
+  // P1-2：增量计数 sessions/changed（事件数组只增；slice 从上次计数续扫，O(增量)）
+  const signalSeen = useRef(0);
+  useEffect(() => {
+    const news = conn.events.slice(signalSeen.current);
+    if (news.length === 0) return;
+    signalSeen.current = conn.events.length;
+    const count = news.filter((event) => event.type === "sessions/changed").length;
+    if (count > 0) setSessionsSignal((value) => value + count);
+  }, [conn.events]);
+
   const { onSend } = useDesktopCommands({
     conn,
     commands,
@@ -394,7 +406,7 @@ function DesktopApp() {
             currentWorkspace={defaultCwd}
             currentPreview={timeline.rows.find((row) => row.kind === "user")?.text ?? ""}
             activityKey={timeline.rows.length}
-            sessionsSignal={conn.events.filter((event) => event.type === "sessions/changed").length}
+            sessionsSignal={sessionsSignal}
             onOpen={onResume}
             onNewSession={onNewSession}
             onOpenSettings={() => setSettingsOpen(true)}
