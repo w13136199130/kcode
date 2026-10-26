@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listSessionIndex, patchSessionIndex, reconcileSessionIndex, upsertSessionIndex } from "../src/session-index.js";
+import {
+  findSessionIndexByRequest,
+  listSessionIndex,
+  patchSessionIndex,
+  reconcileSessionIndex,
+  upsertSessionIndex,
+} from "../src/session-index.js";
 
 const homes: string[] = [];
 
@@ -45,11 +51,49 @@ describe("session-index", () => {
     });
   });
 
+  it("finds a create request for idempotent retry", async () => {
+    const home = await tempHome();
+    await upsertSessionIndex(home, {
+      sessionId: "sess_request",
+      workspaceKey: "E:/space/a",
+      requestId: "req_1",
+      status: "draft",
+    });
+    expect((await findSessionIndexByRequest(home, "req_1"))?.sessionId).toBe("sess_request");
+    await upsertSessionIndex(home, {
+      sessionId: "sess_request",
+      workspaceKey: "E:/space/a",
+      requestId: "req_1",
+      status: "active",
+    });
+    expect((await findSessionIndexByRequest(home, "req_1"))?.status).toBe("active");
+    expect(await findSessionIndexByRequest(home, "req_missing")).toBeUndefined();
+  });
+
   it("tolerates corrupt JSON", async () => {
     const home = await tempHome();
     await mkdir(join(home, "desktop"), { recursive: true });
     await writeFile(join(home, "desktop", "session-index.json"), "{bad", "utf8");
     expect(await listSessionIndex(home)).toEqual([]);
+  });
+
+  it("removes stale draft/failed entries but keeps recent drafts", async () => {
+    const home = await tempHome();
+    const old = Date.now() - 25 * 60 * 60_000;
+    await upsertSessionIndex(home, {
+      sessionId: "sess_old_draft",
+      workspaceKey: "E:/space/a",
+      status: "draft",
+      updatedAt: old,
+    });
+    await upsertSessionIndex(home, {
+      sessionId: "sess_recent_draft",
+      workspaceKey: "E:/space/a",
+      status: "draft",
+      updatedAt: Date.now(),
+    });
+    await reconcileSessionIndex(home, []);
+    expect((await listSessionIndex(home)).map((item) => item.sessionId)).toEqual(["sess_recent_draft"]);
   });
 
   it("writes a complete JSON document", async () => {

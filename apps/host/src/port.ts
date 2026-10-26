@@ -48,7 +48,7 @@ const server = new HostServer((frame: HostFrame) => {
     port.postMessage(line);
   }
 });
-void server.reconcile();
+void server.start();
 
 function pump(port: PortLike): void {
   port.on("message", (ev) => {

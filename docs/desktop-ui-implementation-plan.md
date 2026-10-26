@@ -454,6 +454,14 @@ P0 限制（工作区注册/信任 RPC 后）：
 
 - host 新增 `~/.kcode/desktop/session-index.json`；
 - `session/create` 在返回前写入 `{sessionId, workspaceKey, createdAt}`；
+- 新建请求支持 `requestId` 幂等；同 requestId 重试复用同一 sessionId；
+- 新建先写 `status=draft`，HostSession 成功后才 `active`，失败 `failed`；
+- 续接不预分配新 ID、不写 draft，避免产生幽灵“新任务”；
+- draft 会显示为“新任务”供崩溃后恢复；failed 不进入列表；
+- 超过 24h 且没有对应 JSONL 的 draft/failed 在 reconcile 时清理，避免永久残留；
+- 测试可用 `KCODE_FAULT_STAGE=after-draft|after-create|after-active` + `KCODE_FAULT_AFTER_CREATES=N` 在指定创建阶段直接 kill host；
+- host 启动后 `fs.watch` 监听 `cli/sessions`；CLI/其他进程新建/写入会话文件时广播 `sessions/changed`，桌面侧栏无需刷新即可出现（300ms 防抖）；
+- E2E `concurrency.spec.ts` 覆盖“外部进程写入新会话 → 侧栏即时出现”；
 - `sessions/list` 合并索引：空会话、刚创建未写 JSONL 的会话也能出现；
 - 每次列表用 JSONL 摘要回填索引（preview/title/updatedAt）；
 - `sessions/rename` 同步标题到索引；
@@ -463,6 +471,7 @@ P0 限制（工作区注册/信任 RPC 后）：
 - 回收站“清空”调用 `sessions/empty_trash`，只物理删除回收站内会话；
 - 不自动按时间清理回收站，避免误删；
 - host 在 create/delete/restore/archive/rename/purge 后广播 `sessions/changed`，多窗口侧栏立即刷新；
+- E2E `crash-recovery.spec.ts`：预置回收站状态 → 强制终止整个 Electron/host 进程树 → 重启 → 回收站仍在并可恢复；
 - 索引最多 500 条，原子临时文件 rename，进程内串行写；
 - renderer localStorage 仍是乐观 UI 缓存，host 索引是权威补充。
 
@@ -585,16 +594,8 @@ design typecheck passed
 
 ---
 
-## 10. 推荐下一步
+## 10. 后续优化入口
 
-先做 **Slice 1 + 2**，不要先碰全部设置页：
+本文只保留 Slice 落地历史与验收记录，**不再维护下一步清单**。桌面会话/工作区/列表的全部后续优化（稳定性、流畅性、分组语义、并发一致性）统一在唯一优化文档中维护：
 
-```text
-1. 新增 desktop token
-2. 拆 DesktopShell/TaskListSidebar
-3. 复用 Timeline/Composer 现有行为
-4. 保持 feature flag 可回退
-5. 再接项目注册/信任 RPC
-```
-
-项目注册/信任是 host 改动点，建议单独开一个 PR；UI 壳与 Composer 重排可以先独立合并，降低回滚成本。
+→ [desktop-session-optimization.md](./desktop-session-optimization.md)

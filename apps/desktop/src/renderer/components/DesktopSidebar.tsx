@@ -107,7 +107,7 @@ export function DesktopSidebar(props: {
       const isCurrentDraft = session.sessionId === props.currentId && !hasContent(session);
       const key = ownKey === "" && isCurrentDraft ? currentKey : ownKey;
       if (key === "") continue;
-      if (!hasContent(session) && session.sessionId !== props.currentId) continue;
+      if (!hasContent(session) && session.draft !== true && session.sessionId !== props.currentId) continue;
       const path = key === currentKey && currentKey !== "" ? props.currentWorkspace : (session.workspaceKey ?? key);
       ensure(path, registeredByKey.get(key)?.createdAt ?? 0).sessions.push(session);
     }
@@ -143,7 +143,7 @@ export function DesktopSidebar(props: {
       session.deleted !== true &&
       workspaceOf(session) === "" &&
       !(session.sessionId === props.currentId && hasCurrentWorkspace && !hasContent(session)) &&
-      (hasContent(session) || session.sessionId === props.currentId),
+      (hasContent(session) || session.draft === true || session.sessionId === props.currentId),
   );
   const inbox = sortSessions(
     allInbox.filter((session) => {

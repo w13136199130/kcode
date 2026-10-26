@@ -10,6 +10,8 @@ export interface SessionSummary {
   title?: string;
   archived?: boolean;
   deleted?: boolean;
+  /** 索引中的 draft：创建过程中崩溃/尚未落盘，仍应显示为“新任务”。 */
+  draft?: boolean;
 }
 
 export interface Workspace {
@@ -65,6 +67,7 @@ export function workspaceOf(session: SessionSummary): string {
 }
 
 export function sessionTitle(session: SessionSummary, currentId: string | null): string {
+  if (session.draft === true && !hasContent(session)) return "新任务";
   if (session.sessionId === currentId && !hasContent(session)) return "新任务";
   return session.title ?? (session.preview === "" ? "（空会话）" : session.preview);
 }

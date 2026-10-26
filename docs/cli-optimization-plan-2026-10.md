@@ -20,7 +20,7 @@
 
 **立即下一步**：P0/P1/P2 计划项已收口，阶段四 **4-02 策略文件已完成**；**4-01 srt 适配器 M1 骨架已接入**（默认 off、需 `windows-install`，见 [srt-sandbox.md](./srt-sandbox.md)）。下一步：真实 srt 安装验收 + 审计/status；MXC 等 Node 24/主机支持后再平移。D3 仍冻结。
 
-**桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。**2026-10-23 桌面 UI 审计：启动链 P0 已修复（host shims、attach/hello/session-create 重试、reload 端口宽限、home repo map 跳过），静态审计见 [desktop-ui-audit.md](./desktop-ui-audit.md)；同日产出 UI 原型 v23（[desktop-ui-design.md](./desktop-ui-design.md)）、落地计划/host 差距表（[desktop-ui-implementation-plan.md](./desktop-ui-implementation-plan.md)）；D3-UI 例外已登记（[desktop-ui-exception.md](./desktop-ui-exception.md)），Slice 1 v2 侧栏已落地；2026-10-24 工作区注册/信任 + 任务归档 RPC 按独立例外落地（[desktop-workspace-rpc-approval.md](./desktop-workspace-rpc-approval.md)），Slice 2 Composer v2 + Slice 3 设置页 + 主区域壳层 + 时间线 v2 + diff 详情栏 + 任务归档 + host 会话索引/软删除/回收站/多窗口刷新已落地；desktop E2E 3 passed + host store/task-state/session-index/trash 11 tests；D3 其他部分仍冻结。**
+**桌面边界**：D0/D1/D2 资产保留；D3 不启动。共享层类型/测试必须保持绿，桌面只做兼容性修复，不做新功能。**2026-10-23 桌面 UI 审计：启动链 P0 已修复（host shims、attach/hello/session-create 重试、reload 端口宽限、home repo map 跳过），静态审计见 [desktop-ui-audit.md](./desktop-ui-audit.md)；同日产出 UI 原型 v23（[desktop-ui-design.md](./desktop-ui-design.md)）、落地计划/host 差距表（[desktop-ui-implementation-plan.md](./desktop-ui-implementation-plan.md)）；D3-UI 例外已登记（[desktop-ui-exception.md](./desktop-ui-exception.md)），Slice 1 v2 侧栏已落地；2026-10-24 工作区注册/信任 + 任务归档 RPC 按独立例外落地（[desktop-workspace-rpc-approval.md](./desktop-workspace-rpc-approval.md)），Slice 2 Composer v2 + Slice 3 设置页 + 主区域壳层 + 时间线 v2 + diff 详情栏 + 任务归档 + host 会话索引/软删除/回收站/多窗口刷新已落地；desktop E2E 7 passed + host store/task-state/session-index/trash 13 tests；D3 其他部分仍冻结。**
 
 ## 阶段三产品化重排（2026-10-20）
 

@@ -56,7 +56,10 @@ export class HostSession {
     private readonly send: (frame: HostFrame) => void,
   ) {}
 
-  async create(params: SessionCreateParams): Promise<{ sessionId: string; epoch: number }> {
+  async create(
+    params: SessionCreateParams,
+    requestedSessionId?: string,
+  ): Promise<{ sessionId: string; epoch: number }> {
     this.#cwd = params.cwd;
     const models = await loadUserModelsConfig(this.kcodeHomeDir);
     const resume =
@@ -71,9 +74,10 @@ export class HostSession {
     // 续接源 id 直接来自 resolveResumeHistory——不再用 resumeFrom 反查文件；
     // 否则 "latest"/前缀查不到文件，latest 会被当成新会话（丢连续性）。
     let prevEpoch = 0;
-    const targetSessionId = resume?.sessionId;
-    if (targetSessionId !== undefined) {
-      const target = join(this.kcodeHomeDir, "cli", "sessions", `${targetSessionId}.jsonl`);
+    const resumeSessionId = resume?.sessionId;
+    const targetSessionId = resumeSessionId ?? requestedSessionId;
+    if (resumeSessionId !== undefined) {
+      const target = join(this.kcodeHomeDir, "cli", "sessions", `${resumeSessionId}.jsonl`);
       const events = await loadSessionEvents(target);
       const leases = events.filter((e): e is Extract<SessionEvent, { type: "host_lease" }> => e.type === "host_lease");
       const last = leases.at(-1);

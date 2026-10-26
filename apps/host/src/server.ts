@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { watch, type FSWatcher } from "node:fs";
 import { newId, workspaceKey } from "@kcode/shared";
 import {
   ConfigSaveParams,
@@ -19,13 +20,21 @@ import { loadUserModelsConfig } from "./boot.js";
 import { saveUserProvider } from "./config.js";
 import { addWorkspace, listWorkspaces, removeWorkspace } from "./workspace-store.js";
 import { listArchived, setArchived } from "./task-state.js";
-import { listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
+import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
 
 function workspacePathParam(params: unknown): string {
   const path = (params as { path?: unknown } | undefined)?.path;
   if (typeof path !== "string" || path.trim() === "") throw new Error("工作区路径不能为空");
   return path.trim();
+}
+
+/** 仅测试用故障注入：KCODE_FAULT_STAGE 命中时让 host 立即退出。 */
+function faultInject(stage: string, attempt: number): void {
+  const skip = Number(process.env["KCODE_FAULT_AFTER_CREATES"] ?? "0");
+  if (process.env["KCODE_FAULT_STAGE"] === stage && attempt > skip) {
+    process.kill(process.pid, "SIGKILL");
+  }
 }
 
 /**
@@ -35,6 +44,9 @@ function workspacePathParam(params: unknown): string {
 export class HostServer {
   readonly hostId = newId("host");
   #session: HostSession | null = null;
+  #createCount = 0;
+  #watch: FSWatcher | null = null;
+  #watchTimer: NodeJS.Timeout | null = null;
   #responses = new Map<string, { ok: true; result?: unknown } | { ok: false; error: string }>();
   readonly kcodeHomeDir: string;
   #platformCache: ReturnType<typeof createCliPlatformService> | null = null;
@@ -47,6 +59,27 @@ export class HostServer {
   async reconcile(): Promise<void> {
     const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions")).catch(() => []);
     await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
+  }
+
+  /** 启动对账 + 监听 CLI/其他进程对会话目录的写入。 */
+  async start(): Promise<void> {
+    await this.reconcile();
+    if (this.#watch !== null) return;
+    try {
+      this.#watch = watch(join(this.kcodeHomeDir, "cli", "sessions"), { persistent: false }, () => {
+        if (this.#watchTimer !== null) clearTimeout(this.#watchTimer);
+        this.#watchTimer = setTimeout(() => {
+          this.#watchTimer = null;
+          this.#sessionsChanged("fs");
+        }, 300);
+      });
+      this.#watch.on("error", () => {
+        this.#watch?.close();
+        this.#watch = null;
+      });
+    } catch {
+      this.#watch = null;
+    }
   }
 
   #sessionsChanged(reason: string): void {
@@ -128,15 +161,58 @@ export class HostServer {
         if (this.#session !== null) {
           return this.#session.describe();
         }
-        this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
-        const created = await this.#session.create(p);
-        // 先落索引再返回：即使首条消息前崩溃/重启，空会话也不会从侧栏消失。
+        // 续接不是“新建”：不能先分配新 id/写 draft，否则会多出一条幽灵“新任务”。
+        if (p.resumeFrom !== undefined) {
+          this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
+          try {
+            const resumed = await this.#session.create(p);
+            await upsertSessionIndex(this.kcodeHomeDir, {
+              sessionId: resumed.sessionId,
+              workspaceKey: workspaceKey(p.cwd),
+              status: "active",
+            }).catch(() => undefined);
+            this.#sessionsChanged("resume");
+            return resumed;
+          } catch (error) {
+            this.#session = null;
+            throw error;
+          }
+        }
+        const prior = p.requestId !== undefined ? await findSessionIndexByRequest(this.kcodeHomeDir, p.requestId) : undefined;
+        const sessionId = prior?.sessionId ?? newId("sess");
+        this.#createCount += 1;
+        const attempt = this.#createCount;
         await upsertSessionIndex(this.kcodeHomeDir, {
-          sessionId: created.sessionId,
+          sessionId,
           workspaceKey: workspaceKey(p.cwd),
-        }).catch(() => undefined);
-        this.#sessionsChanged("create");
-        return created;
+          ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+          status: "draft",
+        });
+        faultInject("after-draft", attempt);
+        this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
+        try {
+          const createParams = prior?.status === "active" ? { ...p, resumeFrom: sessionId } : p;
+          const created = await this.#session.create(createParams, sessionId);
+          faultInject("after-create", attempt);
+          await upsertSessionIndex(this.kcodeHomeDir, {
+            sessionId: created.sessionId,
+            workspaceKey: workspaceKey(p.cwd),
+            ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+            status: "active",
+          }).catch(() => undefined);
+          faultInject("after-active", attempt);
+          this.#sessionsChanged("create");
+          return created;
+        } catch (error) {
+          await upsertSessionIndex(this.kcodeHomeDir, {
+            sessionId,
+            workspaceKey: workspaceKey(p.cwd),
+            ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+            status: "failed",
+          }).catch(() => undefined);
+          this.#session = null;
+          throw error;
+        }
       }
       case "session/dispose": {
         // 同窗口切会话：释放旧会话（host 进程保持活——新建/续接接续而来）
@@ -305,13 +381,17 @@ export class HostServer {
           };
         });
         for (const meta of indexed) {
-          if (byId.has(meta.sessionId)) continue;
+          if (byId.has(meta.sessionId) || meta.status === "failed") continue;
+          // active 但没有摘要/标题＝被替换掉的空壳，不再作为历史任务显示；
+          // draft 例外：创建中断后要能在侧栏看到并恢复/清理。
+          if (meta.status !== "draft" && (meta.preview ?? "") === "" && meta.title === undefined) continue;
           merged.push({
             sessionId: meta.sessionId,
             preview: meta.preview ?? "",
             turns: meta.preview !== undefined && meta.preview !== "" ? 1 : 0,
             modifiedAt: meta.updatedAt,
             workspaceKey: meta.workspaceKey,
+            ...(meta.status === "draft" ? { draft: true } : {}),
             ...(meta.title !== undefined ? { title: meta.title } : {}),
           });
         }
@@ -396,6 +476,10 @@ export class HostServer {
   /** 断连/退出：fail-closed 结算全部未决交互 */
   async shutdown(reason: string): Promise<void> {
     this.send({ kind: "ev", event: { type: "host/closing", reason } });
+    if (this.#watchTimer !== null) clearTimeout(this.#watchTimer);
+    this.#watchTimer = null;
+    this.#watch?.close();
+    this.#watch = null;
     await this.#session?.shutdown();
   }
 }

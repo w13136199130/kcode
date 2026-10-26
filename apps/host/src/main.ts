@@ -11,7 +11,7 @@ import { HostServer } from "./server.js";
 const server = new HostServer((frame) => {
   process.stdout.write(`${JSON.stringify(frame)}\n`);
 });
-void server.reconcile();
+void server.start();
 process.stdout.on("error", () => {
   process.exit(0); // 客户端断了：EPIPE 不必刷栈
 });

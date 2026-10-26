@@ -160,7 +160,7 @@ function DesktopApp() {
     let attempts = 0;
     const create = (): void => {
       void conn
-        .send("session/create", { model: modelDefault, cwd: defaultCwd })
+        .send("session/create", { model: modelDefault, cwd: defaultCwd, requestId: globalThis.crypto.randomUUID() })
         .then((r) => { const id = (r as { sessionId: string }).sessionId; rememberSessionWorkspace(id, defaultCwd); setSessionId(id); })
         .catch(() => {
           createdRef.current = false;
@@ -310,7 +310,7 @@ function DesktopApp() {
       }
       void conn
         .send("session/dispose")
-        .then(() => conn.send("session/create", { model: modelDefault, cwd: dir }))
+        .then(() => conn.send("session/create", { model: modelDefault, cwd: dir, requestId: globalThis.crypto.randomUUID() }))
         .then((r) => {
           setDefaultCwd(dir);
           setSessionId((r as { sessionId: string }).sessionId);

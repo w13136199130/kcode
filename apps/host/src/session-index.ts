@@ -14,6 +14,8 @@ export interface SessionIndexEntry {
   updatedAt: number;
   preview?: string;
   title?: string;
+  status?: "draft" | "active" | "failed";
+  requestId?: string;
 }
 
 interface IndexFile {
@@ -23,6 +25,8 @@ interface IndexFile {
 
 const FILE = "desktop/session-index.json";
 const MAX_ENTRIES = 500;
+/** 创建中断留下的 draft/failed 超过一天仍未落盘，视为 stale。 */
+const STALE_DRAFT_MS = 24 * 60 * 60_000;
 
 function indexPath(kcodeHomeDir: string): string {
   return join(kcodeHomeDir, FILE);
@@ -70,6 +74,14 @@ export async function listSessionIndex(kcodeHomeDir: string): Promise<SessionInd
   return readIndex(kcodeHomeDir);
 }
 
+export async function findSessionIndexByRequest(
+  kcodeHomeDir: string,
+  requestId: string,
+): Promise<SessionIndexEntry | undefined> {
+  if (requestId === "") return undefined;
+  return (await readIndex(kcodeHomeDir)).find((item) => item.requestId === requestId);
+}
+
 /** 用真实 JSONL 摘要回填索引；空会话/尚未落盘的会话保持原样。 */
 export async function reconcileSessionIndex(
   kcodeHomeDir: string,
@@ -96,7 +108,8 @@ export async function reconcileSessionIndex(
         workspaceKey === item.workspaceKey &&
         preview === item.preview &&
         title === item.title &&
-        updatedAt === item.updatedAt
+        updatedAt === item.updatedAt &&
+        item.status === "active"
       ) {
         return item;
       }
@@ -105,6 +118,7 @@ export async function reconcileSessionIndex(
         ...item,
         workspaceKey,
         updatedAt,
+        status: "active" as const,
         ...(preview !== undefined ? { preview } : {}),
         ...(title !== undefined ? { title } : {}),
       };
@@ -118,12 +132,21 @@ export async function reconcileSessionIndex(
         workspaceKey: actual.workspaceKey,
         createdAt: actual.modifiedAt,
         updatedAt: actual.modifiedAt,
+        status: "active",
         ...(actual.preview !== "" ? { preview: actual.preview } : {}),
         ...(actual.title !== undefined ? { title: actual.title } : {}),
       });
       changed = true;
     }
-    if (changed) await writeIndex(kcodeHomeDir, next);
+    const cutoff = Date.now() - STALE_DRAFT_MS;
+    const cleaned = next.filter((item) => {
+      if (item.status !== "draft" && item.status !== "failed") return true;
+      if (byId.has(item.sessionId)) return true;
+      if (item.updatedAt >= cutoff) return true;
+      changed = true;
+      return false;
+    });
+    if (changed) await writeIndex(kcodeHomeDir, cleaned);
   });
 }
 
@@ -170,6 +193,8 @@ export async function upsertSessionIndex(
       updatedAt: entry.updatedAt ?? now,
       ...(entry.preview ?? previous?.preview ? { preview: entry.preview ?? previous?.preview } : {}),
       ...(entry.title ?? previous?.title ? { title: entry.title ?? previous?.title } : {}),
+      ...(entry.status ?? previous?.status ? { status: entry.status ?? previous?.status } : {}),
+      ...(entry.requestId ?? previous?.requestId ? { requestId: entry.requestId ?? previous?.requestId } : {}),
     };
     await writeIndex(kcodeHomeDir, [...sessions.filter((item) => item.sessionId !== entry.sessionId), next]);
   });

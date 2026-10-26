@@ -42,9 +42,11 @@ export function useDesktopSessionSwitching(options: {
       // 旧 host 会话已 dispose；新 create 返回前关闭“可发送”，避免消息写到旧会话。
       setSessionId(null);
       setQueuedCount(0);
+      const requestId =
+        globalThis.crypto?.randomUUID?.() ?? `create_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       void conn
         .send("session/dispose")
-        .then(() => conn.send("session/create", { model: modelDefault, cwd }))
+        .then(() => conn.send("session/create", { model: modelDefault, cwd, requestId }))
         .then((result) => {
           const id = (result as { sessionId: string }).sessionId;
           rememberSessionWorkspace(id, cwd);

@@ -19,11 +19,11 @@ D3-UI 例外只允许 renderer/design token。工作区注册与信任必须由 
 - `apps/host/src/task-state.ts`（新增）
 - `apps/host/src/session-index.ts`（新增）
 - `apps/host/src/session-trash.ts`（新增）
-- `apps/host/src/server.ts`（workspace/*、sessions/archive、sessions/restore、sessions/list 合并索引/回收站、session/create 写索引）
+- `apps/host/src/server.ts`（workspace/*、sessions/archive、sessions/restore、sessions/list 合并索引/回收站、session/create 写索引、cli/sessions 目录监听）
 - `apps/host/test/workspace-store.test.ts`
 - `apps/host/test/task-state.test.ts`
 - `apps/host/test/session-index.test.ts`
-- `packages/contracts/src/host-protocol.ts`（仅新增 sessions/changed 事件）
+- `packages/contracts/src/host-protocol.ts`（新增 sessions/changed 事件、SessionCreate requestId）
 - renderer 侧调用（`DesktopSidebar` / registry hook / session index helper）
 
 ## 不允许修改

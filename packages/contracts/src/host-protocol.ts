@@ -16,6 +16,8 @@ export const SessionCreateParams = z.object({
   cwd: z.string().min(1),
   /** 续接来源：会话 id / 前缀 / "latest"（缺省开新会话） */
   resumeFrom: z.string().optional(),
+  /** 新建幂等键：同 requestId 重试返回同一 sessionId */
+  requestId: z.string().min(1).optional(),
 });
 export type SessionCreateParams = z.infer<typeof SessionCreateParams>;
 
