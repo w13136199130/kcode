@@ -1954,3 +1954,42 @@
 
 
 
+
+/* P0-2 创建失败卡片：失败可见 + 重试/恢复上一任务 */
+.create-failure {
+  margin: 10px 5px;
+  padding: 10px 12px;
+  border: 1px solid #ecc8c4;
+  border-radius: 8px;
+  background: #fdf4f3;
+  color: #8c3a33;
+  font-size: 12px;
+}
+.create-failure .cf-title {
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.create-failure .cf-msg {
+  line-height: 1.5;
+  word-break: break-word;
+}
+.create-failure .cf-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+.cf-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--d2-border);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cf-btn:hover {
+  border-color: #d9a39c;
+}
+.cf-btn.ghost {
+  background: transparent;
+}

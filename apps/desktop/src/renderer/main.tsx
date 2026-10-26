@@ -20,6 +20,7 @@ import { useDesktopCommands } from "./hooks/useDesktopCommands.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { EmptyState } from "./components/EmptyState.js";
 import { rememberSessionWorkspace } from "./lib/session-workspaces.js";
+import { describeCreateError, switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
 import { Onboarding } from "./components/Onboarding.js";
 import "./styles.css";
 import "./desktop-v2.css";
@@ -73,6 +74,8 @@ function DesktopApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
   const [appVersion, setAppVersion] = useState("dev");
+  /** P0-2：创建/续接失败（非静默）——主区失败卡片的来源；会话成功建立后自动清除 */
+  const [createFailure, setCreateFailure] = useState<CreateFailure | null>(null);
 
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
@@ -154,17 +157,22 @@ function DesktopApp() {
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）。
   // attach/hello 存在短暂竞态，首轮 create 可能被拒；失败要重试，不能把 createdRef 永久卡死。
+  // P0-2：重试耗尽不再静默——落入 createFailure，由失败卡片提供重试入口。
   useEffect(() => {
     if (conn.status !== "ready" || createdRef.current || modelDefault === null || defaultCwd === "") return;
     createdRef.current = true;
     let attempts = 0;
+    const bootRequestId = globalThis.crypto.randomUUID();
     const create = (): void => {
       void conn
-        .send("session/create", { model: modelDefault, cwd: defaultCwd, requestId: globalThis.crypto.randomUUID() })
+        .send("session/create", { model: modelDefault, cwd: defaultCwd, requestId: bootRequestId })
         .then((r) => { const id = (r as { sessionId: string }).sessionId; rememberSessionWorkspace(id, defaultCwd); setSessionId(id); })
-        .catch(() => {
+        .catch((err) => {
           createdRef.current = false;
-          if (attempts >= 3) return;
+          if (attempts >= 3) {
+            setCreateFailure({ cwd: defaultCwd, requestId: bootRequestId, previousSessionId: null, error: describeCreateError(err) });
+            return;
+          }
           attempts += 1;
           window.setTimeout(create, 300 * attempts);
         });
@@ -276,62 +284,66 @@ function DesktopApp() {
     void conn.send("session/interrupt").catch(() => undefined);
   };
 
+  /** 时间线追加警告行（busy 拦截等提示共用） */
+  const notify = useCallback((text: string): void => {
+    setTimeline((prev) => ({
+      ...prev,
+      rows: [...prev.rows, { kind: "info" as const, text, tone: "warn" as const }],
+    }));
+  }, []);
+  // 会话成功建立即清除失败卡片（重试成功路径）
+  useEffect(() => {
+    if (sessionId !== null) setCreateFailure(null);
+  }, [sessionId]);
   /** 同窗口新建/续接会话；工作区路径由侧栏传入 */
   const { onNewSession, onResume } = useDesktopSessionSwitching({
     conn,
     modelDefault,
     defaultCwd,
     sessionId,
+    busy: timeline.busy,
+    notify,
+    onFailure: setCreateFailure,
     setDefaultCwd,
     setSessionId,
     setSessionVersion,
     setQueuedCount,
     resetTimeline: () => setTimeline(initialTimeline()),
   });
-  /** 切换工作区（D0-07）：同窗口 dispose→create，cwd 改变后旧会话不带走 */
+  /** 切换工作区（D0-07）：选目录后统一走 onNewSession（P0-2/P0-3——同一护栏与失败恢复路径） */
   const onPickWorkspace = useCallback((): void => {
     if (timeline.busy) {
-      setTimeline((prev) => ({
-        ...prev,
-        rows: [
-          ...prev.rows,
-          { kind: "info" as const, text: "运行中不能切换工作区（先停止或等待本轮完成）", tone: "warn" as const },
-        ],
-      }));
+      notify(switchBlockedReason("workspace"));
       return;
     }
     void window.kcodeHost?.pickDirectory().then((dir) => {
       if (dir === null || dir === "" || dir === defaultCwd) return;
-      setQueuedCount(0);
       localStorage.setItem("kcode-last-cwd", dir);
+      // 尚无会话/模型时只记住目录；否则 dispose→create 走统一切换链路
       if (sessionId === null || modelDefault === null) {
         setDefaultCwd(dir);
         return;
       }
-      void conn
-        .send("session/dispose")
-        .then(() => conn.send("session/create", { model: modelDefault, cwd: dir, requestId: globalThis.crypto.randomUUID() }))
-        .then((r) => {
-          setDefaultCwd(dir);
-          setSessionId((r as { sessionId: string }).sessionId);
-          setSessionVersion((v) => v + 1);
-        })
-        .catch((err) => {
-          setTimeline((prev) => ({
-            ...prev,
-            rows: [
-              ...prev.rows,
-              {
-                kind: "info" as const,
-                text: `打开工作区失败：${err instanceof Error ? err.message : String(err)}`,
-                tone: "warn" as const,
-              },
-            ],
-          }));
-        });
+      onNewSession(dir);
     });
-  }, [conn, defaultCwd, modelDefault, sessionId, timeline.busy]);
+  }, [defaultCwd, modelDefault, notify, onNewSession, sessionId, timeline.busy]);
   const ready = conn.status === "ready" && sessionId !== null;
+  /** P0-2：失败卡片动作——重试复用同一 requestId，host 侧接续 draft/failed 记录复用 sessionId */
+  const retryCreate = useCallback((): void => {
+    if (createFailure === null) return;
+    if (createFailure.resumeFrom !== undefined) {
+      onResume(createFailure.resumeFrom, createFailure.cwd);
+      return;
+    }
+    onNewSession(
+      createFailure.cwd,
+      createFailure.requestId !== undefined ? { requestId: createFailure.requestId } : undefined,
+    );
+  }, [createFailure, onNewSession, onResume]);
+  const resumePreviousSession = useCallback((): void => {
+    if (createFailure?.previousSessionId == null) return;
+    onResume(createFailure.previousSessionId);
+  }, [createFailure, onResume]);
   const projectName = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
   onNewSessionRef.current = onNewSession;
   const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
@@ -410,6 +422,18 @@ function DesktopApp() {
             onShowTasks={panes.openTasks}
           />
           <div className="timeline-stack">
+              {createFailure !== null && sessionId === null ? (
+                <div className="create-failure" role="alert">
+                  <div className="cf-title">⚠ 创建会话失败</div>
+                  <div className="cf-msg">{createFailure.error}</div>
+                  <div className="cf-actions">
+                    <button type="button" className="cf-btn" onClick={retryCreate}>重试</button>
+                    {createFailure.previousSessionId !== null ? (
+                      <button type="button" className="cf-btn ghost" onClick={resumePreviousSession}>恢复上一个任务</button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               <Timeline state={timeline} model={modelDefault} onOpenDiff={panes.openDiff} />
               {isEmpty ? (
                 <EmptyState cwd={defaultCwd} onPick={(text) => setPrefill({ text, nonce: Date.now() })} />

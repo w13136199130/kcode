@@ -13,7 +13,8 @@ import {
   type SessionSubmitParams,
 } from "@kcode/contracts";
 import { createProviderRouter, openKeychain } from "@kcode/platform";
-import { deleteSession, listSessions, renameSession } from "@kcode/runtime";import { isProjectTrusted, trustProject } from "@kcode/session";
+import { deleteSession, renameSession } from "@kcode/runtime";
+import { isProjectTrusted, trustProject } from "@kcode/session";
 import { HostSession } from "./session.js";
 import { createCliPlatformService } from "./platform.js";
 import { loadUserModelsConfig } from "./boot.js";
@@ -21,6 +22,7 @@ import { saveUserProvider } from "./config.js";
 import { addWorkspace, listWorkspaces, removeWorkspace } from "./workspace-store.js";
 import { listArchived, setArchived } from "./task-state.js";
 import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
+import { SessionSummaryCache } from "./session-summaries.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
 
 function workspacePathParam(params: unknown): string {
@@ -37,6 +39,15 @@ function faultInject(stage: string, attempt: number): void {
   }
 }
 
+/** 仅测试用故障注入：KCODE_FAULT_STAGE=create-reject 时让第 skip+1 次 session/create
+ * 返回错误（不杀进程）——E2E 用来断言 renderer 的失败可见与重试恢复。 */
+function faultReject(stage: string, attempt: number): void {
+  const skip = Number(process.env["KCODE_FAULT_AFTER_CREATES"] ?? "0");
+  if (process.env["KCODE_FAULT_STAGE"] === stage && attempt === skip + 1) {
+    throw new Error("KCODE_FAULT: session/create 注入失败");
+  }
+}
+
 /**
  * 宿主服务（N3-1 注 A/D）：持有最多一个会话（每会话一进程），排空权威在本进程。
  * 方法路由 + commandId 幂等（同 id 重复请求返缓存结果，防网络重试双执行）。
@@ -50,14 +61,17 @@ export class HostServer {
   #responses = new Map<string, { ok: true; result?: unknown } | { ok: false; error: string }>();
   readonly kcodeHomeDir: string;
   #platformCache: ReturnType<typeof createCliPlatformService> | null = null;
+  /** 会话目录摘要增量缓存（P1-1）：未变化文件 stat 后直接复用，列表成本 O(变化文件)。 */
+  readonly #summaries: SessionSummaryCache;
 
   constructor(private readonly send: (frame: HostFrame) => void) {
     this.kcodeHomeDir = process.env["KCODE_HOME"] ?? join(homedir(), ".kcode");
+    this.#summaries = new SessionSummaryCache(join(this.kcodeHomeDir, "cli", "sessions"));
   }
 
   /** 启动时把 JSONL 摘要回填索引；不阻塞 hello，失败只影响索引新鲜度。 */
   async reconcile(): Promise<void> {
-    const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions")).catch(() => []);
+    const summaries = await this.#summaries.list().catch(() => []);
     await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
   }
 
@@ -189,6 +203,7 @@ export class HostServer {
           status: "draft",
         });
         faultInject("after-draft", attempt);
+        faultReject("create-reject", attempt);
         this.#session = new HostSession(this.hostId, this.kcodeHomeDir, this.send);
         try {
           const createParams = prior?.status === "active" ? { ...p, resumeFrom: sessionId } : p;
@@ -364,7 +379,7 @@ export class HostServer {
         return;
       }
       case "sessions/list": {
-        const summaries = await listSessions(join(this.kcodeHomeDir, "cli", "sessions"));
+        const summaries = await this.#summaries.list();
         await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
         const indexed = await listSessionIndex(this.kcodeHomeDir);
         const deleted = await listDeletedSessions(this.kcodeHomeDir);

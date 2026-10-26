@@ -231,9 +231,9 @@ P0-1 提交 → P0-2 + P0-3（同批，创建链路统一改造）
 | 条目 | 状态 | 完成证据（测试/入口） |
 |---|---|---|
 | P0-1 收口当前批次 | ✅ 2026-10-26 | host 单测 20 passed + desktop E2E 7 passed（含 concurrency/crash-recovery/create-fault），已提交 |
-| P0-2 失败可见可重试 | ⏳ | fault E2E |
-| P0-3 忙碌护栏 | ⏳ | E2E |
-| P1-1 增量缓存 | ⏳ | 单测 + M1 |
+| P0-2 失败可见可重试 | ✅ 2026-10-26 | E2E `create-failure.spec`（注入失败→卡片→重试恢复）+ `switch-guards` 单测 3 条；全量 E2E 9 passed |
+| P0-3 忙碌护栏 | ✅ 2026-10-26 | E2E busy 拦截（本地挂起服务器方案）；desktop-v2 修正空闲信号后全绿（`.composer-send` 忙碌时也渲染，空闲判据=stop 消失） |
+| P1-1 增量缓存 | ✅ 2026-10-26 | `session-summaries.test` 4 条（含未变零重读断言）；host/desktop 单测 28 passed + E2E 9 passed；M1 的 O(变化文件) 已落地，压测数字待 P1-3 |
 | P1-2 renderer 节流 | ⏳ | 单测 + M5 |
 | P1-3 压测指标 | ⏳ | CI |
 | P2-1 索引跨进程锁 | ⏳ | 并发单测 |

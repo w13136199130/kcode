@@ -199,6 +199,9 @@ test("desktop v2 sidebar", async () => {
   await expect(page.locator(".composer-send")).toBeEnabled({ timeout: 10_000 });
   await page.locator(".composer-input").press("Enter");
   await expect(page.locator(".d2-task").filter({ hasText: "你好" })).toBeVisible({ timeout: 10_000 });
+  // P0-3 护栏：运行中新建会被拦截——等本轮结束再新建。
+  // 注意 .composer-send 忙碌时也渲染（title 变“排队”），空闲信号是 stop 消失。
+  await expect(page.locator(".composer-stop")).toHaveCount(0, { timeout: 20_000 });
   await page.locator(".d2-new").click();
   await expect(page.locator(".d2-task").filter({ hasText: "你好" })).toBeVisible();
   await expect(page.locator(".d2-task").filter({ hasText: "新任务" })).toBeVisible();
