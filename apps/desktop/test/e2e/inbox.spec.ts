@@ -74,7 +74,8 @@ test("任务组新建路径：ungrouped 持久化，重启后仍在任务", asyn
     await expect(first.page.locator(".composer-send")).toBeEnabled({ timeout: 10_000 });
     await first.page.locator(".composer-input").press("Enter");
     const inboxTask = first.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" });
-    await expect(inboxTask).toBeVisible({ timeout: 10_000 });
+    // 提交 → user_message → sessions/changed → 侧栏重拉全链路：CI 慢机（2 核）给足余量
+    await expect(inboxTask).toBeVisible({ timeout: 30_000 });
     const inboxId = await inboxTask.getAttribute("data-session-id");
     expect(inboxId).not.toBeNull();
     const projectIds = await first.page
@@ -89,7 +90,9 @@ test("任务组新建路径：ungrouped 持久化，重启后仍在任务", asyn
   const second = await launch(env);
   try {
     await second.page.locator(".d2-inbox .d2-label").click();
-    await expect(second.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" })).toBeVisible();
+    await expect(
+      second.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" }),
+    ).toBeVisible({ timeout: 20_000 });
   } finally {
     kill(second.app);
     await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
