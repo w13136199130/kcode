@@ -73,3 +73,17 @@ export function pageSessions(input: {
     hasMore: input.offset + page.length < sorted.length,
   };
 }
+
+/**
+ * S1-6：sessions/list 参数解析收口（server.ts 行数平衡）——query 小写化、
+ * limit 1–200（默认 100）、offset ≥0（默认 0）。
+ */
+export function parsePageParams(
+  params: unknown,
+): { query: string; limit: number; offset: number } {
+  const p = params as { query?: unknown; limit?: unknown; offset?: unknown };
+  const query = typeof p.query === "string" ? p.query.trim().toLocaleLowerCase() : "";
+  const limit = Math.min(200, Math.max(1, typeof p.limit === "number" && Number.isInteger(p.limit) ? p.limit : 100));
+  const offset = Math.max(0, typeof p.offset === "number" && Number.isInteger(p.offset) ? p.offset : 0);
+  return { query, limit, offset };
+}

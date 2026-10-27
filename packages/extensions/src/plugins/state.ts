@@ -26,13 +26,29 @@ export async function readDisabledPlugins(pluginsDir: string): Promise<string[]>
   }
 }
 
-/** 写回停用清单（tmp + rename 原子替换：进程中断不会留下半写的 state.json） */
+/** 写回停用清单（tmp + rename 原子替换：进程中断不会留下半写的 state.json）。
+ * Windows 上 Defender 对新写文件的实时扫描可能把 rename 锁成 EPERM（实测可超过秒级）——
+ * 重试仍 EPERM 时降级为直接 writeFile：state.json 是小体量派生数据，且读取侧
+ * （readDisabledPlugins）对损坏文件本就安全降级为"全启用"，不值得为原子性卡死用户操作。 */
 async function writeDisabledPlugins(pluginsDir: string, disabled: string[]): Promise<void> {
   const target = join(pluginsDir, STATE_FILE);
   const tmp = `${target}.tmp`;
-  const body: PluginsStateFile = { version: 1, disabled };
-  await writeFile(tmp, `${JSON.stringify(body, null, 2)}\n`, "utf8");
-  await rename(tmp, target);
+  const body = `${JSON.stringify({ version: 1, disabled } satisfies PluginsStateFile, null, 2)}\n`;
+  await writeFile(tmp, body, "utf8");
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(tmp, target);
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EPERM" || attempt >= 2) {
+        await writeFile(target, body, "utf8").catch((fallbackErr) => {
+          throw fallbackErr;
+        });
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80 * (attempt + 1)));
+    }
+  }
 }
 
 /**

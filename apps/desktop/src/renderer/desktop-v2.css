@@ -2726,3 +2726,253 @@
     display: none;
   }
 }
+
+/* ===== S1-6：设置页扩展/使用统计/添加供应商 ===== */
+.sv-ext-nav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.sv-ext-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--d2-border);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--d2-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sv-ext-nav button.active {
+  background: var(--d2-selected);
+  border-color: #d9d9d9;
+  color: var(--d2-ink);
+  font-weight: 600;
+}
+
+.sv-ext-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sv-ext-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sv-ext-install {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sv-ext-install:disabled {
+  background: #999999;
+  cursor: default;
+}
+
+.sv-ext-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid #ececec;
+  border-radius: 9px;
+  background: #ffffff;
+}
+
+.sv-ext-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.sv-ext-item-main .sv-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.sv-ext-item-main strong {
+  font-size: 12.5px;
+}
+
+.sv-ext-item > button {
+  padding: 4px 12px;
+  border: 1px solid var(--d2-border);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--d2-ink-soft);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.sv-ext-item > button:hover {
+  background: var(--d2-hover);
+}
+
+.sv-ext-badge {
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: #f2f2f2;
+  color: var(--d2-muted);
+  font-size: 10.5px;
+}
+
+.sv-ext-badge.ok {
+  background: #edf7ef;
+  color: #17803d;
+}
+
+.sv-ext-badge.warn {
+  background: #fff7e8;
+  color: #8a5a20;
+}
+
+.sv-ext-group-title {
+  margin-top: 6px;
+  color: var(--d2-faint);
+  font-size: 11px;
+}
+
+.sv-usage-cards {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.sv-usage-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--d2-muted);
+  font-size: 11.5px;
+}
+
+.sv-usage-num {
+  color: var(--d2-ink);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.sv-usage-table th,
+.sv-usage-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+}
+
+.sv-usage-table th {
+  color: var(--d2-faint);
+  font-weight: 500;
+}
+
+.sv-usage-table td:not(:first-child) {
+  font-variant-numeric: tabular-nums;
+}
+
+.sv-provider-add {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.sv-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.sv-preset-grid button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sv-preset-grid button.active {
+  border-color: #111111;
+  box-shadow: 0 0 0 1px #111111 inset;
+}
+
+.sv-preset-grid strong {
+  font-size: 12.5px;
+  color: var(--d2-ink);
+}
+
+.sv-preset-grid span {
+  font-size: 10.5px;
+  color: var(--d2-faint);
+}
+
+.sv-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.sv-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--d2-muted);
+  font-size: 11.5px;
+}
+
+.sv-form input {
+  padding: 7px 10px;
+  border: 1px solid var(--d2-border);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.sv-provider-save {
+  align-self: flex-start;
+  padding: 6px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.sv-provider-save:disabled {
+  background: #999999;
+}

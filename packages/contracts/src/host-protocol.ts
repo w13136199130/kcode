@@ -57,7 +57,8 @@ export type PlanRespondParams = z.infer<typeof PlanRespondParams>;
 export const ConfigSaveParams = z.object({
   providerName: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
   provider: z.unknown(), // ProviderConfig；server 侧用 contracts 的 union 再校验
-  model: z.string().min(1),
+  /** S1-6：可选——只加供应商不改默认模型；省略时不动 models.default */
+  model: z.string().min(1).optional(),
   key: z
     .object({
       ref: z.string().regex(/^keychain:\/\/[a-z0-9-]+$/),

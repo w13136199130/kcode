@@ -34,7 +34,7 @@ async function writeAtomic(path: string, data: string): Promise<void> {
  */
 export async function saveUserProvider(
   kcodeHomeDir: string,
-  input: { providerName: string; provider: ProviderConfig; model: string },
+  input: { providerName: string; provider: ProviderConfig; model?: string },
 ): Promise<void> {
   const path = userConfigPath(kcodeHomeDir);
   let raw: Record<string, unknown> = {};
@@ -51,7 +51,7 @@ export async function saveUserProvider(
   const providers = isRecord(models["providers"]) ? models["providers"] : {};
   providers[input.providerName] = input.provider;
   models["providers"] = providers;
-  models["default"] = input.model;
+  if (input.model !== undefined) models["default"] = input.model;
   raw["models"] = models;
 
   const checked = UserConfigFile.safeParse(raw);

@@ -22,7 +22,9 @@ import { saveUserProvider } from "./config.js";
 import { addWorkspace, listWorkspaces, removeWorkspace, setWorkspaceArchived } from "./workspace-store.js";
 import { listArchived, setArchived } from "./task-state.js";
 import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
-import { pageSessions } from "./session-page.js";
+import { pageSessions, parsePageParams } from "./session-page.js";
+import { extensionsOverview, installPluginFromDir, setPluginListEnabled } from "./extensions-overview.js";
+import { usageLedger } from "./usage-ledger.js";
 import { SessionSummaryCache } from "./session-summaries.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
 import { openInEditor } from "./editor-launch.js";
@@ -172,15 +174,9 @@ export class HostServer {
         return { path, trusted: isProjectTrusted(path, this.kcodeHomeDir) };
       }
       case "workspace/archive": {
-        // S1-1（F5）：归档工作区——只改组织标记，不动目录/任务（不存在时 store 抛错）
-        const record = await setWorkspaceArchived(
-          this.kcodeHomeDir,
-          workspacePathParam(params),
-          (params as { archived?: boolean })?.archived === true,
-        );
+        const record = await setWorkspaceArchived(this.kcodeHomeDir, workspacePathParam(params), (params as { archived?: boolean })?.archived === true);
         return { path: record.path, archived: record.archived === true };
       }
-      // S1-1（F5）：在编辑器中打开工作区目录（探测/启动细节在 editor-launch.ts）
       case "workspace/open_editor":
         return openInEditor(workspacePathParam(params));
       case "session/export": {
@@ -333,6 +329,19 @@ export class HostServer {
         this.#session.planRespond(params as PlanRespondParams);
         return;
       }
+      case "extensions/list": return extensionsOverview(this.kcodeHomeDir, this.#session?.cwd() ?? "");
+      case "usage/summary": return usageLedger(join(this.kcodeHomeDir, "cli", "sessions"));
+      case "plugins/set_enabled": {
+        const p = (params ?? {}) as { name?: string; enabled?: boolean };
+        if (p.name === undefined || p.name.trim() === "") throw new Error("插件名不能为空");
+        await setPluginListEnabled(this.kcodeHomeDir, p.name, p.enabled === true);
+        return { name: p.name, enabled: p.enabled === true };
+      }
+      case "plugins/install": {
+        const dir = (params as { sourceDir?: string })?.sourceDir ?? "";
+        if (dir.trim() === "") throw new Error("插件目录不能为空");
+        return installPluginFromDir(this.kcodeHomeDir, dir);
+      }
       case "config/get": {
         const models = await loadUserModelsConfig(this.kcodeHomeDir);
         return {
@@ -360,9 +369,9 @@ export class HostServer {
         await saveUserProvider(this.kcodeHomeDir, {
           providerName: p.providerName,
           provider: provider.data,
-          model: p.model,
+          ...(p.model !== undefined ? { model: p.model } : {}),
         });
-        return { model: p.model };
+        return { ...(p.model !== undefined ? { model: p.model } : {}) };
       }
       case "models/list": {
         const models = await loadUserModelsConfig(this.kcodeHomeDir);
@@ -405,16 +414,7 @@ export class HostServer {
         return;
       }
       case "sessions/list": {
-        const p = params as { query?: unknown; limit?: unknown; offset?: unknown };
-        const query = typeof p.query === "string" ? p.query.trim().toLocaleLowerCase() : "";
-        const limit = Math.min(
-          200,
-          Math.max(1, typeof p.limit === "number" && Number.isInteger(p.limit) ? p.limit : 100),
-        );
-        const offset = Math.max(
-          0,
-          typeof p.offset === "number" && Number.isInteger(p.offset) ? p.offset : 0,
-        );
+        const { query, limit, offset } = parsePageParams(params);
         const summaries = await this.#summaries.list();
         await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
         const indexed = await listSessionIndex(this.kcodeHomeDir);

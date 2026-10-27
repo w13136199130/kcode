@@ -63,6 +63,11 @@ export class HostSession {
   #pendingPlans = new Map<string, { resolve: (verdict: "approved" | "revise" | "abandon") => void; timer: NodeJS.Timeout }>();
   /** 当前会话 cwd：ask 预览（write 对比磁盘旧内容）需要 */
   #cwd = "";
+
+  /** S1-6：设置页扩展清单需要项目级来源（遵守 trust 边界） */
+  cwd(): string {
+    return this.#cwd;
+  }
   /** 中断代际：预览是异步的，预览期间被中断则不得再弹出过期审批 */
   #askEpoch = 0;
   #reasoningBuffer = "";

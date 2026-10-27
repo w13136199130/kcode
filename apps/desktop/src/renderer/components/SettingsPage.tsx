@@ -12,6 +12,9 @@ import {
 } from "lucide-react";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 import { useTheme, type ThemeMode } from "../hooks/useTheme.js";
+import { SettingsExtensions } from "./settings/SettingsExtensions.js";
+import { SettingsUsage } from "./settings/SettingsUsage.js";
+import { ProviderAdd } from "./settings/ProviderAdd.js";
 
 interface ProviderInfo {
   name: string;
@@ -31,19 +34,23 @@ interface WorkspaceInfo {
   trusted: boolean;
 }
 
-type Tab = "models" | "appearance" | "permissions" | "about";
+type Tab = "models" | "appearance" | "permissions" | "extensions" | "usage" | "about";
 type ProbeState = "idle" | "testing" | "ok" | "error";
 
 const TABS: Array<{ id: Tab; label: string; group: string; icon: typeof Sparkles }> = [
   { id: "models", label: "模型", group: "基础设置", icon: Sparkles },
   { id: "appearance", label: "外观", group: "基础设置", icon: Sun },
   { id: "permissions", label: "权限", group: "基础设置", icon: ShieldCheck },
+  { id: "extensions", label: "扩展", group: "其他", icon: Folder },
+  { id: "usage", label: "使用统计", group: "其他", icon: Folder },
   { id: "about", label: "关于", group: "其他", icon: Folder },
 ];
 
 const TITLES: Record<Tab, { title: string; desc: string }> = {
   models: { title: "模型设置", desc: "查看默认模型与本地 provider 配置。" },
   appearance: { title: "外观", desc: "选择桌面端主题；当前 v2 侧栏保持纯白。" },
+  extensions: { title: "扩展", desc: "插件 / 技能 / 命令 / MCP——与 CLI 同一存储，项目级来源遵守信任边界。" },
+  usage: { title: "使用统计", desc: "跨会话用量账本（按转写尾部估算）。" },
   permissions: { title: "权限", desc: "管理工作区信任；信任在下一个新会话生效。" },
   about: { title: "关于", desc: "本地运行信息与配置位置。" },
 };
@@ -74,6 +81,15 @@ export function SettingsPage(props: {
     return () => window.removeEventListener("keydown", onKey);
   }, [props.onClose]);
 
+  const reloadConfig = (): void => {
+    void props.conn
+      .send("config/get")
+      .then((r) => {
+        setConfig(r as ConfigInfo);
+        setSelected(0);
+      })
+      .catch(() => undefined);
+  };
   useEffect(() => {
     if (props.conn.status !== "ready") return;
     let cancelled = false;
@@ -241,6 +257,12 @@ export function SettingsPage(props: {
             </>
           ) : null}
 
+          {tab === "models" ? (
+            <div className="sv-add-provider">
+              <div className="sv-list-label">添加供应商</div>
+              <ProviderAdd conn={props.conn} onSaved={reloadConfig} />
+            </div>
+          ) : null}
           {tab === "appearance" ? (
             <>
               <div className="sv-row">
@@ -298,6 +320,8 @@ export function SettingsPage(props: {
             </>
           ) : null}
 
+          {tab === "extensions" ? <SettingsExtensions conn={props.conn} /> : null}
+          {tab === "usage" ? <SettingsUsage conn={props.conn} /> : null}
           {tab === "about" ? (
             <div className="sv-about">
               <div className="sv-row"><div className="sv-row-copy"><strong>版本</strong><span>kcode desktop</span></div><span>{props.appVersion}</span></div>
