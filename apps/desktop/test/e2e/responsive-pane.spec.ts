@@ -87,7 +87,7 @@ test("context 抽屉浮动不占栏，三档宽度行为正确（S1-4）", async
     const pane = page.locator(".side-pane-v2");
     await expect(pane).toBeVisible();
     const paneBox = await pane.boundingBox();
-    expect(paneBox?.width).toBe(400);
+    expect(paneBox?.width).toBeCloseTo(400, 0); // CI 渲染有亚像素舍入（实测 399.99…）
     const paneStyle = await pane.evaluate((el) => {
       const cs = getComputedStyle(el);
       return { position: cs.position, radius: cs.borderRadius, shadow: cs.boxShadow };
