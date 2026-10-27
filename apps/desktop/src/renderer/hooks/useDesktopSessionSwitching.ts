@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, type MutableRefObject } from "react";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 import { rememberSessionWorkspace } from "../lib/session-workspaces.js";
 import { describeCreateError, switchBlockedReason, type CreateFailure } from "../lib/switch-guards.js";
@@ -16,6 +16,8 @@ export function useDesktopSessionSwitching(options: {
   defaultCwd: string;
   sessionId: string | null;
   busy: boolean;
+  /** S2-1 竞态修复：每次用户切换 +1，作废 boot 在途 create 的迟到回调 */
+  switchEpoch: MutableRefObject<number>;
   /** 时间线追加一条警告行（busy 拦截等提示） */
   notify(text: string): void;
   /** 创建/续接失败：由 main.tsx 渲染失败卡片 */
@@ -45,6 +47,9 @@ export function useDesktopSessionSwitching(options: {
     switchTimeline,
   } = options;
   const switchToken = useRef(0);
+  const bumpEpoch = (): void => {
+    options.switchEpoch.current += 1;
+  };
 
   const onNewSession = useCallback(
     (workspacePath?: string, opts?: { requestId?: string; ungrouped?: boolean }): void => {
@@ -55,6 +60,7 @@ export function useDesktopSessionSwitching(options: {
         return;
       }
       const token = ++switchToken.current;
+      bumpEpoch();
       const previousSessionId = sessionId;
       const requestId =
         opts?.requestId ?? globalThis.crypto?.randomUUID?.() ?? `create_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -107,8 +113,9 @@ export function useDesktopSessionSwitching(options: {
         return;
       }
       const token = ++switchToken.current;
+      bumpEpoch();
       const previousSessionId = sessionId;
-      switchTimeline(null);
+      switchTimeline(id);
       // 旧 host 会话已 dispose；新 create 返回前关闭“可发送”，避免消息写到旧会话。
       setSessionId(null);
       setQueuedCount(0);

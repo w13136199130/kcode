@@ -102,6 +102,8 @@ function DesktopApp() {
 
   // 全局快捷键（capture；命令面板 / 新窗口 / 侧栏）
   const createdRef = useRef(false);
+  /** S2-1 竞态修复：boot 迟到 create 作废用的切换纪元（boot/switching 共享） */
+  const switchEpoch = useRef(0);
   const processed = useRef(0);
   const onNewSessionRef = useRef<(() => void) | null>(null);
   useGlobalShortcuts({ onNewSessionRef, setPaletteOpen, setSidebarCollapsed, openSettings: () => setSettingsOpen(true) });
@@ -111,7 +113,7 @@ function DesktopApp() {
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）。
   // attach/hello 存在短暂竞态，首轮 create 可能被拒；失败要重试，不能把 createdRef 永久卡死。
-  useBootSession({ conn, modelDefault, defaultCwd, createdRef, setSessionId, setCreateFailure });
+  useBootSession({ conn, modelDefault, defaultCwd, createdRef, switchEpoch, setSessionId, setCreateFailure });
 
   // 转写重放（M2b）：会话就绪后拉一次全量事件重建时间线（reload/切换后续接都走这里）
   useSessionReplay({ conn, sessionId, sessionVersion, processed, setTimeline });
@@ -172,6 +174,7 @@ function DesktopApp() {
   }, [sessionId]);
   /** 同窗口新建/续接会话；工作区路径由侧栏传入 */
   const { onNewSession, onResume } = useDesktopSessionSwitching({
+    switchEpoch,
     conn,
     modelDefault,
     defaultCwd,
