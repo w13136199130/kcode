@@ -136,6 +136,7 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S1-6 设置子页第一批 | ⏳ | — |
 | S1-7 预算护栏接线 | ✅ 2026-10-27 | host 会话接 sessionBudgetTokens（KCODE_BUDGET_TOKENS > config budget.maxSessionTokens，fail-closed 成 rejected+detail）；E2E `budget-guard.spec`（种子超预算会话续接提交→暂停条含「会话 token 预算已用尽」） |
 | S1-8 导航占位页 | ✅ 2026-10-27 | 侧栏一级导航（对话/自动化/插件市场）+ NavPlaceholderPage 空态（真功能走 S3-5）；E2E `nav-pages.spec`（切换/返回/composer 恢复） |
+| S1 批 CI 收口 | ✅ 2026-10-27 | ee25bc0 双 job 全绿（19 E2E + perf 门槛）。过程沉淀：①create-failure 慢机加固（test.slow+15s 窗口）；②M1 perf 门槛环境分级（CI 共享 runner 80ms / 本机 50ms，CI 实测 59.85ms 属环境波动）；③**submit 失败可见化（M3 补漏）**——`session/submit` catch 不再静默（慢机 dispose/create 竞态会打在"会话未创建"上），时间线 deny 行 + busy 复位；inbox.spec 加 user_message 前提断言 + retries 2 |
 | S1-1 ~ S1-8 | — | 拆分明细见上（S1-4/5/6 待做） |
 | S2-1 ~ S2-6 | ⏳ | 见各条验收 |
 | S3-1 ~ S3-5 | ⏳ | 见各条验收 |
