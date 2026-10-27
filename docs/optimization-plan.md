@@ -60,7 +60,7 @@ S0 止血（风险每天在累积）→ S1 高频摩擦（日常手感）→ S2 
 
 | ID | 事项 | 落点 / 动作 | 验收 | 量 |
 |---|---|---|---|---|
-| S3-1 | **srt 沙箱真实验收**（4-01 收尾） | 真实 srt 安装验收（沙箱内可改工作区/不可写系统目录/不可联网/越权有提示）+ `/sandbox`/`/audit` 面板；MXC 等 Node 24 后平移 | 4-01 验收清单全过；审计有 sandbox 字段 | 3–5d |
+| S3-1 srt 沙箱验收 | ✅ 2026-10-27 | 本机实装实跑：`srt-sandbox.ps1 verify` 5/5（launch/工作区写/系统目录拒/断网/node+git 可用）+ **bash 工具级三场景**（srt-live × createBashTool：工作区写落盘/系统目录拒且文件未泄漏/断网无响应体，POSIX 命令）；审计 `AuditRecord.sandbox`（backend/mode/denied）已在 pipeline 落盘；实测发现沉淀：沙箱 bash 为 POSIX shell（文档 §2.5）。测试 env 门控（KCODE_SRT_LIVE），CI 无 srt 自动跳过 |
 | S3-2 ✅ | **上下文可观测性**（2026-10-27 落地） | `/context` 条目化预算表：系统提示/内建工具定义/**每个 MCP 服务器独立分组**（`mcp__<server>__` 命名）/历史 + 压缩阈值条 + 会话预算；桌面上下文环 tooltip 同数据；规则/技能/repo map 分项待这些注入器带计量（现在计入系统提示/历史桶） | CLI `/context` + 桌面 tooltip 接同一 `contextItems`；core 单测 3 例 | 2d |
 | S3-3 | **多会话并行**（原 P3-6，依赖 S2-1） | 每会话独立 host 已具备；侧栏运行中状态点（F2 红点）+ 后台会话进度；lease/索引并发已由 P2-1/P2-2 兜底 | 双会话并行 E2E：互不干扰、状态点正确 | 5d+ |
 | S3-4 | **CLI 阶段四余量**（按需逐项；分项依赖 S2-4/S2-5） | 4-03 常驻 LSP、4-04 repo map AST 化、4-05 全文索引（依赖 S2-5）、4-06 转写内选块、4-08 Sigstore、4-09 IDE/ACP 桥（依赖 S2-4）、审批 escalate/modify 裁决 | 各自原验收 | 逐项 2–6d |
@@ -111,7 +111,7 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | 旧条目 | 去向 |
 |---|---|
 | CLI 线 P0-0~P2-E、3-33~3-37、4-02 | 全部完成，证据留 [cli-optimization-plan-2026-10.md](./cli-optimization-plan-2026-10.md) |
-| CLI 4-01 srt | S3-1（M1 骨架已接，待真实验收） |
+| CLI 4-01 srt | S3-1 ✅（2026-10-27 真机验收完成） |
 | CLI 4-03~4-09 | S3-4 |
 | 桌面 P0-1~P4-2、P3-1~P3-4 | 全部完成，证据留 [desktop-session-optimization.md](./desktop-session-optimization.md) |
 | 桌面 P4-1 尾巴（思考强度/Ctrl+T/额度 RPC） | 拆入 S2-6（额度数据）+ S3-4（厂商能力就绪后） |
@@ -145,4 +145,4 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S2-5 索引层接口化 | ✅ 2026-10-27 | `session-query.ts` 接缝：sessions/list 的 IO 组合（摘要+索引 reconcile+归档/回收站叠加）从 server.ts 迁出，调用方只剩一行；换 FTS/SQLite 后端只动该模块。server.ts 500→494 行；search/ordering/desktop-v2 E2E 过 |
 | S3-2 上下文可观测 | ✅ 2026-10-27 | core `contextStats.items`（contextItems 纯函数：系统/内建工具/分 MCP 服务器/历史，MCP 按成本降序）；CLI `/context` 升级为条目化预算表（并入旧进度条/预算语义）；桌面 tooltip 逐条；core 单测 3 例 + CLI 313 全绿。M9 半闭环：注入项全覆盖 ✅，与厂商回报偏差校验待 per-call 对账（⏳） |
 | S2-6 使用统计账本 | ⚠️ 第一片已落地 | `usage/summary` RPC + 设置页使用统计（随 S1-6）；剩余：CLI usage metering 汇聚与精确化（去估算标注）待做 |
-| S3-1 ~ S3-5 | ⏳ | 见各条验收 |
+| S3-1 ~ S3-5 | S3-1/S3-2 ✅；S3-3/S3-4/S3-5 ⏳ | 见各条验收 |

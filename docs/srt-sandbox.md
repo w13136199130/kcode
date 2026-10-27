@@ -67,6 +67,12 @@ pnpm --filter @kcode/sandbox exec srt windows-install --skip-profile-grant
 pnpm --filter @kcode/sandbox exec srt windows-uninstall
 ```
 
+## 2.5 实测注意事项（S3-1 真机验收发现，2026-10-27）
+
+- **沙箱内 bash 是 POSIX shell**（srt 以 `run.sh` + POSIX shell 执行命令）：`Set-Content`/`Get-Content` 等 PowerShell cmdlet 一律 `command not found`（exit 127）——模型/用户在沙箱会话里应使用 POSIX 命令（`echo x > f`、`cat`、正斜杠路径 `C:/Windows/...`）。
+- 系统目录写拒绝表现为进程内 `Access denied` + 非 0 退出（write-restricted token），目标文件确实不产生（验收用"文件未泄漏"断言，而非仅看退出码——否则 command-not-found 会假阳性）。
+- 出网拒绝表现为 curl `exit 7`（WFP 按 SID 过滤），无响应体。
+
 ## 3. 使用
 
 ```powershell
