@@ -131,8 +131,8 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S1-1 菜单补齐 | ✅ 2026-10-27 | host 3 RPC（session/export、workspace/open_editor、workspace/archive + store archived 字段）；任务菜单 导出 JSONL/复制 ID，工作区菜单 在编辑器中打开/归档工作区 + 侧栏「已归档工作区」分区；`workspace-archive.test` 1 条 + E2E `menus.spec`（剪贴板断言/导出落盘/归档往返）；导出走 readFile→writeFile 规避 Defender EPERM；行数收口拆出 editor-launch/session-export/ArchivedWorkspaces/SidebarNav/useSidebarTaskActions |
 | S1-2 tool_progress 接线 | ✅ 2026-10-27 | projection 新 case（挂 running 工具行 progressTail/Chars，result 落定清除）+ ToolCallRow 尾行显示；单测 2 条；E2E 不适用（事件不落盘无法 replay 驱动，真实驱动需厂商工具流——M4 流式帧率断言顺延至 S1-4 响应式批一并手测） |
 | S1-3 llm_error 重试 | ✅ 2026-10-27 | 非额度错误改渲染 `llm_failed` 行（FailedCallBanner + 重试本轮=重发最后一轮用户输入，projection 记 lastUserText）；单测 2 条 + E2E `runtime-state.spec` 第 2 条（重试→重发行出现） |
-| S1-4 context 浮动抽屉 | ⏳ | — |
-| S1-5 快捷键/令牌 | ⏳ | — |
+| S1-4 context 浮动抽屉 | ✅ 2026-10-27 | `.side-pane-v2` 改 400px 浮动（四周 12px 内缩、圆角阴影、入场动画，absolute 不占栏）；三档响应式落地（≥1360 全宽+浮动抽屉 / 1180–1359 覆盖打开 / <1180 侧栏 225px+示例卡单列 / <860 隐藏侧栏）；E2E `responsive-pane.spec`（主栏零位移、三档宽度断言）+ **M8 实测 520 行时间线挂载 rAF P95=20.3ms（目标 33ms ✅）** |
+| S1-5 快捷键/令牌 | ✅ 2026-10-27 | `⌘,` 绑定设置（useGlobalShortcuts）；`--z-*` 调色板三处重复像素值（styles.css/useTheme/隐式）收口到 `@kcode/design`（DESKTOP_CLASSIC_LIGHT/DARK + desktopClassicTheme()，useTheme 消费同一映射，styles.css 只留布局）；`desktop-classic.test` 2 条 + E2E `shortcut-theme.spec`（⌘, 开设置、暗色切换 bg 断言） |
 | S1-6 设置子页第一批 | ⏳ | — |
 | S1-7 预算护栏接线 | ✅ 2026-10-27 | host 会话接 sessionBudgetTokens（KCODE_BUDGET_TOKENS > config budget.maxSessionTokens，fail-closed 成 rejected+detail）；E2E `budget-guard.spec`（种子超预算会话续接提交→暂停条含「会话 token 预算已用尽」） |
 | S1-8 导航占位页 | ✅ 2026-10-27 | 侧栏一级导航（对话/自动化/插件市场）+ NavPlaceholderPage 空态（真功能走 S3-5）；E2E `nav-pages.spec`（切换/返回/composer 恢复） |

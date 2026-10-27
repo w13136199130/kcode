@@ -1,13 +1,15 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 
 /**
- * 全局快捷键（capture；命令面板 ⌘K / 新会话 ⌘N / 侧栏 ⌘B）——S0-4 从 main.tsx 原样拆出。
+ * 全局快捷键（capture；命令面板 ⌘K / 新会话 ⌘N / 侧栏 ⌘B / 设置 ⌘,）——S0-4 从 main.tsx 拆出。
  * deps 保持 []：setters 稳定、ref 可变，注册一次不重挂。
  */
 export function useGlobalShortcuts(opts: {
   onNewSessionRef: MutableRefObject<(() => void) | null>;
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   setSidebarCollapsed: Dispatch<SetStateAction<boolean>>;
+  /** S1-5（F17）：⌘, 打开设置 */
+  openSettings: () => void;
 }): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -22,6 +24,9 @@ export function useGlobalShortcuts(opts: {
       } else if (k === "b") {
         e.preventDefault();
         opts.setSidebarCollapsed((v) => !v);
+      } else if (k === ",") {
+        e.preventDefault();
+        opts.openSettings();
       }
     };
     window.addEventListener("keydown", onKey, true);

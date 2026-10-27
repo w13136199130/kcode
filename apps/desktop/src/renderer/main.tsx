@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { desktopCssTheme, webCssTheme } from "@kcode/design";
+import { desktopClassicTheme, desktopCssTheme, webCssTheme } from "@kcode/design";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import type { PermissionMode } from "@kcode/contracts";
 import { useDesktopConnection } from "./hooks/useDesktopConnection.js";
@@ -48,6 +48,10 @@ document.head.appendChild(styleEl);
 const desktopStyleEl = document.createElement("style");
 desktopStyleEl.textContent = desktopCssTheme();
 document.head.appendChild(desktopStyleEl);
+/** S1-5：经典 --z-* 主题（唯一来源 @kcode/design）——styles.css 不再自持调色板 */
+const classicStyleEl = document.createElement("style");
+classicStyleEl.textContent = desktopClassicTheme();
+document.head.appendChild(classicStyleEl);
 /** D3-UI 开关：默认启用；`?ui=classic` 或 localStorage 对应值可回退旧侧栏。 */
 const UI_V2 =
   new URLSearchParams(window.location.search).get("ui") !== "classic" &&
@@ -97,7 +101,7 @@ function DesktopApp() {
   const createdRef = useRef(false);
   const processed = useRef(0);
   const onNewSessionRef = useRef<(() => void) | null>(null);
-  useGlobalShortcuts({ onNewSessionRef, setPaletteOpen, setSidebarCollapsed });
+  useGlobalShortcuts({ onNewSessionRef, setPaletteOpen, setSidebarCollapsed, openSettings: () => setSettingsOpen(true) });
 
   // 首帧配置（D1-01）：读完才进 onboarding/工作区；上次 cwd 优先
   useInitialConfig({ setModelDefault, setConfigLoaded, setDefaultCwd });
