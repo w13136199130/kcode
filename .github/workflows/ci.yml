@@ -63,3 +63,7 @@ jobs:
         run: pnpm test
       - name: Desktop E2E (headless Electron)
         run: pnpm --filter @kcode/desktop test:e2e
+      - name: Session list perf gate (200 sessions, P95 < 50ms)
+        env:
+          KCODE_PERF: "1"
+        run: pnpm exec vitest run apps/host/test/perf/session-list.perf.test.ts

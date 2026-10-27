@@ -167,10 +167,10 @@ export class HostSession {
   submit(params: SessionSubmitParams): { queued: boolean; position?: number } {
     if (this.#composed === null || this.#queue === null) throw new Error("会话未创建");
     if (this.#reservation) {
-      this.#queue.enqueue(params.text, params.priority ?? "later");
+      this.#queue.enqueue(params.text, params.priority ?? "later", params.images);
       return { queued: true, position: this.#queue.size };
     }
-    void this.#runOccupied(params.text);
+    void this.#runOccupied(params.text, params.images);
     return { queued: false };
   }
 
@@ -253,6 +253,11 @@ export class HostSession {
     }
   }
 
+  /** 上下文占用/窗口/会话累计用量（真实 loop 数据，供桌面容量环）。 */
+  contextStats() {
+    return this.#composed?.contextStats() ?? null;
+  }
+
   askRespond(params: { requestId: string; allowed: boolean; scope?: "once" | "session" | "project" }): void {
     const entry = this.#pendingAsks.get(params.requestId);
     if (entry === undefined) return;
@@ -301,15 +306,15 @@ export class HostSession {
   // ---------- 内部 ----------
 
   /** 排空权威（注 A）：预约 → 执行 → 释放 → 取下一条（宿主侧递归，客户端不参与） */
-  async #runOccupied(text: string): Promise<void> {
+  async #runOccupied(text: string, images?: readonly string[]): Promise<void> {
     if (this.#composed === null || this.#queue === null || this.#closed) return;
     if (!this.#queue.tryReserve()) {
-      this.#queue.enqueue(text);
+      this.#queue.enqueue(text, "later", images);
       return;
     }
     this.#reservation = true;
     try {
-      const summary = await this.#composed.loop.run(text);
+      const summary = await this.#composed.loop.run(text, images !== undefined ? { images: [...images] } : {});
       this.#emit({ type: "session/summary", summary });
     } catch (err) {
       this.#emit({ type: "notice", message: `运行异常：${err instanceof Error ? err.message : String(err)}` });
@@ -319,7 +324,7 @@ export class HostSession {
       this.#flushReasoning();
       const next = this.#queue.dequeue();
       if (next !== undefined) {
-        void this.#runOccupied(next.text);
+        void this.#runOccupied(next.text, next.images);
       }
     }
   }

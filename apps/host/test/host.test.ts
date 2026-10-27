@@ -50,6 +50,9 @@ describe("宿主进程 N3-1（真实子进程）", () => {
     const created = await host.createSession({ model: MODEL, cwd: workDir });
     expect(created.sessionId).toMatch(/^sess_/);
     expect(created.epoch).toBeGreaterThanOrEqual(1);
+    const context = await host.context();
+    expect(context?.contextWindow).toBeGreaterThan(0);
+    expect(context?.historyTokens).toBeGreaterThanOrEqual(0);
 
     // 提交 → run 走到终态（LLM 不可达：status=failed，但协议完整）
     // 注意：waitFor 必须先建监听再 submit（await waitFor 会阻塞在 submit 之前）

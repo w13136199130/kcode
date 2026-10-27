@@ -135,4 +135,29 @@ describe("会话摘要增量缓存（P1-1）", () => {
     expect(rows[0]?.workspaceKey).toBe("C:/legacy");
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("打开会话只追加 host_lease 时，不更新排序时间", async () => {
+    const { dir, cache } = await setup();
+    const file = join(dir, "sess_lease.jsonl");
+    const old = Date.now() - 3 * 24 * 60 * 60_000;
+    await writeFile(
+      file,
+      jsonl([
+        { v: 1, type: "session_start", ts: old, sessionId: "sess_lease", workspaceKey: "E:/ws" },
+        { v: 1, type: "user_message", ts: old + 1, sessionId: "sess_lease", content: "前几天的会话" },
+        { v: 1, type: "assistant_message", ts: old + 2, sessionId: "sess_lease", content: "ok" },
+      ]),
+      "utf8",
+    );
+    const before = (await cache.list())[0]?.modifiedAt;
+    await appendFile(
+      file,
+      `${JSON.stringify({ v: 1, type: "host_lease", ts: Date.now(), sessionId: "sess_lease", pid: 1, epoch: 2 })}\n`,
+      "utf8",
+    );
+    await touch(file, Date.now() + 10_000);
+    const after = (await cache.list())[0]?.modifiedAt;
+    expect(after).toBe(before);
+    await rm(dir, { recursive: true, force: true });
+  });
 });

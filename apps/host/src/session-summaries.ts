@@ -58,11 +58,16 @@ export class SessionSummaryCache {
     }
     const rows: SummaryRow[] = [];
     const seen = new Set<string>();
+    const namesToRead: string[] = [];
     for (const name of names) {
       if (!name.endsWith(".jsonl")) continue;
-      const sessionId = name.replace(/\.jsonl$/, "");
-      seen.add(sessionId);
-      const entry = await this.#entry(sessionId).catch(() => undefined);
+      seen.add(name.replace(/\.jsonl$/, ""));
+      namesToRead.push(name.replace(/\.jsonl$/, ""));
+    }
+    const entries = await Promise.all(
+      namesToRead.map((sessionId) => this.#entry(sessionId).catch(() => undefined)),
+    );
+    for (const entry of entries) {
       if (entry !== undefined && entry.summary !== null) {
         rows.push({ ...entry.summary, ...(entry.title !== undefined ? { title: entry.title } : {}) });
       }
@@ -112,12 +117,22 @@ export class SessionSummaryCache {
   /** 只读文件头部并解析完整行；无有效事件返回 null。 */
   async #parseHead(sessionId: string, filePath: string, mtimeMs: number): Promise<SummaryRow | null> {
     let text: string;
+    let tailText = "";
+    let fileSize = 0;
     try {
       const handle = await open(filePath, "r");
       try {
+        const stat = await handle.stat();
+        fileSize = stat.size;
         const buf = Buffer.alloc(HEAD_BYTES);
         const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
         text = buf.subarray(0, bytesRead).toString("utf8");
+        if (fileSize > HEAD_BYTES) {
+          const tailLength = Math.min(HEAD_BYTES, fileSize);
+          const tail = Buffer.alloc(tailLength);
+          const { bytesRead: tailRead } = await handle.read(tail, 0, tailLength, fileSize - tailLength);
+          tailText = tail.subarray(0, tailRead).toString("utf8");
+        }
       } finally {
         await handle.close();
       }
@@ -131,24 +146,43 @@ export class SessionSummaryCache {
     let workspaceKey = "";
     let preview = "";
     let turns = 0;
-    for (const line of lines) {
+    let lastTs = 0;
+    const consume = (line: string): void => {
       const trimmed = line.trim();
-      if (trimmed === "") continue;
-      let event: { type?: string; workspaceKey?: string; cwd?: string; content?: unknown };
+      if (trimmed === "") return;
+      let event: { type?: string; workspaceKey?: string; cwd?: string; content?: unknown; ts?: unknown };
       try {
         event = JSON.parse(trimmed) as typeof event;
       } catch {
-        continue; // 坏行跳过（与 parseJsonlPrefix 的宽松语义一致）
+        return; // 坏行跳过（与 parseJsonlPrefix 的宽松语义一致）
       }
       anyEvent = true;
+      if (typeof event.ts === "number" && event.type !== "host_lease") {
+        lastTs = Math.max(lastTs, event.ts);
+      }
       if (event.type === "session_start") {
         workspaceKey = event.workspaceKey ?? event.cwd ?? "";
       } else if (event.type === "user_message") {
         turns += 1;
         if (preview === "") preview = String(event.content ?? "").slice(0, 60);
       }
+    };
+    for (const line of lines) consume(line);
+    if (tailText !== "") {
+      // 尾块可能从半行开始；丢弃第一段直到换行。
+      const firstNewline = tailText.indexOf("\n");
+      const tailLines = (firstNewline === -1 ? "" : tailText.slice(firstNewline + 1)).split("\n");
+      for (const line of tailLines) consume(line);
     }
     if (!anyEvent) return null;
-    return { sessionId, filePath, modifiedAt: mtimeMs, turns, preview, workspaceKey };
+    return {
+      sessionId,
+      filePath,
+      // 打开会话会 append host_lease，mtime 会变；排序/“刚刚”必须用最后一条真实事件。
+      modifiedAt: lastTs > 0 ? lastTs : mtimeMs,
+      turns,
+      preview,
+      workspaceKey,
+    };
   }
 }

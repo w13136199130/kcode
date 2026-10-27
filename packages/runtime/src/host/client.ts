@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
 import { newId } from "@kcode/shared";
 import {
   PROTOCOL_MAJOR,
@@ -21,7 +20,6 @@ import {
 export class HostClient {
   readonly #proc: ChildProcess;
   readonly #stdin: NodeJS.WritableStream;
-  readonly #stdout: NodeJS.ReadableStream;
   readonly #pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   readonly #listeners = new Set<(event: HostEvent) => void>();
   #exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
@@ -30,7 +28,6 @@ export class HostClient {
   private constructor(proc: ChildProcess, stdin: NodeJS.WritableStream, stdout: NodeJS.ReadableStream) {
     this.#proc = proc;
     this.#stdin = stdin;
-    this.#stdout = stdout;
     this.#exited = new Promise((resolve) => {
       proc.on("exit", (code, signal) => resolve({ code, signal }));
     });
@@ -131,12 +128,24 @@ export class HostClient {
     return (await this.request("session/replay")) as { sessionId: string; events: SessionEvent[] };
   }
 
-  async submit(text: string, priority?: "now" | "next" | "later"): Promise<SessionSubmitResult> {
-    return (await this.request("session/submit", { text, ...(priority !== undefined ? { priority } : {}) })) as SessionSubmitResult;
+  async submit(
+    text: string,
+    priority?: "now" | "next" | "later",
+    images?: readonly string[],
+  ): Promise<SessionSubmitResult> {
+    return (await this.request("session/submit", {
+      text,
+      ...(priority !== undefined ? { priority } : {}),
+      ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}),
+    })) as SessionSubmitResult;
   }
 
   async interrupt(): Promise<{ cleared: number }> {
     return (await this.request("session/interrupt")) as { cleared: number };
+  }
+
+  async context(): Promise<{ contextWindow: number; historyTokens: number } | null> {
+    return (await this.request("session/context")) as { contextWindow: number; historyTokens: number } | null;
   }
 
   async askRespond(requestId: string, allowed: boolean, scope?: "once" | "session" | "project"): Promise<void> {

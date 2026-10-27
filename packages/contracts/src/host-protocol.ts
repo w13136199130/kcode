@@ -18,11 +18,15 @@ export const SessionCreateParams = z.object({
   resumeFrom: z.string().optional(),
   /** 新建幂等键：同 requestId 重试返回同一 sessionId */
   requestId: z.string().min(1).optional(),
+  /** 在“任务”组下新建：真实 cwd/workspaceKey 仍保留，仅 UI 归入未归类 */
+  ungrouped: z.boolean().optional(),
 });
 export type SessionCreateParams = z.infer<typeof SessionCreateParams>;
 
 export const SessionSubmitParams = z.object({
   text: z.string().min(1),
+  /** 图片绝对路径（最多 8 张）；host 原样交给 core，落盘为 user_message.images */
+  images: z.array(z.string().min(1)).max(8).optional(),
   /** now/next/later（缺省 later；now/next 语义同 RuntimeCommandQueue——只保证排最前，不打断当前轮） */
   priority: z.enum(["now", "next", "later"]).optional(),
 });

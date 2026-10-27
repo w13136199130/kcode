@@ -1,11 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /**
  * 桌面会话索引（Phase 1）。
  *
  * 只保存“会话元数据/归属”，消息仍在 JSONL；索引是可重建的缓存 + 空会话占位。
- * 所有写入同进程串行 + 临时文件 rename，避免半截 JSON。
+ * 所有写入同进程串行 + 跨进程 lock 文件 + 临时文件 rename，避免半截 JSON/丢更新。
  */
 export interface SessionIndexEntry {
   sessionId: string;
@@ -16,6 +17,7 @@ export interface SessionIndexEntry {
   title?: string;
   status?: "draft" | "active" | "failed";
   requestId?: string;
+  ungrouped?: boolean;
 }
 
 interface IndexFile {
@@ -27,6 +29,8 @@ const FILE = "desktop/session-index.json";
 const MAX_ENTRIES = 500;
 /** 创建中断留下的 draft/failed 超过一天仍未落盘，视为 stale。 */
 const STALE_DRAFT_MS = 24 * 60 * 60_000;
+const LOCK_WAIT_MS = 2_000;
+const LOCK_STALE_MS = 5_000;
 
 function indexPath(kcodeHomeDir: string): string {
   return join(kcodeHomeDir, FILE);
@@ -70,6 +74,77 @@ function serial<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
+function lockPath(kcodeHomeDir: string): string {
+  return `${indexPath(kcodeHomeDir)}.lock`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+async function acquireLock(kcodeHomeDir: string): Promise<string> {
+  const path = lockPath(kcodeHomeDir);
+  const token = randomUUID();
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      const handle = await open(path, "wx");
+      try {
+        await handle.writeFile(JSON.stringify({ pid: process.pid, token, startedAt: Date.now() }), "utf8");
+      } finally {
+        await handle.close();
+      }
+      return token;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      let stale = false;
+      try {
+        const raw = JSON.parse(await readFile(path, "utf8")) as {
+          pid?: unknown;
+          startedAt?: unknown;
+        };
+        const pid = typeof raw.pid === "number" ? raw.pid : 0;
+        const startedAt = typeof raw.startedAt === "number" ? raw.startedAt : 0;
+        stale = !pidAlive(pid) || Date.now() - startedAt > LOCK_STALE_MS;
+      } catch {
+        // 锁文件正在被写入或已损坏：按超时继续等待；过期后仍可被清理。
+        stale = false;
+      }
+      if (stale) {
+        await unlink(path).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() >= deadline) throw new Error("session-index 锁等待超时（2s）");
+      await sleep(20);
+    }
+  }
+}
+
+async function withIndexLock<T>(kcodeHomeDir: string, task: () => Promise<T>): Promise<T> {
+  await mkdir(dirname(indexPath(kcodeHomeDir)), { recursive: true });
+  const token = await acquireLock(kcodeHomeDir);
+  try {
+    return await task();
+  } finally {
+    try {
+      const raw = JSON.parse(await readFile(lockPath(kcodeHomeDir), "utf8")) as { token?: unknown };
+      if (raw.token === token) await unlink(lockPath(kcodeHomeDir)).catch(() => undefined);
+    } catch {
+      // 锁已被清理/替换：不误删别人的锁。
+    }
+  }
+}
+
 export async function listSessionIndex(kcodeHomeDir: string): Promise<SessionIndexEntry[]> {
   return readIndex(kcodeHomeDir);
 }
@@ -93,9 +168,10 @@ export async function reconcileSessionIndex(
     title?: string;
   }>,
 ): Promise<void> {
-  await serial(async () => {
-    const sessions = await readIndex(kcodeHomeDir);
-    const byId = new Map(summaries.map((summary) => [summary.sessionId, summary]));
+  await serial(() =>
+    withIndexLock(kcodeHomeDir, async () => {
+      const sessions = await readIndex(kcodeHomeDir);
+      const byId = new Map(summaries.map((summary) => [summary.sessionId, summary]));
     let changed = false;
     const next = sessions.map((item) => {
       const actual = byId.get(item.sessionId);
@@ -147,7 +223,8 @@ export async function reconcileSessionIndex(
       return false;
     });
     if (changed) await writeIndex(kcodeHomeDir, cleaned);
-  });
+    }),
+  );
 }
 
 export async function patchSessionIndex(
@@ -155,26 +232,30 @@ export async function patchSessionIndex(
   sessionId: string,
   patch: Partial<Pick<SessionIndexEntry, "preview" | "title">>,
 ): Promise<void> {
-  await serial(async () => {
-    const sessions = await readIndex(kcodeHomeDir);
-    const current = sessions.find((item) => item.sessionId === sessionId);
-    if (current === undefined) return;
-    const next = {
-      ...current,
-      ...(patch.preview !== undefined ? { preview: patch.preview } : {}),
-      ...(patch.title !== undefined ? { title: patch.title } : {}),
-      updatedAt: Date.now(),
-    };
-    await writeIndex(kcodeHomeDir, [...sessions.filter((item) => item.sessionId !== sessionId), next]);
-  });
+  await serial(() =>
+    withIndexLock(kcodeHomeDir, async () => {
+      const sessions = await readIndex(kcodeHomeDir);
+      const current = sessions.find((item) => item.sessionId === sessionId);
+      if (current === undefined) return;
+      const next = {
+        ...current,
+        ...(patch.preview !== undefined ? { preview: patch.preview } : {}),
+        ...(patch.title !== undefined ? { title: patch.title } : {}),
+        updatedAt: Date.now(),
+      };
+      await writeIndex(kcodeHomeDir, [...sessions.filter((item) => item.sessionId !== sessionId), next]);
+    }),
+  );
 }
 
 export async function removeSessionIndex(kcodeHomeDir: string, sessionId: string): Promise<void> {
-  await serial(async () => {
-    const sessions = await readIndex(kcodeHomeDir);
-    if (!sessions.some((item) => item.sessionId === sessionId)) return;
-    await writeIndex(kcodeHomeDir, sessions.filter((item) => item.sessionId !== sessionId));
-  });
+  await serial(() =>
+    withIndexLock(kcodeHomeDir, async () => {
+      const sessions = await readIndex(kcodeHomeDir);
+      if (!sessions.some((item) => item.sessionId === sessionId)) return;
+      await writeIndex(kcodeHomeDir, sessions.filter((item) => item.sessionId !== sessionId));
+    }),
+  );
 }
 
 export async function upsertSessionIndex(
@@ -182,20 +263,23 @@ export async function upsertSessionIndex(
   entry: Omit<SessionIndexEntry, "createdAt" | "updatedAt"> & { createdAt?: number; updatedAt?: number },
 ): Promise<void> {
   if (entry.sessionId.trim() === "" || entry.workspaceKey.trim() === "") return;
-  await serial(async () => {
-    const sessions = await readIndex(kcodeHomeDir);
-    const now = Date.now();
-    const previous = sessions.find((item) => item.sessionId === entry.sessionId);
-    const next: SessionIndexEntry = {
-      sessionId: entry.sessionId,
-      workspaceKey: entry.workspaceKey,
-      createdAt: previous?.createdAt ?? entry.createdAt ?? now,
-      updatedAt: entry.updatedAt ?? now,
-      ...(entry.preview ?? previous?.preview ? { preview: entry.preview ?? previous?.preview } : {}),
-      ...(entry.title ?? previous?.title ? { title: entry.title ?? previous?.title } : {}),
-      ...(entry.status ?? previous?.status ? { status: entry.status ?? previous?.status } : {}),
-      ...(entry.requestId ?? previous?.requestId ? { requestId: entry.requestId ?? previous?.requestId } : {}),
-    };
-    await writeIndex(kcodeHomeDir, [...sessions.filter((item) => item.sessionId !== entry.sessionId), next]);
-  });
+  await serial(() =>
+    withIndexLock(kcodeHomeDir, async () => {
+      const sessions = await readIndex(kcodeHomeDir);
+      const now = Date.now();
+      const previous = sessions.find((item) => item.sessionId === entry.sessionId);
+      const next: SessionIndexEntry = {
+        sessionId: entry.sessionId,
+        workspaceKey: entry.workspaceKey,
+        createdAt: previous?.createdAt ?? entry.createdAt ?? now,
+        updatedAt: entry.updatedAt ?? now,
+        ...(entry.preview ?? previous?.preview ? { preview: entry.preview ?? previous?.preview } : {}),
+        ...(entry.title ?? previous?.title ? { title: entry.title ?? previous?.title } : {}),
+        ...(entry.status ?? previous?.status ? { status: entry.status ?? previous?.status } : {}),
+        ...(entry.requestId ?? previous?.requestId ? { requestId: entry.requestId ?? previous?.requestId } : {}),
+        ...(entry.ungrouped === true || previous?.ungrouped === true ? { ungrouped: true } : {}),
+      };
+      await writeIndex(kcodeHomeDir, [...sessions.filter((item) => item.sessionId !== entry.sessionId), next]);
+    }),
+  );
 }

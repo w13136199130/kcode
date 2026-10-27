@@ -22,6 +22,7 @@ import { saveUserProvider } from "./config.js";
 import { addWorkspace, listWorkspaces, removeWorkspace } from "./workspace-store.js";
 import { listArchived, setArchived } from "./task-state.js";
 import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
+import { pageSessions } from "./session-page.js";
 import { SessionSummaryCache } from "./session-summaries.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
 
@@ -200,6 +201,7 @@ export class HostServer {
           sessionId,
           workspaceKey: workspaceKey(p.cwd),
           ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+          ...(p.ungrouped === true ? { ungrouped: true } : {}),
           status: "draft",
         });
         faultInject("after-draft", attempt);
@@ -213,6 +215,7 @@ export class HostServer {
             sessionId: created.sessionId,
             workspaceKey: workspaceKey(p.cwd),
             ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+            ...(p.ungrouped === true ? { ungrouped: true } : {}),
             status: "active",
           }).catch(() => undefined);
           faultInject("after-active", attempt);
@@ -223,6 +226,7 @@ export class HostServer {
             sessionId,
             workspaceKey: workspaceKey(p.cwd),
             ...(p.requestId !== undefined ? { requestId: p.requestId } : {}),
+            ...(p.ungrouped === true ? { ungrouped: true } : {}),
             status: "failed",
           }).catch(() => undefined);
           this.#session = null;
@@ -257,6 +261,9 @@ export class HostServer {
       case "session/set_model": {
         if (this.#session === null) throw new Error("会话未创建");
         return this.#session.setModel((params as { ref: string }).ref);
+      }
+      case "session/context": {
+        return this.#session?.contextStats() ?? null;
       }
       case "session/commands": {
         if (this.#session === null) return { commands: [] };
@@ -379,48 +386,22 @@ export class HostServer {
         return;
       }
       case "sessions/list": {
+        const p = params as { query?: unknown; limit?: unknown; offset?: unknown };
+        const query = typeof p.query === "string" ? p.query.trim().toLocaleLowerCase() : "";
+        const limit = Math.min(
+          200,
+          Math.max(1, typeof p.limit === "number" && Number.isInteger(p.limit) ? p.limit : 100),
+        );
+        const offset = Math.max(
+          0,
+          typeof p.offset === "number" && Number.isInteger(p.offset) ? p.offset : 0,
+        );
         const summaries = await this.#summaries.list();
         await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
         const indexed = await listSessionIndex(this.kcodeHomeDir);
-        const deleted = await listDeletedSessions(this.kcodeHomeDir);
-        const byId = new Map(summaries.map((s) => [s.sessionId, s]));
-        const merged = summaries.map((s) => {
-          const meta = indexed.find((item) => item.sessionId === s.sessionId);
-          return {
-            sessionId: s.sessionId,
-            preview: s.preview,
-            turns: s.turns,
-            modifiedAt: s.modifiedAt,
-            workspaceKey: s.workspaceKey !== "" ? s.workspaceKey : (meta?.workspaceKey ?? ""),
-            ...(s.title !== undefined ? { title: s.title } : {}),
-          };
-        });
-        for (const meta of indexed) {
-          if (byId.has(meta.sessionId) || meta.status === "failed") continue;
-          // active 但没有摘要/标题＝被替换掉的空壳，不再作为历史任务显示；
-          // draft 例外：创建中断后要能在侧栏看到并恢复/清理。
-          if (meta.status !== "draft" && (meta.preview ?? "") === "" && meta.title === undefined) continue;
-          merged.push({
-            sessionId: meta.sessionId,
-            preview: meta.preview ?? "",
-            turns: meta.preview !== undefined && meta.preview !== "" ? 1 : 0,
-            modifiedAt: meta.updatedAt,
-            workspaceKey: meta.workspaceKey,
-            ...(meta.status === "draft" ? { draft: true } : {}),
-            ...(meta.title !== undefined ? { title: meta.title } : {}),
-          });
-        }
         const archived = await listArchived(this.kcodeHomeDir);
-        return {
-          sessions: merged
-            .sort((a, b) => b.modifiedAt - a.modifiedAt)
-            .slice(0, 100)
-            .map((s) => ({
-              ...s,
-              ...(archived.has(s.sessionId) ? { archived: true } : {}),
-              ...(deleted.has(s.sessionId) ? { deleted: true } : {}),
-            })),
-        };
+        const deleted = await listDeletedSessions(this.kcodeHomeDir);
+        return pageSessions({ summaries, indexed, archived, deleted, query, limit, offset });
       }
       case "sessions/rename": {
         const p = params as { sessionId: string; title: string };

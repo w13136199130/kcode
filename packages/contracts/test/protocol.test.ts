@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SessionSubmitParams } from "../src/host-protocol.js";
 import {
   PROTOCOL_MAJOR,
   ProtocolHello,
@@ -29,5 +30,22 @@ describe("跨进程协议契约", () => {
     expect(CommandEnvelope.safeParse({ method: "x", params: {} }).success).toBe(false);
     expect(EventCursor.parse({ logEpoch: 0, seq: 3 }).seq).toBe(3);
     expect(EventCursor.safeParse({ logEpoch: -1, seq: 0 }).success).toBe(false);
+  });
+
+  it("提交图片最多 8 张，且路径不能为空", () => {
+    expect(SessionSubmitParams.safeParse({ text: "看图" }).success).toBe(true);
+    expect(
+      SessionSubmitParams.safeParse({
+        text: "看图",
+        images: Array.from({ length: 8 }, (_, i) => `C:/tmp/${i}.png`),
+      }).success,
+    ).toBe(true);
+    expect(SessionSubmitParams.safeParse({ text: "看图", images: ["", ...Array(3).fill("a")] }).success).toBe(false);
+    expect(
+      SessionSubmitParams.safeParse({
+        text: "看图",
+        images: Array.from({ length: 9 }, (_, i) => `C:/tmp/${i}.png`),
+      }).success,
+    ).toBe(false);
   });
 });
