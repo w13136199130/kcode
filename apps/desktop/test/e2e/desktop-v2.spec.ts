@@ -106,7 +106,7 @@ test("desktop v2 sidebar", async () => {
   const m2Start = Date.now();
   await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
   const m2Ms = Date.now() - m2Start;
-  console.log(`[M2] 窗口就绪→Composer 可发送：${m2Ms}ms`);
+  process.stdout.write(`[M2] 窗口就绪→Composer 可发送：${m2Ms}ms\n`);
   expect(m2Ms, `M2 单样本 ${m2Ms}ms（目标 P95<300ms）`).toBeLessThan(2_000);
   await expect(page.locator(".composer-v2")).toBeVisible();
   await expect(page.locator(".composer-context")).toBeVisible({ timeout: 10_000 });
