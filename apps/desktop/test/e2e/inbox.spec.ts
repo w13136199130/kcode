@@ -71,6 +71,9 @@ test("任务组新建路径：ungrouped 持久化，重启后仍在任务", asyn
 
   const first = await launch(env);
   try {
+    // 慢机串行化：boot 自动建会话先落定（草稿行可见）再操作——否则 dispose/create 与
+    // 后续 submit 在 2 核 runner 上竞态，submit 可打在会话未就绪上（CI 三连挂的根因方向）
+    await expect(first.page.locator('.d2-task').filter({ hasText: '新任务' })).toBeVisible({ timeout: 20_000 });
     await first.page.locator(".d2-inbox .d2-label").click();
     await first.page.locator(".d2-new").click();
     await first.page.locator(".composer-input").fill("任务组会话");
