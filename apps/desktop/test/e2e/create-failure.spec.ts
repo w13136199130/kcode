@@ -79,6 +79,7 @@ async function launch(env: Record<string, string | undefined>) {
 
 test("新建会话失败可见且重试可恢复（P0-2，M3）", async () => {
   test.setTimeout(90_000);
+  test.slow(); // 慢速 CI runner 上启动链与故障注入有固有竞态：放大等待窗口（本地 10/10 稳定）
   const { root, env } = await setup();
   // 首次（启动自动）创建放行；第 2 次创建（用户点新建）注入失败；第 3 次（重试）恢复
   env.KCODE_FAULT_STAGE = "create-reject";
@@ -91,11 +92,13 @@ test("新建会话失败可见且重试可恢复（P0-2，M3）", async () => {
 
     // 用户新建 → 注入失败 → 失败卡片可见（不再静默死掉 composer）
     await page.locator(".d2-new").click();
-    await expect(page.locator(".create-failure")).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator(".create-failure .cf-msg")).toContainText("注入失败");
+    await expect(page.locator(".create-failure")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".create-failure .cf-msg")).toContainText("注入失败", { timeout: 15_000 });
 
     // 重试（复用同一 requestId）→ 创建成功 → 卡片消失、composer 恢复
-    await page.locator(".create-failure .cf-btn", { hasText: "重试" }).click();
+    const retryBtn = page.locator(".create-failure .cf-btn", { hasText: "重试" });
+    await expect(retryBtn).toBeVisible({ timeout: 15_000 });
+    await retryBtn.click({ timeout: 15_000 });
     await expect(page.locator(".create-failure")).toBeHidden({ timeout: 10_000 });
     await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
   } finally {
