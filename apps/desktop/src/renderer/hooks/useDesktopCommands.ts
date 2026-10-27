@@ -28,7 +28,12 @@ export function useDesktopCommands(opts: {
     opts.setTimeline((prev) => ({ ...prev, busy: true }));
     void opts.conn
       .send("session/submit", { text, ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}) })
-      .catch(() => opts.setTimeline((prev) => ({ ...prev, busy: false })));
+      .catch((err) => {
+        // M3：发送失败不能静默（慢机上 dispose/create 竞态会让 submit 打在"会话未创建"上）——
+        // 时间线可见 + busy 复位，用户可重发。
+        opts.setTimeline((prev) => ({ ...prev, busy: false }));
+        pushInfo(`发送失败：${err instanceof Error ? err.message : String(err)}`, "deny");
+      });
   };
   const runSlash = async (name: string, args: string): Promise<void> => {
     if (name === "clear") {

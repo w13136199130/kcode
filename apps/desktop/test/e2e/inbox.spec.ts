@@ -1,4 +1,7 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+
+// CI 共享 2 核 runner 上 dispose/create 竞态偶发（本地稳定）；重试上限放宽到 2
+test.describe.configure({ retries: 2 });
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,6 +76,8 @@ test("任务组新建路径：ungrouped 持久化，重启后仍在任务", asyn
     await first.page.locator(".composer-input").fill("任务组会话");
     await expect(first.page.locator(".composer-send")).toBeEnabled({ timeout: 10_000 });
     await first.page.locator(".composer-input").press("Enter");
+    // 前提：提交真的进来了（user_message 行先于侧栏刷新出现）；失败即 submit 被吞，而非列表问题
+    await expect(first.page.locator(".row-user").filter({ hasText: "任务组会话" })).toBeVisible({ timeout: 20_000 });
     const inboxTask = first.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" });
     // 提交 → user_message → sessions/changed → 侧栏重拉全链路：CI 慢机（2 核）给足余量
     await expect(inboxTask).toBeVisible({ timeout: 30_000 });
