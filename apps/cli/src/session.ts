@@ -135,6 +135,8 @@ export interface SessionHandle {
     /** 会话累计用量与预算（N3I-8：/status /context 显示预算进度） */
     sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
     sessionBudgetTokens?: number;
+    /** S3-2：注入项条目（系统/内建工具/分 MCP 服务器/历史） */
+    items: Array<{ label: string; tokens: number; detail?: string }>;
   } | null>;
 }
 

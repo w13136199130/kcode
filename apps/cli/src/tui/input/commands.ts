@@ -19,6 +19,7 @@ import { eventsToMarkdown, serializeEvents } from "../export.js";
 import { appendMemoryLine } from "../memory.js";
 import { formatHelp } from "./help.js";
 import { formatCostUsage } from "./cost.js";
+import { formatContextStats } from "./context.js";
 import { formatAuditRecords } from "./audit-view.js";
 import { createSandboxPort, installSandbox, sandboxSetting } from "@kcode/sandbox";
 import { lastAssistantText, lastCodeBlock } from "./copy.js";
@@ -915,30 +916,13 @@ ${hooks
         return;
       }
       if (name === "context") {
+        // S3-2：注入项条目化（系统/内建工具/各 MCP 服务器/历史）——MCP 成本先看见再决定留谁
         const stats = await ctx.session.context().catch(() => null);
         if (stats === null) {
           ctx.pushBlock({ kind: "info", tone: "warn", text: "上下文信息获取失败（会话操作异常）" });
           return;
         }
-        const fmt = (n: number): string => n.toLocaleString("en-US");
-        const pct = Math.min(100, Math.round((stats.historyTokens / stats.historyBudget) * 100));
-        const barLen = Math.max(1, Math.round(pct / 2.5));
-        ctx.pushBlock({
-          kind: "info",
-          text:
-            `Context · 模型 ${stats.model}（窗口 ${(stats.contextWindow / 1000).toFixed(0)}k${
-              stats.windowKnown ? "" : "，未在窗口表内按默认估算——实际更大请反馈补表"
-            }）
-` +
-            `历史 ${fmt(stats.historyTokens)} / ${fmt(stats.historyBudget)} tok（${pct}%）
-` +
-            `[${"█".repeat(barLen)}${"░".repeat(Math.max(0, 40 - barLen))}]
-` +
-            `系统提示 ${fmt(stats.systemTokens)} tok · ${stats.pinnedAnchor ? "已钉固计划锚点" : "无计划锚点"} · 超预算自动压缩、/compact 手动压缩` +
-            (stats.sessionBudgetTokens !== undefined
-              ? `\n会话预算 ${Math.round((stats.sessionUsage.inputTokens + stats.sessionUsage.outputTokens) / 1000)}k/${Math.round(stats.sessionBudgetTokens / 1000)}k tok（input+output 累计，到顶问询继续/停止）`
-              : ""),
-        });
+        ctx.pushBlock({ kind: "info", text: formatContextStats(stats, ctx.modelLabel) });
         return;
       }
       if (name === "permissions") {

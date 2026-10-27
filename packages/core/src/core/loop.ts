@@ -15,6 +15,41 @@ import {
   type ToolRegistry,
 } from "@kcode/contracts";
 import { estimateTokens, newId } from "@kcode/shared";
+
+/** S3-2：上下文注入项条目（/context 预算表与桌面 tooltip 共用；tokens 为 estimateTokens 估算） */
+export interface ContextItem {
+  label: string;
+  tokens: number;
+  detail?: string;
+}
+
+/** 注入项条目化：系统提示 / 内建工具定义 / 每个 MCP 服务器（mcp__<server>__ 命名分组）/ 历史 */
+export function contextItems(systemPrompt: string, tools: Tool[], historyTokens: number): ContextItem[] {
+  let builtin = 0;
+  let builtinCount = 0;
+  const mcp = new Map<string, { tokens: number; count: number }>();
+  for (const tool of tools) {
+    const def = JSON.stringify(tool.definition);
+    const server = /^mcp__([a-z0-9-]+)__/i.exec(tool.definition.name)?.[1];
+    if (server === undefined) {
+      builtin += estimateTokens(def);
+      builtinCount += 1;
+    } else {
+      const entry = mcp.get(server) ?? { tokens: 0, count: 0 };
+      entry.tokens += estimateTokens(def);
+      entry.count += 1;
+      mcp.set(server, entry);
+    }
+  }
+  return [
+    { label: "系统提示", tokens: estimateTokens(systemPrompt) },
+    { label: "内建工具定义", tokens: builtin, detail: `${builtinCount} 个` },
+    ...[...mcp.entries()]
+      .sort((a, b) => b[1].tokens - a[1].tokens)
+      .map(([server, entry]) => ({ label: `MCP·${server}`, tokens: entry.tokens, detail: `${entry.count} 个工具` })),
+    { label: "历史消息", tokens: historyTokens },
+  ];
+}
 import { assembleMessages } from "../context/assemble.js";
 import { contextWindowFor, deriveBudget, historyTokens, modelWindowKnown, type Budget } from "../context/budget.js";
 import {
@@ -267,7 +302,7 @@ export class AgentLoop {
     return this.providerInput + incremental;
   }
 
-  contextStats(): { model: string; contextWindow: number; windowKnown: boolean; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean; sessionUsage: { inputTokens: number; outputTokens: number; calls: number }; sessionBudgetTokens?: number } {
+  contextStats(): { model: string; contextWindow: number; windowKnown: boolean; historyTokens: number; historyBudget: number; systemTokens: number; pinnedAnchor: boolean; sessionUsage: { inputTokens: number; outputTokens: number; calls: number }; sessionBudgetTokens?: number; items: ContextItem[] } {
     return {
       model: this.model,
       contextWindow: this.contextWindow,
@@ -280,6 +315,7 @@ export class AgentLoop {
       ...(this.opts.sessionBudgetTokens !== undefined && this.opts.sessionBudgetTokens > 0
         ? { sessionBudgetTokens: this.opts.sessionBudgetTokens }
         : {}),
+      items: contextItems(this.systemPrompt, this.ports.tools.list(), this.contextUsed()),
     };
   }
 

@@ -290,7 +290,7 @@ export function Composer(props: {
                 className="composer-context"
                 role="img"
                 aria-label={`上下文 ${contextPct}%`}
-                title={`上下文 ${props.context?.historyTokens.toLocaleString() ?? "—"} / ${props.context?.contextWindow.toLocaleString() ?? "—"} tokens${props.context?.windowKnown === false ? "（窗口为估算）" : ""}`}
+                title={contextTooltip(props.context)}
                 style={{
                   background: `conic-gradient(#b9b9b9 ${contextPct * 3.6}deg, #eeeeee 0deg)`,
                 }}
@@ -356,4 +356,19 @@ export function Composer(props: {
       </div>
     </div>
   );
+}
+
+/** S3-2：上下文环 tooltip——注入项逐条（含 MCP 单服务器成本）+ 窗口占比 */
+function contextTooltip(context?: { historyTokens: number; contextWindow: number; windowKnown: boolean; items?: Array<{ label: string; tokens: number; detail?: string }> } | null): string {
+  if (context === undefined || context === null) return "上下文占用（暂无数据）";
+  const pct =
+    context.contextWindow > 0 ? `${((context.historyTokens / context.contextWindow) * 100).toFixed(1)}%` : "—";
+  const lines = [
+    `上下文 ${context.historyTokens.toLocaleString()} / ${context.contextWindow.toLocaleString()} tokens（${pct}）${context.windowKnown === false ? "（窗口为估算）" : ""}`,
+  ];
+  for (const item of context.items ?? []) {
+    const detail = item.detail !== undefined ? `（${item.detail}）` : "";
+    lines.push(`${item.label}${detail}：${item.tokens.toLocaleString()} tokens`);
+  }
+  return lines.join("\n");
 }

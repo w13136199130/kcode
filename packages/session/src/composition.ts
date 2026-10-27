@@ -139,6 +139,8 @@ export interface ComposedSession {
     pinnedAnchor: boolean;
     sessionUsage: SessionUsage;
     sessionBudgetTokens?: number;
+    /** S3-2：注入项条目（系统/内建工具/分 MCP 服务器/历史） */
+    items: Array<{ label: string; tokens: number; detail?: string }>;
   };
   close(): Promise<void>;
 }

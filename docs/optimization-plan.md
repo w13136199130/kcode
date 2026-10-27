@@ -61,7 +61,7 @@ S0 止血（风险每天在累积）→ S1 高频摩擦（日常手感）→ S2 
 | ID | 事项 | 落点 / 动作 | 验收 | 量 |
 |---|---|---|---|---|
 | S3-1 | **srt 沙箱真实验收**（4-01 收尾） | 真实 srt 安装验收（沙箱内可改工作区/不可写系统目录/不可联网/越权有提示）+ `/sandbox`/`/audit` 面板；MXC 等 Node 24 后平移 | 4-01 验收清单全过；审计有 sandbox 字段 | 3–5d |
-| S3-2 | **上下文可观测性** | `/context` 预算表：系统提示/工具定义/各 MCP/规则/技能/repo map 各占多少 token + 会话累计（3-21 已有底）；pi 的数字（单 MCP 13.7k–18k）就是砍留依据 | CLI `/context` + 桌面上下文环 tooltip 接同一数据 | 2d |
+| S3-2 ✅ | **上下文可观测性**（2026-10-27 落地） | `/context` 条目化预算表：系统提示/内建工具定义/**每个 MCP 服务器独立分组**（`mcp__<server>__` 命名）/历史 + 压缩阈值条 + 会话预算；桌面上下文环 tooltip 同数据；规则/技能/repo map 分项待这些注入器带计量（现在计入系统提示/历史桶） | CLI `/context` + 桌面 tooltip 接同一 `contextItems`；core 单测 3 例 | 2d |
 | S3-3 | **多会话并行**（原 P3-6，依赖 S2-1） | 每会话独立 host 已具备；侧栏运行中状态点（F2 红点）+ 后台会话进度；lease/索引并发已由 P2-1/P2-2 兜底 | 双会话并行 E2E：互不干扰、状态点正确 | 5d+ |
 | S3-4 | **CLI 阶段四余量**（按需逐项；分项依赖 S2-4/S2-5） | 4-03 常驻 LSP、4-04 repo map AST 化、4-05 全文索引（依赖 S2-5）、4-06 转写内选块、4-08 Sigstore、4-09 IDE/ACP 桥（依赖 S2-4）、审批 escalate/modify 裁决 | 各自原验收 | 逐项 2–6d |
 | S3-5 | **新功能线占位**（原 P4-7/F20/F21/F22） | 自动化页/插件市场（本地管理优先）/终端+面板+帮助菜单——仍按例外另行立项，本文只占位不展开 | 立项时在本文追加条目 | — |
@@ -143,5 +143,6 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S2-3 typed error.code | ✅ 2026-10-27 | `llm_error` 加可选 `code` 枚举（quota/auth/rate_limit/context_overflow/network/unknown）；发射侧权威分类 `classifyLlmError`（core/errors.ts），renderer code 优先、旧转写文案兜底；例外已登记（desktop-workspace-rpc-approval.md）。core 8 例 + renderer 3 例单测 |
 | S2-4 host HTTP 监听 | ✅ 2026-10-27 | `--listen [port]`：127.0.0.1 + Bearer token（KCODE_HOST_TOKEN 或自动生成打 stderr）；`POST /rpc`（HostServer 新增进程内 `request()` 入口——同 #dispatch，ACP/4-09 未来复用）+ `GET /events` SSE（stdout 帧扇出）+ `/health`；业务错误走 ok:false/HTTP200（RPC 语义）。单测 4 条（鉴权/dispatch 复用/SSE/真实 HostServer sessions/list）+ 进程级冒烟（tsx 拉起 + curl 三断言）。WS 待多端客户端出现再加（HTTP+SSE 先覆盖 web/ACP） |
 | S2-5 索引层接口化 | ✅ 2026-10-27 | `session-query.ts` 接缝：sessions/list 的 IO 组合（摘要+索引 reconcile+归档/回收站叠加）从 server.ts 迁出，调用方只剩一行；换 FTS/SQLite 后端只动该模块。server.ts 500→494 行；search/ordering/desktop-v2 E2E 过 |
+| S3-2 上下文可观测 | ✅ 2026-10-27 | core `contextStats.items`（contextItems 纯函数：系统/内建工具/分 MCP 服务器/历史，MCP 按成本降序）；CLI `/context` 升级为条目化预算表（并入旧进度条/预算语义）；桌面 tooltip 逐条；core 单测 3 例 + CLI 313 全绿。M9 半闭环：注入项全覆盖 ✅，与厂商回报偏差校验待 per-call 对账（⏳） |
 | S2-6 使用统计账本 | ⚠️ 第一片已落地 | `usage/summary` RPC + 设置页使用统计（随 S1-6）；剩余：CLI usage metering 汇聚与精确化（去估算标注）待做 |
 | S3-1 ~ S3-5 | ⏳ | 见各条验收 |

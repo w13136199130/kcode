@@ -24,7 +24,7 @@ export const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "edit", desc: "回退到指定轮次、编辑提问并重发", argsHint: "<轮次> <新内容>" },
   { name: "diff", desc: "审查本会话的文件改动（changed files + hunks），逐文件回退", argsHint: "[文件]（空 = 全部改动）" },
   { name: "compact", desc: "手动压缩历史（保留任务锚点与近期上下文）", argsHint: "（无参数）" },
-  { name: "context", desc: "查看上下文 token 占用与压缩阈值", argsHint: "（无参数）" },
+  { name: "context", desc: "上下文预算表：系统提示/工具定义/各 MCP 服务器/历史占比", argsHint: "（无参数）" },
   { name: "clear", desc: "清屏并开启全新会话（上下文一并清空）", argsHint: "（无参数）" },
   { name: "status", desc: "会话/模型/模式/用量一览", argsHint: "（无参数）" },
   { name: "mcp", desc: "MCP 服务器接入状态与工具清单", argsHint: "[tools <名称>]（空 = 状态一览）" },

@@ -7,6 +7,8 @@ export interface ContextStats {
   historyTokens: number;
   historyBudget: number;
   sessionUsage?: { inputTokens?: number; outputTokens?: number; calls?: number };
+  /** S3-2：注入项条目（系统/内建工具/分 MCP 服务器/历史）——tooltip 逐条展示 */
+  items?: Array<{ label: string; tokens: number; detail?: string }>;
 }
 
 /** 上下文容量：host 真实 contextStats 轮询（无 usage 时不伪造数字）。 */
