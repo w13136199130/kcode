@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld("kcodeHost", {
   pickDirectory(): Promise<string | null> {
     return ipcRenderer.invoke("kcode:pick-directory");
   },
+  /** 选择图片附件；取消返回空数组（host 以绝对路径读图） */
+  pickImages(): Promise<string[]> {
+    return ipcRenderer.invoke("kcode:pick-images");
+  },
   /** 系统通知（renderer 仅在窗口失焦时发送——去重纪律在调用侧） */
   notify(title: string, body: string): void {
     ipcRenderer.send("kcode:notify", { title, body });

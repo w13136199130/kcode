@@ -1,4 +1,5 @@
 import type { HostEvent } from "@kcode/contracts";
+import { isQuotaError } from "../lib/quota.js";
 
 /**
  * 桌面时间线投影（M2a，§8.4h）：宿主事件流 → 行模型 + 直播流状态。
@@ -24,7 +25,30 @@ export type Row =
     }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" }
   | { kind: "todo"; todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
-  | { kind: "separator"; label: string };
+  | { kind: "separator"; label: string }
+  /** P4-2（F16）：额度类 llm_error——渲染为带「重置额度/反馈」动作的内联 banner */
+  | { kind: "quota"; text: string };
+
+export interface TodoStep {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+/** 子智能体卡（P4-2/F16）：spawn/stopped 事件归并出的最新状态 */
+export interface SubagentCard {
+  agentId: string;
+  agentType: string;
+  description: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  turns?: number;
+}
+
+/** 暂停点（P4-2/F16）：单轮步数到顶 / 会话 token 预算暂停——「继续」按钮的出现依据 */
+export interface PausePoint {
+  reason: "limit" | "budget";
+  maxTurns?: number;
+  detail?: string;
+}
 
 export interface TimelineState {
   rows: Row[];
@@ -33,6 +57,12 @@ export interface TimelineState {
   /** 直播思考（进行中；收起显示） */
   streamThinking: string;
   busy: boolean;
+  /** 最新一轮 todo 步骤（进度卡 `2/5` 的事实源；行内仍保留历史 todo 行） */
+  todos: TodoStep[];
+  /** 子智能体最新状态（进度卡子智能体区的事实源） */
+  agents: SubagentCard[];
+  /** 暂停点：run_limit_reached / 预算 rejected 置位；用户再次输入清除 */
+  paused: PausePoint | null;
 }
 
 interface ToolRow extends Extract<Row, { kind: "tool" }> {}
@@ -47,7 +77,10 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
     return { ...state, streamThinking: state.streamThinking + (ev as { text: string }).text };
   }
   if (ev.type === "notice") {
-    return { ...state, rows: [...state.rows, { kind: "info", text: (ev as { message: string }).message, tone: "warn" }] };
+    const message = (ev as { message: string }).message;
+    // 桌面用可操作的 TrustBanner 承载这条状态；避免同一条提示在时间线里重复。
+    if (message.startsWith("项目未被信任")) return state;
+    return { ...state, rows: [...state.rows, { kind: "info", text: message, tone: "warn" }] };
   }
   if (ev.type === "tool/preview") {
     return {
@@ -79,6 +112,8 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
             ...(typeof se["ts"] === "number" ? { at: se["ts"] } : {}),
           },
         ],
+        // 用户已接手（含点「继续」）——暂停点撤销
+        paused: null,
       };
     case "assistant_message": {
       // 直播流落定成行；思考随正文落定（无独立 reasoning 事件时）
@@ -121,13 +156,18 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
       });
       return { ...state, rows };
     }
-    case "llm_error":
-      return { ...state, rows: [...state.rows, { kind: "info", text: `✗ 模型调用失败：${String(se["error"] ?? "")}`, tone: "warn" }] };
+    case "llm_error": {
+      const error = String(se["error"] ?? "");
+      const row: Row = isQuotaError(error)
+        ? { kind: "quota", text: error }
+        : { kind: "info", text: `✗ 模型调用失败：${error}`, tone: "warn" };
+      return { ...state, rows: [...state.rows, row] };
+    }
     case "todo_update": {
       const todos = Array.isArray(se["todos"])
         ? (se["todos"] as Array<{ content: string; status: "pending" | "in_progress" | "completed" }>)
         : [];
-      return { ...state, rows: [...state.rows, { kind: "todo", todos }] };
+      return { ...state, rows: [...state.rows, { kind: "todo", todos }], todos };
     }
     case "skill_used":
       return {
@@ -150,33 +190,72 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
           { kind: "separator", label: `上下文已压缩（丢弃 ${String(se["dropped"] ?? 0)} 条）` },
         ],
       };
-    case "subagent_spawned":
+    case "subagent_spawned": {
+      const card: SubagentCard = {
+        agentId: String(se["agentId"] ?? ""),
+        agentType: String(se["agentType"] ?? ""),
+        description: String(se["description"] ?? ""),
+        status: "running",
+      };
       return {
         ...state,
-        rows: [...state.rows, { kind: "info", text: `🤖 子代理 ${String(se["agentType"] ?? "")}：${String(se["description"] ?? "")}`, tone: "ok" }],
+        rows: [...state.rows, { kind: "info", text: `🤖 子代理 ${card.agentType}：${card.description}`, tone: "ok" }],
+        agents: state.agents.some((a) => a.agentId === card.agentId)
+          ? state.agents.map((a) => (a.agentId === card.agentId ? card : a))
+          : [...state.agents, card],
       };
-    case "subagent_stopped":
+    }
+    case "subagent_stopped": {
+      const agentId = String(se["agentId"] ?? "");
+      const status = String(se["status"] ?? "stopped");
+      const stopped: SubagentCard = {
+        agentId,
+        agentType: String(se["agentType"] ?? ""),
+        description: String(se["description"] ?? ""),
+        status: status === "completed" || status === "failed" ? status : "stopped",
+        ...(typeof se["turns"] === "number" ? { turns: se["turns"] } : {}),
+      };
       return {
         ...state,
-        rows: [...state.rows, { kind: "info", text: `🤖 子代理结束（${String(se["status"] ?? "")}，${String(se["turns"] ?? 0)} 轮）`, tone: "warn" }],
+        rows: [...state.rows, { kind: "info", text: `🤖 子代理结束（${status}，${String(se["turns"] ?? 0)} 轮）`, tone: "warn" }],
+        agents: state.agents.some((a) => a.agentId === agentId)
+          ? state.agents.map((a) => (a.agentId === agentId ? { ...a, ...stopped } : a))
+          : [...state.agents, stopped],
       };
+    }
     case "session_end": {
       const reason = se["reason"];
+      const detail = typeof se["detail"] === "string" ? se["detail"] : undefined;
       const rows =
         reason === "completed"
           ? state.rows
           : [...state.rows, { kind: "info", text: `⏸ 本轮结束（${String(reason)}）`, tone: "warn" } as Row];
-      return { ...state, rows, busy: false, streamText: "", streamThinking: "" };
+      let paused = state.paused;
+      if (reason === "limit_reached") {
+        paused = paused ?? { reason: "limit" };
+      } else if (reason === "rejected" && detail !== undefined && detail.startsWith("会话 token 预算已用尽")) {
+        paused = { reason: "budget", detail };
+      } else if (reason === "completed") {
+        paused = null;
+      }
+      return { ...state, rows, paused, busy: false, streamText: "", streamThinking: "" };
     }
     case "run_limit_reached":
-      return { ...state, rows: [...state.rows, { kind: "info", text: "⏸ 已达单轮步数上限，输入「继续」可接着做", tone: "warn" }] };
+      return {
+        ...state,
+        rows: [...state.rows, { kind: "info", text: "⏸ 已达单轮步数上限，输入「继续」可接着做", tone: "warn" }],
+        paused: {
+          reason: "limit",
+          ...(typeof se["maxTurns"] === "number" ? { maxTurns: se["maxTurns"] } : {}),
+        },
+      };
     default:
       return state;
   }
 }
 
 export function initialTimeline(): TimelineState {
-  return { rows: [], streamText: "", streamThinking: "", busy: false };
+  return { rows: [], streamText: "", streamThinking: "", busy: false, todos: [], agents: [], paused: null };
 }
 
 /** 工具参数的一行预览（argsPreview 桌面版——command/path/query 等首字段） */

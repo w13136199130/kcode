@@ -12,6 +12,8 @@ export interface SessionSummary {
   deleted?: boolean;
   /** 索引中的 draft：创建过程中崩溃/尚未落盘，仍应显示为“新任务”。 */
   draft?: boolean;
+  /** 用户在“任务”组下新建：真实 workspaceKey 保留，仅 UI 归未归类。 */
+  ungrouped?: boolean;
 }
 
 export interface Workspace {

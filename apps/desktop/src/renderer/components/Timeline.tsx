@@ -13,10 +13,14 @@ export function Timeline({
   state,
   model,
   onOpenDiff,
+  onQuotaReset,
+  onQuotaFeedback,
 }: {
   state: TimelineState;
   model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+  onQuotaReset?: () => void;
+  onQuotaFeedback?: (text: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -93,7 +97,13 @@ export function Timeline({
             ref={virtualizer.measureElement}
             style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)` }}
           >
-            <RowView row={rows[item.index]!} model={model} onOpenDiff={onOpenDiff} />
+            <RowView
+              row={rows[item.index]!}
+              model={model}
+              onOpenDiff={onOpenDiff}
+              onQuotaReset={onQuotaReset}
+              onQuotaFeedback={onQuotaFeedback}
+            />
           </div>
         ))}
       </div>

@@ -32,6 +32,7 @@ export function TrashTaskList(props: {
           {props.sessions.map((session) => (
             <TaskRow
               key={session.sessionId}
+              sessionId={session.sessionId}
               title={sessionTitle(session, props.currentId)}
               age={relativeTime(session.modifiedAt)}
               active={false}

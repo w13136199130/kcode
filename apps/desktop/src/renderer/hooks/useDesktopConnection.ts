@@ -19,6 +19,8 @@ declare global {
       getDefaultCwd(): Promise<string>;
       /** 工作区选择（D0-07）；取消返回 null */
       pickDirectory(): Promise<string | null>;
+      /** 图片附件选择；取消返回空数组 */
+      pickImages(): Promise<string[]>;
       /** 系统通知（窗口失焦时由 renderer 调用） */
       notify(title: string, body: string): void;
       /** 应用版本（构建注入） */

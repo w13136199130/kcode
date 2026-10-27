@@ -1,14 +1,13 @@
 import { createRoot } from "react-dom/client";
 import { desktopCssTheme, webCssTheme } from "@kcode/design";
 import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
-import type { PermissionMode, SessionEvent } from "@kcode/contracts";
+import type { PermissionMode } from "@kcode/contracts";
 import { useDesktopConnection } from "./hooks/useDesktopConnection.js";
 import { useDesktopSessionSwitching } from "./hooks/useDesktopSessionSwitching.js";
 import { WorkspaceLayout } from "./components/WorkspaceLayout.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
 import { DesktopSidebar } from "./components/DesktopSidebar.js";
 import { WorkspaceHeader } from "./components/WorkspaceHeader.js";
-import { Timeline } from "./components/Timeline.js";
 import { Composer } from "./components/Composer.js";
 import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
 import { PlanPanel } from "./components/PlanPanel.js";
@@ -19,8 +18,17 @@ import { useCommandCatalog } from "./hooks/useCommandCatalog.js";
 import { useDesktopCommands } from "./hooks/useDesktopCommands.js";
 import { SettingsPage } from "./components/SettingsPage.js";
 import { EmptyState } from "./components/EmptyState.js";
-import { rememberSessionWorkspace } from "./lib/session-workspaces.js";
-import { describeCreateError, switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
+import { CreateFailureCard } from "./components/CreateFailureCard.js";
+import { TrustBanner } from "./components/TrustBanner.js";
+import { useBootSession } from "./hooks/useBootSession.js";
+import { useSessionReplay } from "./hooks/useSessionReplay.js";
+import { useWorkspaceTrust } from "./hooks/useWorkspaceTrust.js";
+import { useModelPicker } from "./hooks/useModelPicker.js";
+import { useSessionContext } from "./hooks/useSessionContext.js";
+import { switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
+import { RuntimeTimeline } from "./components/RuntimeTimeline.js";
+import { useQuotaActions } from "./hooks/useQuotaActions.js";
+import { useDesktopNotifications } from "./hooks/useDesktopNotifications.js";
 import { Onboarding } from "./components/Onboarding.js";
 import "./styles.css";
 import "./desktop-v2.css";
@@ -90,26 +98,7 @@ function DesktopApp() {
   }, [defaultCwd]);
 
   // 系统通知（M3a）：仅在窗口失焦时发——任务完成 / 待审批（沿检测去重）
-  const prevBusyRef = useRef(timeline.busy);
-  const prevAskRef = useRef<string | null>(null);
-  const prevPlanRef = useRef<string | null>(null);
-  useEffect(() => {
-    const focused = document.hasFocus();
-    if (prevBusyRef.current === true && timeline.busy === false && !focused) {
-      window.kcodeHost?.notify("kcode", "任务已完成");
-    }
-    prevBusyRef.current = timeline.busy;
-    const askId = ask?.requestId ?? null;
-    if (askId !== null && prevAskRef.current !== askId && !focused) {
-      window.kcodeHost?.notify("kcode", `等待审批：${ask?.tool ?? "工具"}`);
-    }
-    prevAskRef.current = askId;
-    const planId = plan?.requestId ?? null;
-    if (planId !== null && prevPlanRef.current !== planId && !focused) {
-      window.kcodeHost?.notify("kcode", "等待批准执行计划");
-    }
-    prevPlanRef.current = planId;
-  }, [timeline.busy, ask, plan]);
+  useDesktopNotifications({ busy: timeline.busy, ask, plan });
 
   // 全局快捷键（capture；命令面板 / 新窗口 / 侧栏）
   useEffect(() => {
@@ -159,67 +148,10 @@ function DesktopApp() {
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）。
   // attach/hello 存在短暂竞态，首轮 create 可能被拒；失败要重试，不能把 createdRef 永久卡死。
-  // P0-2：重试耗尽不再静默——落入 createFailure，由失败卡片提供重试入口。
-  useEffect(() => {
-    if (conn.status !== "ready" || createdRef.current || modelDefault === null || defaultCwd === "") return;
-    createdRef.current = true;
-    let attempts = 0;
-    const bootRequestId = globalThis.crypto.randomUUID();
-    const create = (): void => {
-      void conn
-        .send("session/create", { model: modelDefault, cwd: defaultCwd, requestId: bootRequestId })
-        .then((r) => { const id = (r as { sessionId: string }).sessionId; rememberSessionWorkspace(id, defaultCwd); setSessionId(id); })
-        .catch((err) => {
-          createdRef.current = false;
-          if (attempts >= 3) {
-            setCreateFailure({ cwd: defaultCwd, requestId: bootRequestId, previousSessionId: null, error: describeCreateError(err) });
-            return;
-          }
-          attempts += 1;
-          window.setTimeout(create, 300 * attempts);
-        });
-    };
-    create();
-  }, [conn.status, modelDefault, defaultCwd, conn]);
+  useBootSession({ conn, modelDefault, defaultCwd, createdRef, setSessionId, setCreateFailure });
 
   // 转写重放（M2b）：会话就绪后拉一次全量事件重建时间线（reload/切换后续接都走这里）
-  useEffect(() => {
-    if (conn.status !== "ready" || sessionId === null) return;
-    // 切换会话（sessionVersion 变化）时先清时间线——避免旧会话内容闪留
-    setTimeline(initialTimeline());
-    let cancelled = false;
-    void conn
-      .send("session/replay")
-      .then((r) => {
-        if (cancelled) return;
-        const { events } = r as { sessionId: string; events: SessionEvent[] };
-        let state = initialTimeline();
-        // replay 返回的是 SessionEvent[]；applyEvent 消费 HostEvent，需包一层信封
-        for (const ev of events) state = applyEvent(state, { type: "session/event", event: ev });
-        setTimeline(state);
-        processed.current = conn.events.length; // 重放已含直播期事件——跳过存量
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        // 不要把恢复失败吞成空白：至少告诉用户时间线为什么没回来
-        setTimeline((prev) => ({
-          ...prev,
-          rows: [
-            ...prev.rows,
-            {
-              kind: "info" as const,
-              text: `转写恢复失败：${err instanceof Error ? err.message : String(err)}`,
-              tone: "warn" as const,
-            },
-          ],
-        }));
-      });
-    return () => {
-      cancelled = true;
-    };
-    // sessionVersion 变化（切换续接）时重放
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conn.status, sessionId, sessionVersion]);
+  useSessionReplay({ conn, sessionId, sessionVersion, processed, setTimeline });
 
   // 事件流 → 投影（增量）
   useEffect(() => {
@@ -296,6 +228,9 @@ function DesktopApp() {
     void conn.send("session/interrupt").catch(() => undefined);
   };
 
+  // P4-2（F16）：额度 banner 动作（重置额度/反馈）
+  const { quotaReset, quotaFeedback } = useQuotaActions({ modelDefault, sessionId, openSettings: () => setSettingsOpen(true) });
+
   /** 时间线追加警告行（busy 拦截等提示共用） */
   const notify = useCallback((text: string): void => {
     setTimeline((prev) => ({
@@ -356,6 +291,9 @@ function DesktopApp() {
     if (createFailure?.previousSessionId == null) return;
     onResume(createFailure.previousSessionId);
   }, [createFailure, onResume]);
+  const trust = useWorkspaceTrust(conn, defaultCwd);
+  const modelPicker = useModelPicker({ conn, model: modelDefault, setModel: setModelDefault, notify });
+  const contextStats = useSessionContext(conn, sessionId, timeline.busy);
   const projectName = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
   onNewSessionRef.current = onNewSession;
   const isEmpty = ready && timeline.rows.length === 0 && timeline.streamText === "";
@@ -434,19 +372,24 @@ function DesktopApp() {
             onShowTasks={panes.openTasks}
           />
           <div className="timeline-stack">
-              {createFailure !== null && sessionId === null ? (
-                <div className="create-failure" role="alert">
-                  <div className="cf-title">⚠ 创建会话失败</div>
-                  <div className="cf-msg">{createFailure.error}</div>
-                  <div className="cf-actions">
-                    <button type="button" className="cf-btn" onClick={retryCreate}>重试</button>
-                    {createFailure.previousSessionId !== null ? (
-                      <button type="button" className="cf-btn ghost" onClick={resumePreviousSession}>恢复上一个任务</button>
-                    ) : null}
-                  </div>
-                </div>
+            {trust.visible ? (
+              <TrustBanner onTrust={() => void trust.trust()} onDismiss={trust.dismiss} />
+            ) : null}
+              {createFailure !== null ? (
+                <CreateFailureCard
+                  failure={createFailure}
+                  onRetry={retryCreate}
+                  onResumePrevious={resumePreviousSession}
+                />
               ) : null}
-              <Timeline state={timeline} model={modelDefault} onOpenDiff={panes.openDiff} />
+              <RuntimeTimeline
+                timeline={timeline}
+                model={modelDefault}
+                onOpenDiff={panes.openDiff}
+                onQuotaReset={quotaReset}
+                onQuotaFeedback={quotaFeedback}
+                onContinue={() => onSend("继续")}
+              />
               {isEmpty ? (
                 <EmptyState cwd={defaultCwd} onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
               ) : null}
@@ -487,8 +430,11 @@ function DesktopApp() {
             queuedCount={queuedCount}
             mode={mode}
             model={modelDefault}
+            context={contextStats}
             prefill={prefill}
             commands={commands}
+            onListModels={modelPicker.listModels}
+            onModelChange={modelPicker.changeModel}
             onListFiles={async (query) => {
               const r = (await conn.send("session/files", { query }).catch(() => null)) as { files?: string[] } | null;
               return r?.files ?? [];
@@ -499,6 +445,7 @@ function DesktopApp() {
             }}
             onSend={onSend}
             onStop={onStop}
+            onPickImages={() => window.kcodeHost?.pickImages() ?? Promise.resolve([])}
           />
         </div>
       }

@@ -6,6 +6,7 @@ import type { MouseEvent } from "react";
  * 由 DesktopSidebar 复用，菜单动作仍通过现有 host RPC。
  */
 export function TaskRow(props: {
+  sessionId: string;
   title: string;
   age: string;
   active: boolean;
@@ -29,6 +30,7 @@ export function TaskRow(props: {
   return (
     <div
       className={`d2-task ${props.active ? "active" : ""}`}
+      data-session-id={props.sessionId}
       role="button"
       tabIndex={0}
       onClick={props.onOpen}

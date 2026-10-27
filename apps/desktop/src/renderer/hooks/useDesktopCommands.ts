@@ -24,10 +24,10 @@ export function useDesktopCommands(opts: {
       rows: [...prev.rows, { kind: "info", text, ...(tone !== undefined ? { tone } : {}) }],
     }));
   };
-  const submitText = (text: string): void => {
+  const submitText = (text: string, images?: readonly string[]): void => {
     opts.setTimeline((prev) => ({ ...prev, busy: true }));
     void opts.conn
-      .send("session/submit", { text })
+      .send("session/submit", { text, ...(images !== undefined && images.length > 0 ? { images: [...images] } : {}) })
       .catch(() => opts.setTimeline((prev) => ({ ...prev, busy: false })));
   };
   const runSlash = async (name: string, args: string): Promise<void> => {
@@ -87,13 +87,13 @@ export function useDesktopCommands(opts: {
     }
     submitText(expanded.text);
   };
-  const onSend = (text: string): void => {
+  const onSend = (text: string, images?: readonly string[]): void => {
     const m = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
     if (m !== null) {
       void runSlash(m[1]!, m[2] ?? "");
       return;
     }
-    submitText(text);
+    submitText(text, images);
   };
   return { onSend, pushInfo };
 }

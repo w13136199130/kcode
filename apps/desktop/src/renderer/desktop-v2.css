@@ -532,12 +532,153 @@
   gap: 8px;
 }
 
+.composer-v2 .composer-context {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+}
+
+.composer-v2 .composer-context > span {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.composer-v2 .composer-attach {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a8a8a;
+  cursor: pointer;
+}
+
+.composer-v2 .composer-attach:hover {
+  background: #f2f2f2;
+  color: #333333;
+}
+
+.composer-v2 .composer-attach:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.composer-v2 .composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px 2px 0;
+}
+
+.composer-v2 .ca-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 240px;
+  padding: 2px 5px 2px 6px;
+  border: 1px solid #e8e8e8;
+  border-radius: 5px;
+  background: #fafafa;
+  color: #666666;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-v2 .ca-chip button {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #999999;
+  cursor: pointer;
+}
+
+.composer-v2 .ca-chip button:hover {
+  background: #eeeeee;
+  color: #333333;
+}
+
 .composer-v2 .composer-model {
   padding: 3px 7px;
   border-radius: 6px;
   background: #fafafa;
   color: #8a8a8a;
   font-size: 11px;
+}
+
+.composer-v2 .composer-model-wrap {
+  position: relative;
+}
+
+.composer-v2 .composer-model-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  cursor: pointer;
+}
+
+.composer-v2 .composer-model-button:hover {
+  background: #f0f0f0;
+  color: #333333;
+}
+
+.composer-v2 .composer-model-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 35;
+  width: 230px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.composer-v2 .composer-model-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #444444;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-v2 .composer-model-menu button:hover,
+.composer-v2 .composer-model-menu button.active {
+  background: #f5f5f5;
+  color: #111111;
+}
+
+.composer-v2 .cmm-note {
+  padding: 6px 8px;
+  color: #999999;
+  font-size: 10.5px;
+}
+
+.composer-v2 .cmm-note.error {
+  color: #b23b3b;
 }
 
 .composer-v2 .composer-send,
@@ -1666,6 +1807,24 @@
   color: #333333;
 }
 
+.d2-load-more {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 8px 12px 12px;
+  padding: 6px;
+  border: 1px solid #ececec;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #888888;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.d2-load-more:hover {
+  background: #fafafa;
+  color: #333333;
+}
+
 .side-pane-v2 {
   width: 360px;
   flex: 0 0 360px;
@@ -1992,4 +2151,285 @@
 }
 .cf-btn.ghost {
   background: transparent;
+}
+.trust-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid #f0dfc8;
+  border-radius: 9px;
+  background: #fffaf2;
+  color: #6b4c2a;
+  font-size: 11px;
+}
+.tb-icon {
+  display: grid;
+  place-items: center;
+  color: #c9822e;
+}
+.tb-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tb-copy strong {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.tb-copy span {
+  color: #8a6a45;
+  line-height: 1.4;
+}
+.tb-action {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border: 1px solid #e6c79f;
+  border-radius: 5px;
+  background: #fff;
+  color: #8a5a20;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.tb-action:hover {
+  background: #fff5e7;
+}
+.tb-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #b39a7b;
+  cursor: pointer;
+}
+.tb-close:hover {
+  background: #f7ead8;
+  color: #6b4c2a;
+}
+
+/* ===== P4-2 运行态（F16）：额度 banner / 暂停继续条 / 右上浮动进度卡 ===== */
+
+/* 浮动进度卡的定位锚：悬浮在时间线右上，不占栏 */
+.timeline-stack {
+  position: relative;
+}
+
+.runtime-progress-card {
+  position: absolute;
+  top: 10px;
+  right: 22px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 248px;
+  max-height: 55%;
+  padding: 11px 12px;
+  overflow-y: auto;
+  border: 1px solid #e8e2d4;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 6px 22px rgba(17, 17, 17, 0.1);
+  font-size: 11.5px;
+  color: #444444;
+}
+
+.rpc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #111111;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rpc-count {
+  color: #8a5a20;
+  font-variant-numeric: tabular-nums;
+}
+
+.rpc-spin {
+  width: 10px;
+  height: 10px;
+  margin: 0 0 0 auto;
+  border: 1.5px solid #e0e0e0;
+  border-top-color: #f0802e;
+}
+
+.rpc-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rpc-step {
+  overflow: hidden;
+  color: #888888;
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rpc-step.status-in_progress {
+  color: #111111;
+  font-weight: 600;
+}
+
+.rpc-step.status-completed {
+  text-decoration: line-through;
+  color: #aaaaaa;
+}
+
+.rpc-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px solid #f0ece2;
+  padding-top: 7px;
+}
+
+.rpc-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid #ececec;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.rpc-agent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: #333333;
+  font-weight: 600;
+}
+
+.rpc-agent-status {
+  flex: 0 0 auto;
+  color: #999999;
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.rpc-agent.status-running .rpc-agent-status {
+  color: #1f6feb;
+}
+
+.rpc-agent.status-completed .rpc-agent-status {
+  color: #17803d;
+}
+
+.rpc-agent.status-failed .rpc-agent-status {
+  color: #b23b3b;
+}
+
+.rpc-agent-desc {
+  overflow: hidden;
+  color: #888888;
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 额度错误内联 banner（时间线行内） */
+.timeline-v2 .row-quota {
+  margin: 12px 0;
+  padding: 11px 13px;
+  border: 1px solid #f0d8c8;
+  border-radius: 10px;
+  background: #fff8f3;
+}
+
+.row-quota-title {
+  color: #9a4a10;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.row-quota-detail {
+  margin-top: 5px;
+  color: #8a5a20;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.row-quota-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.row-quota-actions button {
+  padding: 4px 11px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.row-quota-actions .quota-reset {
+  border: 1px solid #d9a066;
+  background: #f0802e;
+  color: #ffffff;
+}
+
+.row-quota-actions .quota-reset:hover {
+  background: #e0731f;
+}
+
+.row-quota-actions .quota-feedback {
+  border: 1px solid #e6c79f;
+  background: #ffffff;
+  color: #8a5a20;
+}
+
+.row-quota-actions .quota-feedback:hover {
+  background: #fff5e7;
+}
+
+/* 暂停点「继续」条（时间线与 Composer 之间） */
+.continue-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 18px;
+  border-top: 1px solid #f0e4cf;
+  background: #fffaf0;
+}
+
+.continue-hint {
+  overflow: hidden;
+  color: #8a5a20;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.continue-btn {
+  flex: 0 0 auto;
+  padding: 5px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.continue-btn:hover {
+  background: #333333;
 }

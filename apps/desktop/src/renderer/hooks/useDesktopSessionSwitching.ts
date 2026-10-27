@@ -26,7 +26,7 @@ export function useDesktopSessionSwitching(options: {
   setQueuedCount(value: number): void;
   resetTimeline(): void;
 }): {
-  onNewSession(workspacePath?: string, opts?: { requestId?: string }): void;
+  onNewSession(workspacePath?: string, opts?: { requestId?: string; ungrouped?: boolean }): void;
   onResume(sessionId: string, workspacePath?: string): void;
 } {
   const {
@@ -46,7 +46,7 @@ export function useDesktopSessionSwitching(options: {
   const switchToken = useRef(0);
 
   const onNewSession = useCallback(
-    (workspacePath?: string, opts?: { requestId?: string }): void => {
+    (workspacePath?: string, opts?: { requestId?: string; ungrouped?: boolean }): void => {
       const cwd = workspacePath ?? defaultCwd;
       if (modelDefault === null || cwd === "") return;
       if (busy) {
@@ -63,7 +63,7 @@ export function useDesktopSessionSwitching(options: {
       setQueuedCount(0);
       void conn
         .send("session/dispose")
-        .then(() => conn.send("session/create", { model: modelDefault, cwd, requestId }))
+        .then(() => conn.send("session/create", { model: modelDefault, cwd, requestId, ...(opts?.ungrouped === true ? { ungrouped: true } : {}) }))
         .then((result) => {
           const id = (result as { sessionId: string }).sessionId;
           rememberSessionWorkspace(id, cwd);

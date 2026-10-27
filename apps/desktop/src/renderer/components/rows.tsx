@@ -1,6 +1,7 @@
 import { RichMarkdown } from "./RichMarkdown.js";
 import type { Row } from "./projection.js";
 import { ToolCallRowView } from "./ToolCallRow.js";
+import { QuotaBanner } from "./QuotaBanner.js";
 
 /**
  * 时间线行分发器（M2a）：按行类型 memo 化渲染（zcode ConversationRowView 减法版）。
@@ -11,10 +12,14 @@ export function RowView({
   row,
   model,
   onOpenDiff,
+  onQuotaReset,
+  onQuotaFeedback,
 }: {
   row: Row;
   model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
+  onQuotaReset?: () => void;
+  onQuotaFeedback?: (text: string) => void;
 }) {  switch (row.kind) {
     case "user":
       return (
@@ -58,6 +63,14 @@ export function RowView({
       );
     case "separator":
       return <div className="row-separator">{row.label}</div>;
+    case "quota":
+      return (
+        <QuotaBanner
+          text={row.text}
+          onReset={() => onQuotaReset?.()}
+          onFeedback={(text) => onQuotaFeedback?.(text)}
+        />
+      );
   }
 }
 

@@ -31,6 +31,7 @@ import {
  * 不改 host 协议；工作区/归档通过独立例外 RPC。
  */
 type MenuState = { kind: "workspace" | "task"; key: string } | null;
+const INBOX = "__kcode_inbox__";
 export function DesktopSidebar(props: {
   conn: HostConnection;
   currentId: string | null;
@@ -39,7 +40,7 @@ export function DesktopSidebar(props: {
   activityKey: number;
   sessionsSignal: number;
   onOpen(sessionId: string, workspacePath: string): void;
-  onNewSession(workspacePath: string): void;
+  onNewSession(workspacePath: string, opts?: { ungrouped?: boolean }): void;
   onOpenSettings(): void;
 }) {
   const [selected, setSelected] = useState(normalizePath(props.currentWorkspace));
@@ -54,13 +55,15 @@ export function DesktopSidebar(props: {
   const [menu, setMenu] = useState<MenuState>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
-  const { effectiveSessions, refreshSessions } = useSidebarSessions({
+  const { effectiveSessions, refreshSessions, hasMore, total, loadMore } = useSidebarSessions({
     conn: props.conn,
     currentId: props.currentId,
     currentWorkspace: props.currentWorkspace,
     currentPreview: props.currentPreview,
     activityKey: props.activityKey,
     sessionsSignal: props.sessionsSignal,
+    query,
+    currentUngrouped: selected === INBOX,
   });
   const {
     registered,
@@ -95,12 +98,11 @@ export function DesktopSidebar(props: {
       }
       return workspace;
     };
-
     if (props.currentWorkspace !== "") ensure(props.currentWorkspace, 0);
     for (const workspace of registered) ensure(workspace.path, workspace.createdAt);
     const currentKey = normalizePath(props.currentWorkspace);
     for (const session of effectiveSessions) {
-      if (session.archived === true || session.deleted === true) continue;
+      if (session.archived === true || session.deleted === true || session.ungrouped === true) continue;
       const ownKey = workspaceOf(session);
       // 只有“当前空草稿”才强制归到当前工作区；历史无 workspaceKey 会话留在“任务”，
       // 否则点击旧会话会看起来被搬进某个分组。
@@ -141,8 +143,8 @@ export function DesktopSidebar(props: {
     (session) =>
       session.archived !== true &&
       session.deleted !== true &&
-      workspaceOf(session) === "" &&
-      !(session.sessionId === props.currentId && hasCurrentWorkspace && !hasContent(session)) &&
+      (session.ungrouped === true || workspaceOf(session) === "") &&
+      !(session.ungrouped !== true && session.sessionId === props.currentId && hasCurrentWorkspace && !hasContent(session)) &&
       (hasContent(session) || session.draft === true || session.sessionId === props.currentId),
   );
   const inbox = sortSessions(
@@ -158,7 +160,7 @@ export function DesktopSidebar(props: {
   );
   const trash = sortSessions(effectiveSessions.filter((session) => session.deleted === true));
   const selectedWorkspace = workspaces.find((workspace) => workspace.key === selected);
-  const targetPath = selectedWorkspace?.path ?? props.currentWorkspace;
+  const targetPath = selected === INBOX ? props.currentWorkspace : (selectedWorkspace?.path ?? props.currentWorkspace);
   const addWorkspace = async (): Promise<void> => {
     const result = await registerWorkspace();
     if (result === null) return;
@@ -171,6 +173,7 @@ export function DesktopSidebar(props: {
   const trustWorkspace = async (workspace: Workspace): Promise<void> => {
     setMenu(null);
     await trustRegisteredWorkspace(workspace);
+    window.dispatchEvent(new CustomEvent("kcode-workspace-trust", { detail: workspace.path }));
   };
   const removeWorkspace = async (workspace: Workspace): Promise<void> => {
     setMenu(null);
@@ -270,7 +273,6 @@ export function DesktopSidebar(props: {
     }
     setMenu(null);
   };
-
   return (
     <aside className="sidebar desktop-v2">
       <div className="d2-head">
@@ -278,19 +280,12 @@ export function DesktopSidebar(props: {
         <span className="d2-name">kcode</span>
         <span className="d2-local">本地</span>
       </div>
-      <button
-        type="button"
-        className="d2-new"
-        onClick={() => props.onNewSession(targetPath)}
-        title="新建会话（Ctrl+N）"
-      >
+      <button type="button" className="d2-new" onClick={() => props.onNewSession(targetPath, { ungrouped: selected === INBOX })} title="新建会话（Ctrl+N）">
         <Plus size={15} strokeWidth={1.8} />
         <span>新建会话</span>
         <kbd>⌘N</kbd>
       </button>
-
       {notice !== "" ? <div className="d2-notice" role="status">{notice}</div> : null}
-
       <div className="d2-scroll">
         <section className="d2-section">
           <div className="d2-section-head">
@@ -327,7 +322,6 @@ export function DesktopSidebar(props: {
               </button>
             </div>
           </div>
-
           {searchOpen ? (
             <div className="d2-search">
               <Search size={12} strokeWidth={1.8} />
@@ -345,7 +339,6 @@ export function DesktopSidebar(props: {
               />
             </div>
           ) : null}
-
           {projectsOpen ? (
             <div className="d2-workspaces">
               {visibleWorkspaces.map((workspace) => {
@@ -406,10 +399,17 @@ export function DesktopSidebar(props: {
             </div>
           ) : null}
         </section>
-
         <section className="d2-section d2-inbox">
           <div className="d2-section-head">
-            <button type="button" className="d2-label" onClick={() => setTasksOpen((open) => !open)}>
+            <button
+              type="button"
+              className={`d2-label ${selected === INBOX ? "active" : ""}`}
+              onClick={() => {
+                setSelected(INBOX);
+                setTasksOpen((open) => !open);
+                setMenu(null);
+              }}
+            >
               <span>任务</span>
               <ChevronDown size={12} strokeWidth={2} className={tasksOpen ? "" : "d2-chevron-closed"} />
             </button>
@@ -440,7 +440,6 @@ export function DesktopSidebar(props: {
             />
           ) : null}
         </section>
-
         {archived.length > 0 ? (
           <ArchivedTaskList
             sessions={archived}
@@ -466,7 +465,6 @@ export function DesktopSidebar(props: {
             onArchive={(session) => void archiveSession(session, false)}
           />
         ) : null}
-
         {trash.length > 0 ? (
           <TrashTaskList
             sessions={trash}
@@ -486,8 +484,10 @@ export function DesktopSidebar(props: {
             onEmpty={() => void emptyTrash()}
           />
         ) : null}
+        {hasMore ? (
+          <button type="button" className="d2-load-more" onClick={loadMore}>加载更多（{effectiveSessions.length}/{total}）</button>
+        ) : null}
       </div>
-
       <div className="d2-foot">
         <button type="button" className="d2-settings" onClick={props.onOpenSettings}>
           <Settings size={14} strokeWidth={1.8} />
@@ -497,4 +497,3 @@ export function DesktopSidebar(props: {
     </aside>
   );
 }
-

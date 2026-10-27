@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, ChevronDown, Paperclip, Square, X } from "lucide-react";
 import type { CommandInfo, PermissionMode } from "@kcode/contracts";
 
 /** 模式四档的 composer 选择器元数据（与 CLI MODE_META 同语义） */
@@ -24,18 +24,27 @@ export function Composer(props: {
   queuedCount: number;
   mode: PermissionMode;
   model: string | null;
+  context?: { historyTokens: number; contextWindow: number; windowKnown: boolean } | null;
   /** 空态快捷入口：由外层填入一段可编辑草稿。 */
   prefill?: { text: string; nonce: number } | null;
   commands: readonly CommandInfo[];
   onListFiles(query: string): Promise<string[]>;
+  onListModels?(): Promise<string[]>;
+  onModelChange?(model: string): Promise<boolean> | void;
   onModeChange(mode: PermissionMode): void;
-  onSend(text: string): void;
+  onSend(text: string, images?: readonly string[]): void;
   onStop(): void;
+  onPickImages?(): Promise<string[]>;
 }) {
   const [text, setText] = useState("");
+  const [images, setImages] = useState<string[]>([]);
   const [menu, setMenu] = useState<MenuKind | null>(null);
   const [active, setActive] = useState(0);
   const [fileMatches, setFileMatches] = useState<string[]>([]);
+  const [modelMenu, setModelMenu] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelLoading, setModelLoading] = useState(false);
+  const [modelError, setModelError] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const slashQuery = /^\/([a-z0-9-]*)$/.exec(text.slice(0, ref.current?.selectionStart ?? text.length));
@@ -114,15 +123,61 @@ export function Composer(props: {
     const t = text.trim();
     // D1-05：运行中也可提交——host 侧 RuntimeCommandQueue 排队，本轮结束后按序执行
     if (t === "" || props.disabled) return;
-    props.onSend(t);
+    props.onSend(t, images);
     setText("");
+    setImages([]);
     setMenu(null);
     requestAnimationFrame(autoSize);
+  };
+
+  const addImages = (): void => {
+    if (props.onPickImages === undefined || props.disabled) return;
+    void props
+      .onPickImages()
+      .then((paths) => {
+        if (paths.length === 0) return;
+        setImages((prev) => [...new Set([...prev, ...paths])].slice(0, 8));
+      })
+      .catch(() => undefined);
+  };
+
+  const removeImage = (path: string): void => {
+    setImages((prev) => prev.filter((item) => item !== path));
+  };
+
+  const toggleModelMenu = (): void => {
+    if (props.onListModels === undefined || props.onModelChange === undefined) return;
+    if (modelMenu) {
+      setModelMenu(false);
+      return;
+    }
+    setModelMenu(true);
+    setModelLoading(true);
+    setModelError("");
+    void props
+      .onListModels()
+      .then((models) => setModelOptions(models))
+      .catch((err) => setModelError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setModelLoading(false));
+  };
+
+  const chooseModel = (model: string): void => {
+    if (props.onModelChange === undefined) return;
+    void Promise.resolve(props.onModelChange(model)).then((ok) => {
+      if (ok !== false) {
+        setModelMenu(false);
+        setModelOptions([model]);
+      }
+    });
   };
 
   const shortModel = props.model !== null && props.model.includes("/")
     ? props.model.split("/").slice(1).join("/")
     : props.model;
+  const contextPct =
+    props.context !== undefined && props.context !== null && props.context.contextWindow > 0
+      ? Math.min(100, Math.max(0, Math.round((props.context.historyTokens / props.context.contextWindow) * 100)))
+      : null;
 
   return (
     <div className="composer composer-v2">
@@ -193,7 +248,29 @@ export function Composer(props: {
             }
           }}
         />
+        {images.length > 0 ? (
+          <div className="composer-attachments">
+            {images.map((path) => (
+              <span key={path} className="ca-chip" title={path}>
+                <Paperclip size={10} strokeWidth={1.8} />
+                {path.split(/[\\/]/).at(-1) ?? path}
+                <button type="button" onClick={() => removeImage(path)} title="移除">
+                  <X size={10} strokeWidth={2} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className="composer-toolbar">
+          <button
+            type="button"
+            className="composer-attach"
+            onClick={addImages}
+            disabled={props.disabled}
+            title="添加图片（最多 8 张）"
+          >
+            <Paperclip size={14} strokeWidth={1.8} />
+          </button>
           <select
             className="composer-mode"
             value={props.mode}
@@ -208,10 +285,57 @@ export function Composer(props: {
             ))}
           </select>
           <div className="composer-toolbar-right">
-            {shortModel !== null && shortModel !== "" ? (
-              <span className="composer-model" title={props.model ?? ""}>
-                {shortModel}
+            {contextPct !== null ? (
+              <span
+                className="composer-context"
+                role="img"
+                aria-label={`上下文 ${contextPct}%`}
+                title={`上下文 ${props.context?.historyTokens.toLocaleString() ?? "—"} / ${props.context?.contextWindow.toLocaleString() ?? "—"} tokens${props.context?.windowKnown === false ? "（窗口为估算）" : ""}`}
+                style={{
+                  background: `conic-gradient(#b9b9b9 ${contextPct * 3.6}deg, #eeeeee 0deg)`,
+                }}
+              >
+                <span />
               </span>
+            ) : null}
+            {shortModel !== null && shortModel !== "" ? (
+              <div className="composer-model-wrap">
+                {props.onListModels !== undefined && props.onModelChange !== undefined ? (
+                  <button
+                    type="button"
+                    className="composer-model composer-model-button"
+                    title={props.model ?? ""}
+                    onClick={toggleModelMenu}
+                  >
+                    {shortModel}
+                    <ChevronDown size={10} strokeWidth={2} />
+                  </button>
+                ) : (
+                  <span className="composer-model" title={props.model ?? ""}>
+                    {shortModel}
+                  </span>
+                )}
+                {modelMenu ? (
+                  <div className="composer-model-menu" role="listbox">
+                    {modelLoading ? <div className="cmm-note">读取模型列表…</div> : null}
+                    {modelError !== "" ? <div className="cmm-note error">{modelError}</div> : null}
+                    {!modelLoading && modelError === ""
+                      ? modelOptions.map((model) => (
+                          <button
+                            key={model}
+                            type="button"
+                            role="option"
+                            aria-selected={model === props.model}
+                            className={model === props.model ? "active" : ""}
+                            onClick={() => chooseModel(model)}
+                          >
+                            {model}
+                          </button>
+                        ))
+                      : null}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
             {props.busy ? (
               <button type="button" className="composer-stop" onClick={props.onStop} title="中断当前运行（Esc）">

@@ -241,6 +241,16 @@ app.whenReady().then(() => {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  // 图片附件：只允许图片扩展名；返回绝对路径，host 提交时随 user_message.images 落盘
+  ipcMain.handle("kcode:pick-images", async (event) => {
+    if (!senderAllowed(event)) throw new Error("拒绝：不可信 IPC 来源");
+    const result = await dialog.showOpenDialog({
+      title: "选择图片附件",
+      properties: ["openFile", "multiSelections"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    });
+    return result.canceled ? [] : result.filePaths;
+  });
   // 应用版本（tsup define 注入）
   ipcMain.handle("kcode:app-version", (event) => {
     if (!senderAllowed(event)) throw new Error("拒绝：不可信 IPC 来源");

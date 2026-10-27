@@ -4,7 +4,7 @@
  * 新版 session_start 可能暂未带 workspaceKey，且新建空会话还没进入 sessions/list；
  * renderer 记下 sessionId → cwd / createdAt / 首条消息，侧栏先把这行稳定显示出来。
  */
-const KEY = "kcode-desktop-session-workspaces-v2";
+const KEY = "kcode-desktop-session-workspaces-v3";
 const LEGACY_KEY = "kcode-desktop-session-workspaces";
 
 export interface LocalSession {
@@ -69,15 +69,6 @@ export function rememberSessionWorkspace(sessionId: string, cwd: string): void {
     createdAt: previous?.createdAt ?? Date.now(),
     ...(previous?.preview !== undefined ? { preview: previous.preview } : {}),
   };
-  write(map);
-}
-
-export function rememberSessionPreview(sessionId: string, preview: string): void {
-  if (sessionId === "" || preview.trim() === "") return;
-  const map = read();
-  const current = map[sessionId];
-  if (current === undefined) return;
-  current.preview = preview;
   write(map);
 }
 

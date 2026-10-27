@@ -97,6 +97,7 @@ test("desktop v2 sidebar", async () => {
   await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
   await expect(page.locator(".composer-v2")).toBeVisible();
+  await expect(page.locator(".composer-context")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".workspace-header-v2")).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(page.locator(".empty-v2")).toBeVisible();
@@ -194,6 +195,7 @@ test("desktop v2 sidebar", async () => {
   await page.locator(".d2-search input").fill("");
 
   // 新建 → 发送 → 再新建：前一任务必须仍在分组里。
+  await page.locator(".d2-project-row").filter({ hasText: "web" }).click();
   await page.locator(".d2-new").click();
   await page.locator(".composer-input").fill("你好");
   await expect(page.locator(".composer-send")).toBeEnabled({ timeout: 10_000 });

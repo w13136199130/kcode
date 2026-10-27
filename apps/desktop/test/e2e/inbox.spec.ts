@@ -1,0 +1,91 @@
+import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const cwd = fileURLToPath(new URL("../..", import.meta.url));
+const kcodePath = "E:/space/my_space/MyProject/kcode";
+
+function kill(app: ElectronApplication): void {
+  const pid = app.process().pid;
+  if (pid === undefined) return;
+  if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
+  else process.kill(-pid, "SIGKILL");
+}
+
+async function launch(env: Record<string, string | undefined>): Promise<{ app: ElectronApplication; page: Page }> {
+  const app = await electron.launch({
+    args: ["dist/main.cjs", "--headless", "--no-sandbox", "--disable-gpu"],
+    cwd,
+    env,
+  });
+  const page = await app.firstWindow({ timeout: 20_000 });
+  await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
+  await page.reload();
+  await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+  return { app, page };
+}
+
+test("任务组新建路径：ungrouped 持久化，重启后仍在任务", async () => {
+  test.setTimeout(90_000);
+  const fakeHome = await mkdtemp(join(tmpdir(), "kcode-inbox-"));
+  const kcodeHome = join(fakeHome, ".kcode");
+  await mkdir(join(kcodeHome, "cli", "sessions"), { recursive: true });
+  await mkdir(join(kcodeHome, "desktop"), { recursive: true });
+  await writeFile(
+    join(kcodeHome, "config.json"),
+    JSON.stringify({
+      models: {
+        default: "mock/model",
+        providers: { mock: { type: "openai-compatible", baseURL: "https://example.com/v1" } },
+      },
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(kcodeHome, "desktop", "projects.json"),
+    JSON.stringify({
+      version: 1,
+      workspaces: [{ path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() }],
+    }),
+    "utf8",
+  );
+  const env = {
+    ...process.env,
+    KCODE_HOME: kcodeHome,
+    KCODE_DESKTOP_USER_DATA: join(fakeHome, "userData"),
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  const first = await launch(env);
+  try {
+    await first.page.locator(".d2-inbox .d2-label").click();
+    await first.page.locator(".d2-new").click();
+    await first.page.locator(".composer-input").fill("任务组会话");
+    await expect(first.page.locator(".composer-send")).toBeEnabled({ timeout: 10_000 });
+    await first.page.locator(".composer-input").press("Enter");
+    const inboxTask = first.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" });
+    await expect(inboxTask).toBeVisible({ timeout: 10_000 });
+    const inboxId = await inboxTask.getAttribute("data-session-id");
+    expect(inboxId).not.toBeNull();
+    const projectIds = await first.page
+      .locator(".d2-project .d2-task")
+      .evaluateAll((els) => els.map((element) => element.getAttribute("data-session-id")));
+    expect(projectIds).not.toContain(inboxId);
+  } finally {
+    kill(first.app);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  const second = await launch(env);
+  try {
+    await second.page.locator(".d2-inbox .d2-label").click();
+    await expect(second.page.locator(".d2-inbox .d2-task").filter({ hasText: "任务组会话" })).toBeVisible();
+  } finally {
+    kill(second.app);
+    await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});
