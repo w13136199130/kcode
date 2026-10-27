@@ -1,6 +1,6 @@
 # Desktop UI v2 落地计划
 
-> 状态：**Slice 1、工作区注册/信任 RPC、Slice 2 Composer、Slice 3 设置页、主区域壳层、时间线 v2、diff 详情栏、任务归档、host 会话索引/软删除已落地**
+> 状态：**Slice 1、工作区注册/信任 RPC、Slice 2 Composer、Slice 3 设置页、主区域壳层、时间线 v2、diff 详情栏、任务归档、host 会话索引/软删除、未信任 banner、模型选择、图片附件已落地**
 > 基线原型：`docs/desktop-ui-design/index.html`（v23）
 > 设计说明：`docs/desktop-ui-design.md`
 > 范围矩阵：`docs/desktop-ui-scope-matrix.md`（P0 按钮/交互冻结）
@@ -339,6 +339,8 @@ P0 限制（工作区注册/信任 RPC 后）：
 - 旧版 `session_start` 没有 `workspaceKey` 时，renderer 用创建/续接时记录的 sessionId → cwd 兜底分组；v2 映射会丢弃旧版误记的点击归属；
 - 会话 id 以 `session/create` 响应为准，事件流里的旧 `session/created` 不再覆盖当前会话；
 - “任务”组默认折叠；搜索非空时强制显示匹配结果；
+- 当前未信任工作区在时间线上方显示可操作 banner（盾牌 + 信任本工作区 + 关闭）；时间线不再重复“项目未被信任”文本条；
+- Composer 模型 chip 可展开选择，走 host `models/list` + `session/set_model`；图片回形针经主进程选择后作为 `images` 随 `session/submit` 发送（最多 8 张）；上下文容量环读 `session/context` 真实 `contextStats`；
 - 工作区顺序固定为注册表创建顺序，切换/新建任务不会改变分组顺序；未注册工作区按名称稳定排序；
 - `workspaceKey="/"` 的旧会话不生成根工作区，非空内容归入“任务”；
 - 工作区注册表在 host：`~/.kcode/desktop/projects.json`；

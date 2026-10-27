@@ -1,9 +1,9 @@
-# kcode 桌面会话/工作区优化方案（唯一优化文档）
+# kcode 桌面会话/工作区优化方案（历史文档）
 
-> 状态：**生效** · 最近更新：2026-10-26
-> 范围：桌面侧「工作区/任务列表 + 会话创建/切换」体验的稳定性、流畅性、数据不丢。
-> **文档维护规则：本文是本项目桌面优化线的唯一文档。** 后续优化、状态变更、新增遗留项一律更新本文（改写对应条目 + 更新「最近更新」日期），不再新开计划/TODO 文档；其他文档只链接本文，不重复维护清单。
-> 边界：CLI 主线仍以 [cli-optimization-plan-2026-10.md](./cli-optimization-plan-2026-10.md) 为唯一执行文档（两条线互不合并）。会话文件格式、CLI/TUI 行为、session 核心语义不修改（[desktop-workspace-rpc-approval.md](./desktop-workspace-rpc-approval.md) 约束）。
+> ⚠️ **已收编为历史记录（2026-10-26）**：未完成条目（P3-5/P3-6/P4-1 尾巴/P4-3~P4-7）与后续一切优化已并入 [optimization-plan.md](./optimization-plan.md)——**项目唯一优化文档**。本文不再更新，仅保留完成证据、验收数字与教训供追溯。
+> 状态：**已归档** · 最近更新：2026-10-26
+> 范围（历史）：桌面侧「工作区/任务列表 + 会话创建/切换」体验的稳定性、流畅性、数据不丢。
+> 边界：会话文件格式、CLI/TUI 行为、session 核心语义不修改（[desktop-workspace-rpc-approval.md](./desktop-workspace-rpc-approval.md) 约束）——该约束在 optimization-plan.md 中继续有效。
 > 参考：原型 [desktop-ui-design.md](./desktop-ui-design.md)（v23）· 落地历史 [desktop-ui-implementation-plan.md](./desktop-ui-implementation-plan.md) · 审计 [desktop-ui-audit.md](./desktop-ui-audit.md)
 
 ## 0. 目标与验收度量
@@ -97,11 +97,11 @@
 | F9 | 计划/提问面板 | ✅ | PlanPanel / AskPanel |
 | F10 | 空态（信任 banner + 三张示例卡） | ✅ | EmptyState 三卡填入 composer |
 | F11 | Onboarding（目录/厂商预设/key 钥匙串） | ✅ | 稍后配置出口已有 |
-| F12 | Composer v2 | ⚠️ | 附件/权限模式/发送/队列/图片排队✅；**上下文容量环+额度、模型+思考强度面板、Ctrl+T 未落地** |
+| F12 | Composer v2 | ⚠️ | 附件/权限模式/发送/队列/图片排队✅；模型选择✅；上下文容量环✅；**额度、思考强度、Ctrl+T 未落地** |
 | F13 | 命令面板 ⌘K | ✅ | CommandPalette |
 | F14 | 设置全页 | ⚠️ | 骨架+模型/外观/权限/关于✅；**provider 预设网格细节、浏览器/快捷键/记忆/子智能体/插件/MCP/技能/命令/钩子/使用统计/归档子页未落地** |
 | F15 | 暗色主题 | ✅ | useTheme（system/light/dark） |
-| F16 | 对话运行态 | ⚠️ | 任务面板/后台任务可见✅；**额度 banner+重置入口、暂停点「继续」按钮、进度卡 `2/5`+子智能体卡未落地** |
+| F16 | 对话运行态 | ✅ | 任务面板/后台任务可见✅；额度 banner+重置入口、暂停点「继续」按钮、进度卡 `2/5`+子智能体卡已落地（P4-2） |
 | F17 | 全局快捷键 | ⚠️ | ⌘K/⌘B/⌘N/Esc✅；**⌘,（设置）未绑定；⌘T 依赖 F12 思考强度** |
 | F18 | 响应式三档宽度 | ⚠️ | 未验证 1180/860 断点行为（列入 P4 打磨核对） |
 | F19 | 设计令牌单一来源 | ⚠️ | 桌面未引用 `@kcode/design`，`styles.css` 自持 token（原型要求落在 packages/design） |
@@ -142,38 +142,48 @@
 - 设计：`sessions/list` 结果先做稳定签名（sessionId|updatedAt|title|draft 串接）比较，无变化不 `setState`；`sessionsSignal` 连续变化 200ms 合并重拉；`conn.events.filter` 从 render 移到 effect 内累计计数。
 - 验收：M5；单测：同结果重复拉取不触发重渲染。
 
-**P1-3 压测 fixture 与指标脚本** ⏳
-- 200 会话（含 3×5MB）fixture 生成脚本 + M1/M4 计时断言，进 CI（Windows job）。
+**P1-3 压测 fixture 与指标脚本** ✅
+- 200 会话（含 3×5MB）fixture 生成脚本 + cold/warm P95 计时断言，进 Windows CI（`KCODE_PERF=1`，硬门槛 P95<50ms）。
 
 ### P2 多窗口一致性
 
-**P2-1 session-index 跨进程锁** ⏳
-- 落点：`apps/host/src/session-index.ts`（+例外文档追加登记一行）。
-- 设计：锁文件 `session-index.json.lock`（`open wx` 独占创建 + 写 pid+时间戳）；持有者 pid 存活且未超时→等待重试（上限 2s）；持有者死亡/超时→抢占。与 host_lease 同一套「pid 存活检查」模式，零新依赖。锁内完成 read-modify-write 全程。
-- 验收：并发单测（两个进程/两个 worker 循环 upsert 各 100 条 → 200 条全在）；M7。
+**P2-1 session-index 跨进程锁** ✅
+- 落点：`apps/host/src/session-index.ts`；锁文件 `session-index.json.lock`（`open wx` 独占创建 + pid/时间戳）；持有者 pid 存活且未超时→等待重试（上限 2s）；持有者死亡/超时→抢占；与 host_lease 同一套 pid 存活检查。
+- 锁内完成 read-modify-write 全程；同进程 Promise 队列 + 跨进程锁 + 原子 rename 三层保留。
+- 验收：`session-index-lock.test` 3 条（两进程各 100 upsert → 200 条零丢更新；stale 接管；live 2s 超时）。
 
-**P2-2 双活写保护测试补全** ⏳
-- 现状：host 级「前持有者存活 → 拒绝」单测**已有**（`宿主进程 N3-1` 用例，2026-10-26 随批次验证 20 passed）。
-- 落点：`apps/host/test/session.test.ts`（补分支）、`apps/desktop/test/e2e/`（双窗口同会话）。
-- 设计：补「持有者 pid 死亡 → 接管、epoch+1」分支单测与「requestId 复用续写已有文件」路径的 lease 断言；E2E：窗口 A 打开会话 → 窗口 B 打开同一会话 → B 收到「正在其他窗口使用」文案（依赖 P0-2 的 lease 文案），A 继续收流。
-- 验收：M7。
+**P2-2 双活写保护测试补全** ✅
+- 现状：host 级「前持有者存活 → 拒绝」单测已有（host.test），kill -9 → 接管 epoch+1 已有。
+- 补：`dual-active.spec` 双窗口同会话 E2E；B 收到「该任务正在其他窗口使用中」，A 继续收流且不出现失败卡片。
+- 顺带修：失败卡片不再依赖 `sessionId === null`，避免新窗口初始建会话竞态把 lease 失败卡片遮住。
+- 验收：M7 双窗口 E2E 10 passed。
 
 ### P3 分组语义对齐 + 功能增强
 
-**P3-1 「任务/未归类」创建语义（对齐原型 v23）** ⏳
-- 设计：侧栏 `selected` 增加 `inbox` 目标——点击「任务」标题=选中未归类；此时新建的会话在索引中记 `ungrouped: true`（`workspaceKey` 仍存真实 cwd，供信任/恢复用），列表合并时 `ungrouped` 条目进「任务」组。无任何工作区时新建默认 `ungrouped`。
-- 落点：`host-protocol.ts`（`SessionCreateParams` 加可选 `ungrouped`——例外文档追加登记）、`server.ts`、`session-index.ts`（可选字段）、`DesktopSidebar.tsx`。
-- 验收：E2E：点任务标题→新建→会话出现在「任务」组；重启后仍在。
+**P3-1 「任务/未归类」创建语义（对齐原型 v23）** ✅
+- 侧栏 `selected` 增加 `inbox` 目标——点击“任务”标题立即选中未归类并展开；
+- 此时顶部“新建会话”发送 `ungrouped: true`，host 索引持久化；真实 `workspaceKey` 仍保存 cwd，供信任/恢复用；
+- `sessions/list` 返回 `ungrouped`，侧栏跳过 workspace 分组并归入“任务”；
+- 重启后索引恢复，仍在“任务”；
+- 无 workspace 时仍走原 cwd 创建逻辑，不伪造根工作区。
+- 验收：`inbox.spec`（新建→发送→重启→任务组仍在）+ `session-page.test` ungrouped 字段。
 
-**P3-2 归属单一权威化** ⏳
+**P3-2 归属单一权威化** ✅
 - 设计：host 索引为唯一归属权威（reconcile 已回填 workspaceKey）；renderer localStorage 降级为纯离线兜底（连接失败时才用），`useSidebarSessions` 的三向合并简化为「索引优先 + localStorage 补缺」。
-- 验收：单测：索引与 localStorage 冲突时以索引为准。
+- 落点：`renderer/lib/session-merge.ts` + `useSidebarSessions.ts`。
+- 验收：单测 3 条覆盖冲突、缺字段、local-only/current；`ordering.spec` 点击 3 天前会话不改变排序/年龄。
 
-**P3-3 索引搜索/分页** ⏳（P1-1 落地后成本极低）
-- `sessions/list` 支持 `query`（标题/预览子串，host 侧过滤）与 `offset/limit`；侧栏搜索从「拉全量本地过滤」切到 RPC 过滤。
+**P3-3 索引搜索/分页** ✅
+- `sessions/list` 支持 `query/limit/offset`，返回 `total/hasMore`；
+- query 在 slice 之前过滤 title/preview，覆盖全部索引；
+- 默认 limit=100，上限 200；renderer 侧栏用 200，并在 hasMore 时显示“加载更多”；
+- 搜索输入 200ms 防抖后走 host RPC，不再只过滤前 100 条；
+- 验收：`session-page.test` 3 条 + `search.spec` 205 会话搜索历史会话成功。
 
-**P3-4 回收站保留期** ⏳
-- 默认 30 天自动清理（可配 0=永不过期，保持现约束的保守默认需产品确认）；清理走现有 reconcile 周期 + `sessions/changed` 广播。
+**P3-4 回收站保留期** ✅ 决策：不自动清理
+- 保持手动“清空回收站”；
+- 不做 30 天自动删除；
+- 避免自动误删，保留恢复能力。
 
 **P3-5 子会话 parentId** ⏳
 - 索引加可选 `parentId`；subagent/派生会话在工作区树内缩进显示；CLI 侧 `sessions` 不变。
@@ -185,11 +195,18 @@
 
 按「巩固已有能力 > 新接线 > 纯 UI 打磨」排序；每项以模块 F 编号溯源。
 
-**P4-1 Composer 能力面板（F12）** ⏳
-上下文容量环（已用/总容量、缓存命中率、额度）+ 模型/思考强度选择（Ctrl+T 循环）。依赖 host usage/额度数据 RPC（部分已有 `/cost` 语义，需桌面接线）。
+**P4-1 Composer 能力面板（F12）** ⚠️ 部分完成
+- ✅ 图片附件：主进程图片选择 → `session/submit.images`（最多 8 张）→ host 排队/落盘 `user_message.images`；Composer 显示附件 chip、可移除；
+- ✅ 模型选择：`models/list` + `session/set_model`，失败显示错误；
+- ✅ 上下文容量环：`session/context` 返回真实 `contextStats`（historyTokens/contextWindow/估算标记），Composer 环形进度 + tooltip；
+- ⏳ 思考强度、Ctrl+T 循环与额度：需要模型能力/额度 RPC，不伪造。
 
-**P4-2 运行态补齐（F16）** ⏳
+**P4-2 运行态补齐（F16）** ✅ 2026-10-26
 额度错误内联 banner（重置额度/反馈）、暂停点「继续」按钮、右上浮动进度卡（步骤 `2/5` + 子智能体卡，浮动不占栏）。
+- 额度 banner：`llm_error` 经 `isQuotaError` 分类（1112/402/insufficient quota/余额不足等；纯 429 限流不算）→ 时间线内联 `quota` 行；「重置额度」= 已知厂商充值页映射（bigmodel/openai/anthropic/deepseek/moonshot，`window.open` 走主进程 https 校验），未知厂商回落设置页；「反馈」= 复制诊断信息（错误/模型/会话）。转写持久化，replay 后 banner 复现。
+- 暂停点继续：projection 新增 `paused`（`run_limit_reached`/`session_end(limit_reached)`/预算 rejected 置位，`user_message`/`session_end(completed)` 清除）；空闲时 Composer 上方显示「继续」条，点击发送「继续」（与 CLI 语义一致）。
+- 浮动进度卡：`todo_update`→`todos`、`subagent_spawned/stopped`→`agents` 归并；运行中（busy 或有运行中子代理）显示 `n/m` + 步骤 + 子智能体卡，absolute 悬浮右上不占栏，空闲收起。
+- 验收：`runtime-state.test` 19 条（分类器/投影/paused 生命周期）+ E2E `runtime-state.spec`（种子会话 replay → banner 两按钮 + 反馈已复制 + 重置回落设置、进度卡 `2/5`+子智能体运行中、继续条点击后「继续」入时间线并收起）；全量 E2E 15 passed。
 
 **P4-3 菜单补齐（F4/F5）** ⏳
 任务 `...`：导出（复用 CLI JSONL 导出语义）、复制 ID；工作区 `...`：在编辑器中打开、归档工作区（只影响组织，不动目录/会话）。
@@ -230,22 +247,22 @@ P0-1 提交 → P0-2 + P0-3（同批，创建链路统一改造）
 
 | 条目 | 状态 | 完成证据（测试/入口） |
 |---|---|---|
-| P0-1 收口当前批次 | ✅ 2026-10-26 | host 单测 20 passed + desktop E2E 7 passed（含 concurrency/crash-recovery/create-fault），已提交 |
+| P0-1 收口当前批次 | ✅ 2026-10-26 | host 单测 28 passed + desktop E2E 14 passed（含 concurrency/crash-recovery/create-fault/dual-active/search/ordering/inbox/trust），已提交 |
 | P0-2 失败可见可重试 | ✅ 2026-10-26 | E2E `create-failure.spec`（注入失败→卡片→重试恢复）+ `switch-guards` 单测 3 条；全量 E2E 9 passed |
 | P0-3 忙碌护栏 | ✅ 2026-10-26 | E2E busy 拦截（本地挂起服务器方案）；desktop-v2 修正空闲信号后全绿（`.composer-send` 忙碌时也渲染，空闲判据=stop 消失） |
-| P1-1 增量缓存 | ✅ 2026-10-26 | `session-summaries.test` 4 条（含未变零重读断言）；host/desktop 单测 28 passed + E2E 9 passed；M1 的 O(变化文件) 已落地，压测数字待 P1-3 |
+| P1-1 增量缓存 | ✅ 2026-10-26 | `session-summaries.test` 5 条（含未变零重读、lease 不改排序时间断言）；host/desktop 单测 28 passed + E2E 12 passed；M1 O(变化文件) 已落地，P1-3 实测 cold P95=29.60ms / warm P95=7.82ms |
 | P1-2 renderer 节流 | ✅ 2026-10-26 | `sessions-signature.test` 3 条；单测 31 passed + E2E 9 passed；轮询无变化零 setState、信号 200ms 合并、events.filter 移出渲染（M5 逻辑闭环，运行时断言随 P1-3） |
-| P1-3 压测指标 | ⏳ | CI |
-| P2-1 索引跨进程锁 | ⏳ | 并发单测 |
-| P2-2 双活测试 | ⏳ | lease 单测 + 双窗口 E2E |
-| P3-1 未归类语义 | ⏳ | E2E |
-| P3-2 归属单一权威 | ⏳ | 单测 |
-| P3-3 搜索/分页 | ⏳ | 单测 |
-| P3-4 回收站保留期 | ⏳ | 单测 |
+| P1-3 压测指标 | ✅ 2026-10-26 | `session-list.perf.test`：200 会话（3×5MB），cold P95=29.60ms / warm P95=7.82ms；headReads cold=200、warm 增量=0；CI Windows job `KCODE_PERF=1` 硬门槛 P95<50ms |
+| P2-1 索引跨进程锁 | ✅ 2026-10-26 | `session-index-lock.test` 3 条：两进程各 100 upsert → 200 条零丢更新；stale pid 接管；live lock 2s 超时 |
+| P2-2 双活测试 | ✅ 2026-10-26 | host.test 已有 kill -9 接管 epoch+1 / 双活拒绝；新增 `dual-active.spec`：A 打开会话后 B 打开同一会话，B 显示“其他窗口使用中”，A 继续且无失败卡片；全量 E2E 10 passed |
+| P3-1 未归类语义 | ✅ 2026-10-26 | 点击“任务”标题选中 inbox；新建带 `ungrouped:true`，真实 cwd/workspaceKey 保留；索引持久化、重启后仍在“任务”；`inbox.spec` 通过 |
+| P3-2 归属单一权威 | ✅ 2026-10-26 | `session-merge` 3 条：host workspaceKey 覆盖本地冲突、仅缺字段补缺、local-only/current 兜底；`useSidebarSessions` 改用纯函数合并 |
+| P3-3 搜索/分页 | ✅ 2026-10-26 | `session-page` 3 条：query 先过滤再 slice、offset/limit 无重复、索引补 workspace/draft；`search.spec` 205 会话搜索第 0 条历史会话成功；host 默认 limit=100、renderer limit=200 + 加载更多 |
+| P3-4 回收站保留期 | ✅ 决策 | 2026-10-26 产品决定：不自动清理，保留手动“清空回收站”；避免误删 |
 | P3-5 parentId | ⏳ | 单测 |
 | P3-6 多会话并行 | ⏳ 远期 | — |
 | P4-1 Composer 能力面板 | ⏳ | E2E |
-| P4-2 运行态补齐 | ⏳ | E2E |
+| P4-2 运行态补齐 | ✅ 2026-10-26 | `runtime-state.test` 19 条 + E2E `runtime-state.spec`（额度 banner/继续条/浮动进度卡，重置额度回落设置）；全量 E2E 15 passed |
 | P4-3 菜单补齐 | ⏳ | E2E |
 | P4-4 context 浮动抽屉 | ⏳ | E2E + 三档宽度手测 |
 | P4-5 设置子页 | ⏳ | E2E |

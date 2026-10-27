@@ -27,6 +27,8 @@ kcode 的**里子（Agent 引擎）已对标 ZCode；壳子的地基（N1 契约
 
 ### 0.1 落地状态索引（2026-10-20）
 
+> 后续优化排期与状态一律见 [docs/optimization-plan.md](docs/optimization-plan.md)（项目唯一优化文档，2026-10-26 起收编原 CLI/桌面两线计划）。
+
 | 阶段 | 状态 | 证据（测试/入口）与缺口 |
 |---|---|---|
 | N0 会话一致性 | ✅ | [checkpoints](packages/session/src/checkpoints.ts) · [resume test](packages/session/test/rewind-persistence.test.ts) · [compaction boundary](packages/core/test/compaction-boundary.test.ts) |

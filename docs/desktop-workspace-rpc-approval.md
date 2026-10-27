@@ -23,7 +23,8 @@ D3-UI 例外只允许 renderer/design token。工作区注册与信任必须由 
 - `apps/host/test/workspace-store.test.ts`
 - `apps/host/test/task-state.test.ts`
 - `apps/host/test/session-index.test.ts`
-- `packages/contracts/src/host-protocol.ts`（新增 sessions/changed 事件、SessionCreate requestId）
+- `apps/host/test/session-index-lock.test.ts`（跨进程锁）
+- `packages/contracts/src/host-protocol.ts`（新增 sessions/changed 事件、SessionCreate requestId/ungrouped、SessionSubmit images）
 - renderer 侧调用（`DesktopSidebar` / registry hook / session index helper）
 
 ## 不允许修改
@@ -54,6 +55,7 @@ session/create（仅追加桌面会话索引写入）
 ~/.kcode/desktop/projects.json
 ~/.kcode/desktop/task-state.json
 ~/.kcode/desktop/session-index.json
+~/.kcode/desktop/session-index.json.lock
 ~/.kcode/desktop/session-trash.json
 ```
 

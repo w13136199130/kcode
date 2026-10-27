@@ -73,14 +73,15 @@ const checkDoc = (file) => {
     } catch {
       // 非法转义按原样校验
     }
-    if (!existsSync(resolve(root, decoded))) {
+    // 链接按文档所在目录解析（docs/ 内文档用 ./ 相对链接；根目录文档行为不变）
+    if (!existsSync(resolve(root, dirname(file), decoded))) {
       fail(`${file} 的本地链接不存在：${target}`);
     }
     links += 1;
   }
   return links;
 };
-for (const file of ["DESIGN.md", "README.md"]) {
+for (const file of ["DESIGN.md", "README.md", "docs/optimization-plan.md"]) {
   checkDoc(file);
 }
 const designLines = readFileSync(resolve(root, "DESIGN.md"), "utf8").split("\n");
