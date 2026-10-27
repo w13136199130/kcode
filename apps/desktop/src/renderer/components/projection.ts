@@ -22,12 +22,17 @@ export type Row =
       durationMs?: number;
       /** D2-04：host 生成的真实 preview（与审批同源） */
       preview?: { path?: string; diff: string };
+      /** S1-2：长工具运行中的节流输出尾（tool_progress；不落盘，仅运行期） */
+      progressTail?: string;
+      progressChars?: number;
     }
   | { kind: "info"; text: string; tone?: "ok" | "deny" | "warn" }
   | { kind: "todo"; todos: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
   | { kind: "separator"; label: string }
   /** P4-2（F16）：额度类 llm_error——渲染为带「重置额度/反馈」动作的内联 banner */
-  | { kind: "quota"; text: string };
+  | { kind: "quota"; text: string }
+  /** S1-3：普通 LLM 失败（网络/超时等）——带「重试本轮」出口；retryText=失败前最后一轮用户输入 */
+  | { kind: "llm_failed"; error: string; retryText?: string };
 
 export interface TodoStep {
   content: string;
@@ -63,6 +68,8 @@ export interface TimelineState {
   agents: SubagentCard[];
   /** 暂停点：run_limit_reached / 预算 rejected 置位；用户再次输入清除 */
   paused: PausePoint | null;
+  /** 最后一轮用户输入（S1-3 重试本轮的数据源） */
+  lastUserText: string;
 }
 
 interface ToolRow extends Extract<Row, { kind: "tool" }> {}
@@ -114,6 +121,7 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
         ],
         // 用户已接手（含点「继续」）——暂停点撤销
         paused: null,
+        lastUserText: String(se["content"] ?? ""),
       };
     case "assistant_message": {
       // 直播流落定成行；思考随正文落定（无独立 reasoning 事件时）
@@ -144,8 +152,9 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
     case "tool_result": {
       const rows = state.rows.map((r): Row => {
         if (r.kind === "tool" && r.callId === se["callId"]) {
+          const { progressTail: _tail, progressChars: _chars, ...settled } = r;
           return {
-            ...r,
+            ...settled,
             status: se["ok"] === true ? "done" : "failed",
             output: typeof se["output"] === "string" ? se["output"] : undefined,
             error: typeof se["error"] === "string" ? se["error"] : undefined,
@@ -156,11 +165,28 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
       });
       return { ...state, rows };
     }
+    // S1-2：长工具进度（仅运行期事件，不落盘）——挂到对应 running 工具行
+    case "tool_progress": {
+      const rows = state.rows.map((r): Row =>
+        r.kind === "tool" && r.callId === se["callId"] && r.status === "running"
+          ? {
+              ...r,
+              progressTail: typeof se["tail"] === "string" ? se["tail"] : r.progressTail,
+              progressChars: typeof se["totalChars"] === "number" ? se["totalChars"] : r.progressChars,
+            }
+          : r,
+      );
+      return { ...state, rows };
+    }
     case "llm_error": {
       const error = String(se["error"] ?? "");
       const row: Row = isQuotaError(error)
         ? { kind: "quota", text: error }
-        : { kind: "info", text: `✗ 模型调用失败：${error}`, tone: "warn" };
+        : {
+            kind: "llm_failed",
+            error,
+            ...(state.lastUserText !== "" ? { retryText: state.lastUserText } : {}),
+          };
       return { ...state, rows: [...state.rows, row] };
     }
     case "todo_update": {
@@ -255,7 +281,7 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
 }
 
 export function initialTimeline(): TimelineState {
-  return { rows: [], streamText: "", streamThinking: "", busy: false, todos: [], agents: [], paused: null };
+  return { rows: [], streamText: "", streamThinking: "", busy: false, todos: [], agents: [], paused: null, lastUserText: "" };
 }
 
 /** 工具参数的一行预览（argsPreview 桌面版——command/path/query 等首字段） */

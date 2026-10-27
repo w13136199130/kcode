@@ -15,12 +15,14 @@ export function Timeline({
   onOpenDiff,
   onQuotaReset,
   onQuotaFeedback,
+  onRetryFailed,
 }: {
   state: TimelineState;
   model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
   onQuotaReset?: () => void;
   onQuotaFeedback?: (text: string) => void;
+  onRetryFailed?: (text: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -103,6 +105,7 @@ export function Timeline({
               onOpenDiff={onOpenDiff}
               onQuotaReset={onQuotaReset}
               onQuotaFeedback={onQuotaFeedback}
+              onRetryFailed={onRetryFailed}
             />
           </div>
         ))}

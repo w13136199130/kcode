@@ -19,12 +19,14 @@ import { HostSession } from "./session.js";
 import { createCliPlatformService } from "./platform.js";
 import { loadUserModelsConfig } from "./boot.js";
 import { saveUserProvider } from "./config.js";
-import { addWorkspace, listWorkspaces, removeWorkspace } from "./workspace-store.js";
+import { addWorkspace, listWorkspaces, removeWorkspace, setWorkspaceArchived } from "./workspace-store.js";
 import { listArchived, setArchived } from "./task-state.js";
 import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
 import { pageSessions } from "./session-page.js";
 import { SessionSummaryCache } from "./session-summaries.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
+import { openInEditor } from "./editor-launch.js";
+import { exportSessionFile } from "./session-export.js";
 
 function workspacePathParam(params: unknown): string {
   const path = (params as { path?: unknown } | undefined)?.path;
@@ -168,6 +170,23 @@ export class HostServer {
       case "workspace/status": {
         const path = workspacePathParam(params);
         return { path, trusted: isProjectTrusted(path, this.kcodeHomeDir) };
+      }
+      case "workspace/archive": {
+        // S1-1（F5）：归档工作区——只改组织标记，不动目录/任务（不存在时 store 抛错）
+        const record = await setWorkspaceArchived(
+          this.kcodeHomeDir,
+          workspacePathParam(params),
+          (params as { archived?: boolean })?.archived === true,
+        );
+        return { path: record.path, archived: record.archived === true };
+      }
+      // S1-1（F5）：在编辑器中打开工作区目录（探测/启动细节在 editor-launch.ts）
+      case "workspace/open_editor":
+        return openInEditor(workspacePathParam(params));
+      case "session/export": {
+        // S1-1（F4）：导出会话 JSONL（细节在 session-export.ts）
+        const { sessionId, targetDir } = (params ?? {}) as { sessionId?: string; targetDir?: string };
+        return exportSessionFile(join(this.kcodeHomeDir, "cli", "sessions"), sessionId ?? "", targetDir ?? "");
       }
       case "session/create": {
         const p = params as SessionCreateParams;

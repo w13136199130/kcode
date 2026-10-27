@@ -31,6 +31,7 @@ import { useCreateFailureActions } from "./hooks/useCreateFailureActions.js";
 import { useTimelineProjection, type AskState, type PlanState, type QuestionState } from "./hooks/useTimelineProjection.js";
 import { switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
 import { RuntimeTimeline } from "./components/RuntimeTimeline.js";
+import { NavPlaceholderPage, type NavPage } from "./components/NavPages.js";
 import { useQuotaActions } from "./hooks/useQuotaActions.js";
 import { useDesktopNotifications } from "./hooks/useDesktopNotifications.js";
 import { Onboarding } from "./components/Onboarding.js";
@@ -74,8 +75,10 @@ function DesktopApp() {
   const [appVersion, setAppVersion] = useState("dev");
   /** P0-2：创建/续接失败（非静默）——主区失败卡片的来源；会话成功建立后自动清除 */
   const [createFailure, setCreateFailure] = useState<CreateFailure | null>(null);
-  /** P1-2：sessions/changed 计数——此前在渲染路径里对全量事件数组 filter，流式期间每次重渲染都扫一遍 */
+/** P1-2：sessions/changed 计数——此前在渲染路径里对全量事件数组 filter，流式期间每次重渲染都扫一遍 */
   const [sessionsSignal, setSessionsSignal] = useState(0);
+  /** S1-8：一级导航（自动化/插件市场为静态占位页，F20/F21） */
+  const [nav, setNav] = useState<NavPage>("chat");
 
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
@@ -241,6 +244,8 @@ function DesktopApp() {
             onOpen={onResume}
             onNewSession={onNewSession}
             onOpenSettings={() => setSettingsOpen(true)}
+            nav={nav}
+            onNavChange={setNav}
           />
         ) : (
           <SessionSidebar
@@ -253,7 +258,7 @@ function DesktopApp() {
           />
         )
       }
-      main={
+      main={nav === "chat" ? (
         <div className={`main-column ${isEmpty ? "draft" : ""}`}>
           <WorkspaceHeader
             title={projectName}
@@ -281,6 +286,7 @@ function DesktopApp() {
                 onOpenDiff={panes.openDiff}
                 onQuotaReset={quotaReset}
                 onQuotaFeedback={quotaFeedback}
+                onRetryFailed={onSend}
                 onContinue={() => onSend("继续")}
               />
               {isEmpty ? (
@@ -341,7 +347,9 @@ function DesktopApp() {
             onPickImages={() => window.kcodeHost?.pickImages() ?? Promise.resolve([])}
           />
         </div>
-      }
+      ) : (
+        <NavPlaceholderPage page={nav} onBack={() => setNav("chat")} />
+      )}
     />
       {paletteOpen ? (
         <CommandPalette
@@ -373,4 +381,4 @@ root.render(
   <StrictMode>
     <DesktopApp />
   </StrictMode>,
-);
+);

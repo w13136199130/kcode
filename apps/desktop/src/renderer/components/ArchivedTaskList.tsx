@@ -21,6 +21,8 @@ export function ArchivedTaskList(props: {
   onRename(session: SessionSummary): void;
   onDelete(session: SessionSummary): void;
   onArchive(session: SessionSummary): void;
+  onExport(session: SessionSummary): void;
+  onCopyId(session: SessionSummary): void;
 }) {
   return (
     <section className="d2-section d2-archived">
@@ -50,6 +52,8 @@ export function ArchivedTaskList(props: {
               onRename={() => props.onRename(session)}
               onDelete={() => props.onDelete(session)}
               onArchive={() => props.onArchive(session)}
+              onExport={() => props.onExport(session)}
+              onCopyId={() => props.onCopyId(session)}
               canDelete={session.sessionId !== props.currentId}
               canArchive={true}
               archived={true}

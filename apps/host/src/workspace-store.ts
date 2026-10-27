@@ -13,6 +13,8 @@ export interface WorkspaceRecord {
   name: string;
   createdAt: number;
   updatedAt: number;
+  /** S1-1：归档工作区——只影响侧栏组织，不动目录与任务 */
+  archived?: boolean;
 }
 
 interface StoreFile {
@@ -88,6 +90,23 @@ export async function removeWorkspace(kcodeHomeDir: string, path: string): Promi
   if (next.length === records.length) return false;
   await writeStore(kcodeHomeDir, next);
   return true;
+}
+
+/** S1-1：归档/取消归档工作区（只改组织标记，不触碰目录与会话）。找不到抛错。 */
+export async function setWorkspaceArchived(
+  kcodeHomeDir: string,
+  path: string,
+  archived: boolean,
+): Promise<WorkspaceRecord> {
+  const key = workspaceKey(path);
+  const records = await readStore(kcodeHomeDir);
+  const record = records.find((item) => workspaceKey(item.path) === key);
+  if (record === undefined) throw new Error(`工作区不存在：${path}`);
+  if (archived) record.archived = true;
+  else delete record.archived;
+  record.updatedAt = Date.now();
+  await writeStore(kcodeHomeDir, records);
+  return record;
 }
 
 export async function listWorkspaces(kcodeHomeDir: string): Promise<WorkspaceRecord[]> {

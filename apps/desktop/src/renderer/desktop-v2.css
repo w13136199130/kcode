@@ -2433,3 +2433,244 @@
 .continue-btn:hover {
   background: #333333;
 }
+
+/* S1-1：已归档工作区分区 */
+.d2-archived-workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 6px;
+}
+
+.d2-archived-workspace {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--d2-muted);
+  font-size: 12px;
+}
+
+.d2-archived-workspace .d2-folder {
+  flex: 0 0 auto;
+  color: var(--d2-faint);
+}
+
+.d2-archived-workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d2-archived-workspace-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--d2-faint);
+  font-size: 10.5px;
+}
+
+.d2-archived-workspace-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--d2-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--d2-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.d2-archived-workspace-restore:hover {
+  background: var(--d2-hover);
+  color: var(--d2-ink);
+}
+
+/* S1-8：一级导航行（对话/自动化/插件市场） */
+.d2-nav {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 8px;
+}
+
+.d2-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--d2-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.d2-nav button:hover {
+  background: var(--d2-hover);
+  color: var(--d2-ink);
+}
+
+.d2-nav button.active {
+  border-color: var(--d2-border);
+  background: var(--d2-selected);
+  color: var(--d2-ink);
+  font-weight: 600;
+}
+
+/* S1-8：导航占位页（自动化/插件市场空态） */
+.nav-placeholder-page {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 0;
+  padding: 40px 24px;
+  background: #ffffff;
+}
+
+.np-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(560px, 100%);
+  padding: 30px 32px;
+  border: 1px solid #ececec;
+  border-radius: 14px;
+  background: #fafafa;
+}
+
+.np-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #111111;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.np-desc {
+  margin: 0;
+  color: #666666;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.np-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.np-actions button {
+  padding: 6px 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #999999;
+  font-size: 12px;
+  cursor: not-allowed;
+}
+
+.np-templates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  border-top: 1px solid #ececec;
+  padding-top: 12px;
+}
+
+.np-template {
+  padding: 8px 12px;
+  border: 1px dashed #e4e4e4;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #888888;
+  font-size: 12px;
+}
+
+.np-back {
+  margin-top: 4px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.np-back:hover {
+  background: #333333;
+}
+
+/* S1-2：长工具运行中的节流输出尾（tool_progress） */
+.tool-card .tool-progress {
+  overflow: hidden;
+  padding: 5px 12px 6px;
+  border-top: 1px dashed #f0f0f0;
+  color: #999999;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-card .tool-progress-chars {
+  margin-left: 6px;
+  color: #bbbbbb;
+  font-size: 9.5px;
+}
+
+/* S1-3：普通 LLM 失败 banner（带重试本轮） */
+.timeline-v2 .row-llm-failed {
+  margin: 12px 0;
+  padding: 11px 13px;
+  border: 1px solid #f0d8d8;
+  border-radius: 10px;
+  background: #fff7f7;
+}
+
+.llm-failed-title {
+  color: #b23b3b;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.llm-failed-detail {
+  margin-top: 5px;
+  color: #a04444;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.llm-failed-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.llm-failed-actions .llm-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.llm-failed-actions .llm-retry:hover {
+  background: #333333;
+}

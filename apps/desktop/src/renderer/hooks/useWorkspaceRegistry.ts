@@ -23,6 +23,7 @@ export function useWorkspaceRegistry(options: {
   addWorkspace(): Promise<{ path: string; trusted: boolean } | null>;
   trustWorkspace(workspace: Workspace): Promise<void>;
   removeWorkspace(workspace: Workspace): Promise<boolean>;
+  archiveWorkspace(workspace: Workspace, archived: boolean): Promise<void>;
 } {
   const { conn, currentWorkspace } = options;
   const [registered, setRegistered] = useState<WorkspaceSummary[]>([]);
@@ -141,5 +142,19 @@ export function useWorkspaceRegistry(options: {
     }
   };
 
-  return { registered, trusted, notice, setNotice, addWorkspace, trustWorkspace, removeWorkspace };
+  /** S1-1：归档/取消归档工作区（只影响侧栏组织） */
+  const archiveWorkspace = async (workspace: Workspace, archived: boolean): Promise<void> => {
+    const key = normalizePath(workspace.path);
+    try {
+      await conn.send("workspace/archive", { path: workspace.path, archived });
+      setRegistered((prev) =>
+        prev.map((item) => (normalizePath(item.path) === key ? { ...item, archived } : item)),
+      );
+      setNotice(archived ? `已归档「${workspace.name}」（任务与目录不受影响）` : `已取消归档「${workspace.name}」`);
+    } catch (error) {
+      setNotice(`归档操作失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  return { registered, trusted, notice, setNotice, addWorkspace, trustWorkspace, removeWorkspace, archiveWorkspace };
 }

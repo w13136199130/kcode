@@ -20,6 +20,8 @@ export function TaskList(props: {
   onRename(session: SessionSummary): void;
   onDelete(session: SessionSummary): void;
   onArchive(session: SessionSummary, archived: boolean): void;
+  onExport(session: SessionSummary): void;
+  onCopyId(session: SessionSummary): void;
 }) {
   return (
     <div className="d2-tasks">
@@ -44,6 +46,8 @@ export function TaskList(props: {
             onRename={() => props.onRename(session)}
             onDelete={() => props.onDelete(session)}
             onArchive={() => props.onArchive(session, !props.archived)}
+            onExport={() => props.onExport(session)}
+            onCopyId={() => props.onCopyId(session)}
             canDelete={session.sessionId !== props.currentId}
             canArchive={props.archived || session.sessionId !== props.currentId}
             archived={props.archived}

@@ -162,6 +162,14 @@ export function ToolCallRowView({
         ) : null}
         {hasBody ? <span className="tool-chevron">{expanded ? "▾" : "▸"}</span> : null}
       </button>
+      {row.status === "running" && row.progressTail !== undefined && row.progressTail !== "" ? (
+        <div className="tool-progress">
+          ⋯ {row.progressTail.trimEnd().split("\n").at(-1) ?? ""}
+          {row.progressChars !== undefined ? (
+            <span className="tool-progress-chars">（{row.progressChars} 字符）</span>
+          ) : null}
+        </div>
+      ) : null}
       {expanded ? (
         <div className="tool-body">
           {renderer.detail?.(row.args)}

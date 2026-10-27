@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 import { useWorkspaceRegistry } from "../hooks/useWorkspaceRegistry.js";
+import { useSidebarTaskActions } from "../hooks/useSidebarTaskActions.js";
 import { useSidebarSessions } from "../hooks/useSidebarSessions.js";
 import { TaskList } from "./TaskList.js";
 import { ArchivedTaskList } from "./ArchivedTaskList.js";
@@ -24,6 +25,8 @@ import {
   type VisibleWorkspace,
   type Workspace,
 } from "./desktop-sidebar-model.js";
+import { SidebarNav, type NavPage } from "./NavPages.js";
+import { ArchivedWorkspaces } from "./ArchivedWorkspaces.js";
 /**
  * D3-UI Slice 1：桌面工作区/任务侧栏。
  *
@@ -42,12 +45,16 @@ export function DesktopSidebar(props: {
   onOpen(sessionId: string, workspacePath: string): void;
   onNewSession(workspacePath: string, opts?: { ungrouped?: boolean }): void;
   onOpenSettings(): void;
+  /** S1-8：一级导航（对话/自动化/插件市场）；不传则不渲染导航行 */
+  nav?: NavPage;
+  onNavChange?(page: NavPage): void;
 }) {
   const [selected, setSelected] = useState(normalizePath(props.currentWorkspace));
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([normalizePath(props.currentWorkspace)]));
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [showArchivedWorkspaces, setShowArchivedWorkspaces] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -69,9 +76,11 @@ export function DesktopSidebar(props: {
     registered,
     trusted,
     notice,
+    setNotice,
     addWorkspace: registerWorkspace,
     trustWorkspace: trustRegisteredWorkspace,
     removeWorkspace: unregisterWorkspace,
+    archiveWorkspace: archiveRegisteredWorkspace,
   } = useWorkspaceRegistry({ conn: props.conn, currentWorkspace: props.currentWorkspace });
   // 当前主会话切换（打开任务/新建任务/切目录）后，侧栏跟随所选工作区。
   useEffect(() => {
@@ -96,6 +105,9 @@ export function DesktopSidebar(props: {
       if (createdAt > 0 && (workspace.createdAt === 0 || createdAt < workspace.createdAt)) {
         workspace.createdAt = createdAt;
       }
+      // S1-1：归档标记以注册表为唯一权威
+      if (registeredByKey.get(key)?.archived === true) workspace.archived = true;
+      else delete workspace.archived;
       return workspace;
     };
     if (props.currentWorkspace !== "") ensure(props.currentWorkspace, 0);
@@ -119,7 +131,9 @@ export function DesktopSidebar(props: {
     });
   }, [effectiveSessions, registered, props.currentId, props.currentWorkspace, sortMode]);
   const q = query.trim().toLocaleLowerCase();
+  const archivedWorkspaces = workspaces.filter((workspace) => workspace.archived === true);
   const visibleWorkspaces: VisibleWorkspace[] = workspaces
+    .filter((workspace) => workspace.archived !== true)
     .map((workspace) => {
       const nameMatch = q === "" || workspace.name.toLocaleLowerCase().includes(q) || workspace.path.toLocaleLowerCase().includes(q);
       const visibleSessions = nameMatch
@@ -204,67 +218,19 @@ export function DesktopSidebar(props: {
     });
     setMenu(null);
   };
-  const startRename = (session: SessionSummary): void => {
-    setEditingId(session.sessionId);
-    setDraftTitle(session.title ?? session.preview);
-    setMenu(null);
-  };
-  const saveTitle = async (sessionId: string): Promise<void> => {
-    const title = draftTitle.trim();
-    if (title === "") {
-      setEditingId(null);
-      return;
-    }
-    try {
-      await props.conn.send("sessions/rename", { sessionId, title });
-      setEditingId(null);
-      refreshSessions();
-    } catch {
-      // 保持编辑态，让用户重试。
-    }
-  };
-  const removeSession = async (session: SessionSummary): Promise<void> => {
-    if (session.sessionId === props.currentId) {
-      window.alert("不能删除正在使用的会话，先切换到其他任务或新建任务。");
-      return;
-    }
-    if (!window.confirm("把这个任务移到回收站？之后可以恢复。")) return;
-    try {
-      await props.conn.send("sessions/delete", { sessionId: session.sessionId });
-      setMenu(null);
-      refreshSessions();
-    } catch {
-      // host 拒绝时保留现状，不做静默删除。
-    }
-  };
-  const restoreSession = async (session: SessionSummary): Promise<void> => {
-    try {
-      await props.conn.send("sessions/restore", { sessionId: session.sessionId });
-      setMenu(null);
-      refreshSessions();
-    } catch (error) {
-      window.alert(`恢复失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-  const emptyTrash = async (): Promise<void> => {
-    if (!window.confirm("永久清空回收站？会话文件将被删除，无法恢复。")) return;
-    try {
-      await props.conn.send("sessions/empty_trash");
-      setShowTrash(false);
-      refreshSessions();
-    } catch (error) {
-      window.alert(`清空回收站失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
-  const archiveSession = async (session: SessionSummary, archived: boolean): Promise<void> => {
-    try {
-      await props.conn.send("sessions/archive", { sessionId: session.sessionId, archived });
-      setMenu(null);
-      refreshSessions();
-    } catch (error) {
-      window.alert(`归档失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  const { startRename, saveTitle, removeSession, restoreSession, emptyTrash: emptyTrashAction, archiveSession, copySessionId, exportSession } =
+    useSidebarTaskActions({
+      conn: props.conn,
+      currentId: props.currentId,
+      draftTitle,
+      setNotice,
+      setMenu,
+      setEditingId,
+      setDraftTitle,
+      refreshSessions,
+    });
+  // 清空回收站成功后收起分区（原内联实现行为）
+  const emptyTrash = async (): Promise<void> => { await emptyTrashAction(); setShowTrash(false); };
   const copyPath = async (path: string): Promise<void> => {
     try {
       await navigator.clipboard.writeText(path);
@@ -273,6 +239,22 @@ export function DesktopSidebar(props: {
     }
     setMenu(null);
   };
+  // S1-1（F5）：在编辑器中打开工作区（host 侧解析 KCODE_EDITOR/EDITOR/code）
+  const openInEditor = async (workspace: Workspace): Promise<void> => {
+    setMenu(null);
+    try {
+      const result = (await props.conn.send("workspace/open_editor", { path: workspace.path })) as {
+        command?: string;
+      };
+      setNotice(`已用 ${result.command ?? "编辑器"} 打开「${workspace.name}」`);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const archiveWorkspace = async (workspace: Workspace, archived: boolean): Promise<void> => {
+    setMenu(null);
+    await archiveRegisteredWorkspace(workspace, archived);
+  };
   return (
     <aside className="sidebar desktop-v2">
       <div className="d2-head">
@@ -280,6 +262,9 @@ export function DesktopSidebar(props: {
         <span className="d2-name">kcode</span>
         <span className="d2-local">本地</span>
       </div>
+      {props.onNavChange !== undefined ? (
+        <SidebarNav nav={props.nav ?? "chat"} onNavChange={props.onNavChange} />
+      ) : null}
       <button type="button" className="d2-new" onClick={() => props.onNewSession(targetPath, { ungrouped: selected === INBOX })} title="新建会话（Ctrl+N）">
         <Plus size={15} strokeWidth={1.8} />
         <span>新建会话</span>
@@ -368,6 +353,8 @@ export function DesktopSidebar(props: {
                     onTrust={() => void trustWorkspace(workspace)}
                     onRemove={() => void removeWorkspace(workspace)}
                     onCopy={() => void copyPath(workspace.path)}
+                    onOpenEditor={() => void openInEditor(workspace)}
+                    onArchive={() => void archiveWorkspace(workspace, workspace.archived !== true)}
                   >
                     <TaskList
                       sessions={sortSessions(q === "" ? workspace.sessions : workspace.visibleSessions)}
@@ -391,6 +378,8 @@ export function DesktopSidebar(props: {
                       onRename={startRename}
                       onDelete={(session) => void removeSession(session)}
                       onArchive={(session, archived) => void archiveSession(session, archived)}
+                      onExport={(session) => void exportSession(session)}
+                      onCopyId={(session) => void copySessionId(session)}
                     />
                   </WorkspaceRow>
                 );
@@ -437,9 +426,17 @@ export function DesktopSidebar(props: {
               onRename={startRename}
               onDelete={(session) => void removeSession(session)}
               onArchive={(session, archived) => void archiveSession(session, archived)}
+              onExport={(session) => void exportSession(session)}
+              onCopyId={(session) => void copySessionId(session)}
             />
           ) : null}
         </section>
+        <ArchivedWorkspaces
+          workspaces={archivedWorkspaces}
+          open={showArchivedWorkspaces}
+          onToggle={() => setShowArchivedWorkspaces((open) => !open)}
+          onRestore={(workspace) => void archiveWorkspace(workspace, false)}
+        />
         {archived.length > 0 ? (
           <ArchivedTaskList
             sessions={archived}
@@ -463,6 +460,8 @@ export function DesktopSidebar(props: {
             onRename={startRename}
             onDelete={(session) => void removeSession(session)}
             onArchive={(session) => void archiveSession(session, false)}
+            onExport={(session) => void exportSession(session)}
+            onCopyId={(session) => void copySessionId(session)}
           />
         ) : null}
         {trash.length > 0 ? (

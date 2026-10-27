@@ -142,3 +142,62 @@ test("运行态三件套：额度 banner / 暂停继续 / 浮动进度卡", asyn
     await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
   }
 });
+
+/** S1-3：普通 LLM 失败（非额度）→ 重试本轮 → 重发最后一轮用户输入。 */
+test("普通 LLM 失败可重试本轮（S1-3）", async () => {
+  test.setTimeout(90_000);
+  const fakeHome = await mkdtemp(join(tmpdir(), "kcode-retry-"));
+  const kcodeHome = join(fakeHome, ".kcode");
+  const sessions = join(kcodeHome, "cli", "sessions");
+  await mkdir(sessions, { recursive: true });
+  await mkdir(join(kcodeHome, "desktop"), { recursive: true });
+  await writeFile(
+    join(kcodeHome, "config.json"),
+    JSON.stringify({
+      models: {
+        default: "mock/model",
+        providers: { mock: { type: "openai-compatible", baseURL: "https://example.com/v1" } },
+      },
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(kcodeHome, "desktop", "projects.json"),
+    JSON.stringify({
+      version: 1,
+      workspaces: [{ path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() }],
+    }),
+    "utf8",
+  );
+  const id = "sess_llm_retry";
+  await writeFile(
+    join(sessions, `${id}.jsonl`),
+    [
+      JSON.stringify({ v: 1, type: "session_start", ts: Date.now() - 60_000, sessionId: id, model: "mock/model", workspaceKey: kcodePath }),
+      JSON.stringify({ v: 1, type: "user_message", ts: Date.now() - 59_000, sessionId: id, content: "重试这一轮" }),
+      JSON.stringify({ v: 1, type: "llm_error", ts: Date.now() - 58_000, sessionId: id, error: "HTTP 404 Not Found" }),
+      JSON.stringify({ v: 1, type: "session_end", ts: Date.now() - 57_000, sessionId: id, reason: "failed", usage: { inputTokens: 1, outputTokens: 1, calls: 1 } }),
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  const env = {
+    ...process.env,
+    KCODE_HOME: kcodeHome,
+    KCODE_DESKTOP_USER_DATA: join(fakeHome, "userData"),
+  };
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  const { app, page } = await launch(env);
+  try {
+    await page.locator(`[data-session-id="${id}"]`).click();
+    const banner = page.locator(".row-llm-failed");
+    await expect(banner).toBeVisible({ timeout: 20_000 });
+    await expect(banner).toContainText("HTTP 404");
+    await banner.locator(".llm-retry").click();
+    // 重发最后一轮输入 → 新的 user_message 行出现（host 在 LLM 调用前落 user_message）
+    await expect(page.locator(".row-user").filter({ hasText: "重试这一轮" })).toHaveCount(2, { timeout: 20_000 });
+  } finally {
+    kill(app);
+    await rm(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined);
+  }
+});

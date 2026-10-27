@@ -1,4 +1,4 @@
-import { Folder, MoreHorizontal, Plus } from "lucide-react";
+import { ExternalLink, Folder, MoreHorizontal, Plus, Archive, ArchiveRestore } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import type { Workspace } from "./desktop-sidebar-model.js";
 
@@ -16,6 +16,8 @@ export function WorkspaceRow(props: {
   onTrust(): void;
   onRemove(): void;
   onCopy(): void;
+  onOpenEditor(): void;
+  onArchive(): void;
   children?: ReactNode;
 }) {
   return (
@@ -63,6 +65,23 @@ export function WorkspaceRow(props: {
           <button type="button" onClick={props.onCopy}>
             复制工作区路径
           </button>
+          <button type="button" onClick={props.onOpenEditor}>
+            <ExternalLink size={12} strokeWidth={1.8} />
+            在编辑器中打开
+          </button>
+          {!props.current ? (
+            props.workspace.archived === true ? (
+              <button type="button" onClick={props.onArchive}>
+                <ArchiveRestore size={12} strokeWidth={1.8} />
+                取消归档工作区
+              </button>
+            ) : (
+              <button type="button" onClick={props.onArchive}>
+                <Archive size={12} strokeWidth={1.8} />
+                归档工作区
+              </button>
+            )
+          ) : null}
           {!props.current ? (
             <button type="button" className="danger" onClick={props.onRemove}>
               从列表移除

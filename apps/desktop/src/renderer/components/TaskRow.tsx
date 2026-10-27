@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Copy, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { MouseEvent } from "react";
 
 /**
@@ -21,6 +21,8 @@ export function TaskRow(props: {
   onRename(): void;
   onDelete(): void;
   onArchive(): void;
+  onExport(): void;
+  onCopyId(): void;
   onRestore?: () => void;
   canDelete: boolean;
   canArchive: boolean;
@@ -73,6 +75,14 @@ export function TaskRow(props: {
               <button type="button" onClick={props.onRename}>
                 <Pencil size={12} strokeWidth={1.8} />
                 重命名
+              </button>
+              <button type="button" onClick={props.onExport}>
+                <Download size={12} strokeWidth={1.8} />
+                导出 JSONL
+              </button>
+              <button type="button" onClick={props.onCopyId}>
+                <Copy size={12} strokeWidth={1.8} />
+                复制 ID
               </button>
               {props.canArchive ? (
                 <button type="button" onClick={props.onArchive}>

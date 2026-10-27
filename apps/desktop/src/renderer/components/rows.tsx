@@ -3,6 +3,7 @@ import { RichMarkdown } from "./RichMarkdown.js";
 import type { Row } from "./projection.js";
 import { ToolCallRowView } from "./ToolCallRow.js";
 import { QuotaBanner } from "./QuotaBanner.js";
+import { FailedCallBanner } from "./FailedCallBanner.js";
 
 /**
  * 时间线行分发器（M2a）：按行类型 memo 化渲染（zcode ConversationRowView 减法版）。
@@ -17,12 +18,14 @@ export const RowView = memo(function RowView({
   onOpenDiff,
   onQuotaReset,
   onQuotaFeedback,
+  onRetryFailed,
 }: {
   row: Row;
   model?: string | null;
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
   onQuotaReset?: () => void;
   onQuotaFeedback?: (text: string) => void;
+  onRetryFailed?: (text: string) => void;
 }) {  switch (row.kind) {
     case "user":
       return (
@@ -74,6 +77,8 @@ export const RowView = memo(function RowView({
           onFeedback={(text) => onQuotaFeedback?.(text)}
         />
       );
+    case "llm_failed":
+      return <FailedCallBanner error={row.error} retryText={row.retryText} onRetry={onRetryFailed} />;
   }
 });
 

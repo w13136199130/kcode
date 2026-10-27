@@ -47,6 +47,8 @@ export function TrashTaskList(props: {
               onRename={() => undefined}
               onDelete={() => undefined}
               onArchive={() => undefined}
+              onExport={() => undefined}
+              onCopyId={() => undefined}
               onRestore={() => props.onRestore(session)}
               canDelete={false}
               canArchive={false}

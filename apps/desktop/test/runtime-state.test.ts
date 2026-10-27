@@ -40,12 +40,37 @@ describe("P4-2 额度错误识别（isQuotaError）", () => {
 });
 
 describe("P4-2 运行态投影（quota/paused/todos/agents）", () => {
-  it("额度类 llm_error 渲染为 quota 行，普通错误仍为 info 行", () => {
+  it("额度类 llm_error 渲染为 quota 行，普通错误为 llm_failed 行（S1-3 带重试出口）", () => {
     let state = initialTimeline();
     state = applyEvent(state, ev({ v: 1, type: "llm_error", ts: 1, sessionId: "s", error: "1112 余额不足" }));
     state = applyEvent(state, ev({ v: 1, type: "llm_error", ts: 2, sessionId: "s", error: "HTTP 404" }));
     expect(state.rows.at(-2)).toEqual({ kind: "quota", text: "1112 余额不足" });
-    expect(state.rows.at(-1)).toEqual({ kind: "info", text: "✗ 模型调用失败：HTTP 404", tone: "warn" });
+    expect(state.rows.at(-1)).toEqual({ kind: "llm_failed", error: "HTTP 404" });
+  });
+
+  it("llm_failed 携带最后一轮用户输入作 retryText；无输入时不带", () => {
+    let state = initialTimeline();
+    state = applyEvent(state, ev({ v: 1, type: "user_message", ts: 1, sessionId: "s", content: "重试我" }));
+    state = applyEvent(state, ev({ v: 1, type: "llm_error", ts: 2, sessionId: "s", error: "connect ETIMEDOUT" }));
+    expect(state.rows.at(-1)).toEqual({ kind: "llm_failed", error: "connect ETIMEDOUT", retryText: "重试我" });
+    state = applyEvent(state, ev({ v: 1, type: "llm_error", ts: 3, sessionId: "s", error: "again" }));
+    expect(state.rows.at(-1)).toEqual({ kind: "llm_failed", error: "again", retryText: "重试我" });
+  });
+
+  it("tool_progress 更新运行中工具行尾巴，tool_result 落定后清除（S1-2）", () => {
+    let state = initialTimeline();
+    state = applyEvent(state, ev({ v: 1, type: "tool_call", ts: 1, sessionId: "s", callId: "c1", tool: "bash", args: { command: "npm test" } }));
+    state = applyEvent(state, ev({ v: 1, type: "tool_progress", ts: 2, sessionId: "s", callId: "c1", tool: "bash", tail: "first\nRUNS 41/42", totalChars: 2048 }));
+    let row = state.rows.find((r) => r.kind === "tool");
+    expect(row?.kind === "tool" && row.progressTail).toBe("first\nRUNS 41/42");
+    expect(row?.kind === "tool" && row.progressChars).toBe(2048);
+    state = applyEvent(state, ev({ v: 1, type: "tool_progress", ts: 3, sessionId: "s", callId: "c-other", tool: "bash", tail: "别的工具", totalChars: 10 }));
+    row = state.rows.find((r) => r.kind === "tool");
+    expect(row?.kind === "tool" && row.progressTail).toBe("first\nRUNS 41/42");
+    state = applyEvent(state, ev({ v: 1, type: "tool_result", ts: 4, sessionId: "s", callId: "c1", ok: true, output: "done" }));
+    row = state.rows.find((r) => r.kind === "tool");
+    expect(row?.kind === "tool" && row.status).toBe("done");
+    expect(row?.kind === "tool" && row.progressTail).toBeUndefined();
   });
 
   it("todo_update 更新 todos 状态（进度卡数据源），行内保留历史", () => {

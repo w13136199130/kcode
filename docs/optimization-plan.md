@@ -128,6 +128,14 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S0-3 Windows CI 首绿 | ✅ 2026-10-27 | Actions run 于 77c46f1 全绿（gates+windows）。失败链修复：gates=M2 console.log→stdout（d942b73 前）；windows E2E=历史硬编码路径（82d57de 参数化修复，干净克隆异地 15 passed 验证）+ inbox 侧栏断言慢机余量（77c46f1）；另沉淀 github reporter 注解上报（d942b73，失败明细匿名 API 可读） |
 | S0-4 main.tsx 拆分 | ✅ 2026-10-27 | 6fcd43e：482→375 行，拆 useGlobalShortcuts/useInitialConfig/useTimelineProjection/useCreateFailureActions，原样搬移语义不变 |
 | S0-5 RowView memo 化 | ✅ 2026-10-27 | 932550d：RowView 包 React.memo + useWorkspacePanes 动作 useCallback 化；帧率断言并入 M8（随 S1-2 测） |
-| S1-1 ~ S1-8 | ⏳ | 见各条验收 |
+| S1-1 菜单补齐 | ✅ 2026-10-27 | host 3 RPC（session/export、workspace/open_editor、workspace/archive + store archived 字段）；任务菜单 导出 JSONL/复制 ID，工作区菜单 在编辑器中打开/归档工作区 + 侧栏「已归档工作区」分区；`workspace-archive.test` 1 条 + E2E `menus.spec`（剪贴板断言/导出落盘/归档往返）；导出走 readFile→writeFile 规避 Defender EPERM；行数收口拆出 editor-launch/session-export/ArchivedWorkspaces/SidebarNav/useSidebarTaskActions |
+| S1-2 tool_progress 接线 | ✅ 2026-10-27 | projection 新 case（挂 running 工具行 progressTail/Chars，result 落定清除）+ ToolCallRow 尾行显示；单测 2 条；E2E 不适用（事件不落盘无法 replay 驱动，真实驱动需厂商工具流——M4 流式帧率断言顺延至 S1-4 响应式批一并手测） |
+| S1-3 llm_error 重试 | ✅ 2026-10-27 | 非额度错误改渲染 `llm_failed` 行（FailedCallBanner + 重试本轮=重发最后一轮用户输入，projection 记 lastUserText）；单测 2 条 + E2E `runtime-state.spec` 第 2 条（重试→重发行出现） |
+| S1-4 context 浮动抽屉 | ⏳ | — |
+| S1-5 快捷键/令牌 | ⏳ | — |
+| S1-6 设置子页第一批 | ⏳ | — |
+| S1-7 预算护栏接线 | ✅ 2026-10-27 | host 会话接 sessionBudgetTokens（KCODE_BUDGET_TOKENS > config budget.maxSessionTokens，fail-closed 成 rejected+detail）；E2E `budget-guard.spec`（种子超预算会话续接提交→暂停条含「会话 token 预算已用尽」） |
+| S1-8 导航占位页 | ✅ 2026-10-27 | 侧栏一级导航（对话/自动化/插件市场）+ NavPlaceholderPage 空态（真功能走 S3-5）；E2E `nav-pages.spec`（切换/返回/composer 恢复） |
+| S1-1 ~ S1-8 | — | 拆分明细见上（S1-4/5/6 待做） |
 | S2-1 ~ S2-6 | ⏳ | 见各条验收 |
 | S3-1 ~ S3-5 | ⏳ | 见各条验收 |

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { newId } from "@kcode/shared";
 import type {
   HostEvent,
@@ -28,6 +29,27 @@ import { searchWorkspaceFiles } from "./files.js";
 /** 桌面审批/计划面板要留给用户阅读完整命令/diff 的时间；断连仍立即 fail-closed */
 const ASK_TIMEOUT_MS = 5 * 60_000;
 const PLAN_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * S1-7：会话 token 预算（与 CLI loadSessionBudgetTokens 同源语义，host 不能跨界 import apps/cli）：
+ * env KCODE_BUDGET_TOKENS（正整数）覆盖 config.json 的 budget.maxSessionTokens；缺失/非法 = 预算关。
+ * 桌面不接 onBudgetLimit——到顶 fail-closed 成 session_end(rejected + 预算 detail)，渲染为暂停条。
+ */
+async function loadSessionBudgetTokens(kcodeHomeDir: string): Promise<number | undefined> {
+  const envVal = process.env["KCODE_BUDGET_TOKENS"];
+  if (envVal !== undefined && envVal !== "" && /^\d+$/.test(envVal) && Number(envVal) > 0) {
+    return Number(envVal);
+  }
+  try {
+    const raw = JSON.parse(await readFile(join(kcodeHomeDir, "config.json"), "utf8")) as {
+      budget?: { maxSessionTokens?: unknown };
+    };
+    const value = raw.budget?.maxSessionTokens;
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const REASONING_FLUSH_MS = 250;
 /** kill -9 后 PID 可能短暂仍可被 signal 0 探测到；接管前给 OS 回收一个宽限窗口 */
 const LEASE_TAKEOVER_GRACE_MS = 1_000;
@@ -125,6 +147,8 @@ export class HostSession {
       askUser: this.#askUser(),
       // 计划批准：桌面端 plan_submit 必须有交互通道，否则计划模式不可用
       planAsker: this.#planAsker(),
+      // S1-7：预算护栏（fail-closed → 暂停条；见 loadSessionBudgetTokens 注释）
+      sessionBudgetTokens: await loadSessionBudgetTokens(this.kcodeHomeDir),
     });
     this.#composed = composed;
     this.#queue = composed.commandQueue;

@@ -23,6 +23,8 @@ export interface Workspace {
   sessions: SessionSummary[];
   /** 注册表创建顺序；不在注册表中的工作区固定为 0。 */
   createdAt: number;
+  /** S1-1：归档工作区——只影响侧栏组织，不动目录与任务。 */
+  archived?: boolean;
 }
 
 export interface WorkspaceSummary {
@@ -31,6 +33,7 @@ export interface WorkspaceSummary {
   createdAt: number;
   updatedAt: number;
   trusted: boolean;
+  archived?: boolean;
 }
 
 export type VisibleWorkspace = Workspace & { visibleSessions: SessionSummary[] };

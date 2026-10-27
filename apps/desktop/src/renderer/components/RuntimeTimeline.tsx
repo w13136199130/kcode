@@ -13,6 +13,7 @@ export function RuntimeTimeline({
   onOpenDiff,
   onQuotaReset,
   onQuotaFeedback,
+  onRetryFailed,
   onContinue,
 }: {
   timeline: TimelineState;
@@ -20,6 +21,7 @@ export function RuntimeTimeline({
   onOpenDiff?: (row: Extract<Row, { kind: "tool" }>) => void;
   onQuotaReset?: () => void;
   onQuotaFeedback?: (text: string) => void;
+  onRetryFailed?: (text: string) => void;
   onContinue: () => void;
 }) {
   return (
@@ -31,6 +33,7 @@ export function RuntimeTimeline({
         onOpenDiff={onOpenDiff}
         onQuotaReset={onQuotaReset}
         onQuotaFeedback={onQuotaFeedback}
+        onRetryFailed={onRetryFailed}
       />
       {timeline.paused !== null && !timeline.busy ? (
         <ContinueBar paused={timeline.paused} onContinue={onContinue} />
