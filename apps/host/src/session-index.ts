@@ -29,7 +29,8 @@ const FILE = "desktop/session-index.json";
 const MAX_ENTRIES = 500;
 /** 创建中断留下的 draft/failed 超过一天仍未落盘，视为 stale。 */
 const STALE_DRAFT_MS = 24 * 60 * 60_000;
-const LOCK_WAIT_MS = 2_000;
+// 存活持有者的等待窗口（须 < LOCK_STALE_MS，否则先触发 stale 接管语义）；KCODE_INDEX_LOCK_WAIT_MS 可调
+const LOCK_WAIT_MS = Number(process.env["KCODE_INDEX_LOCK_WAIT_MS"] ?? "2000");
 const LOCK_STALE_MS = 5_000;
 
 function indexPath(kcodeHomeDir: string): string {
@@ -62,8 +63,22 @@ async function writeIndex(kcodeHomeDir: string, sessions: SessionIndexEntry[]): 
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_ENTRIES);
   const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, `${JSON.stringify({ version: 1, sessions: trimmed } satisfies IndexFile, null, 2)}\n`, "utf8");
-  await rename(tmp, path);
+  const body = `${JSON.stringify({ version: 1, sessions: trimmed } satisfies IndexFile, null, 2)}\n`;
+  await writeFile(tmp, body, "utf8");
+  // Windows Defender 对新写文件的扫描锁可让"替换已有文件"的 rename 报 EPERM（本仓库已两遇）：
+  // 短重试后降级直写——读取侧（readIndex）对损坏文件本就安全降级，并由下一次写入自愈。
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(tmp, path);
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EPERM" || attempt >= 2) {
+        await writeFile(path, body, "utf8");
+        return;
+      }
+      await sleep(80 * (attempt + 1));
+    }
+  }
 }
 
 let queue: Promise<unknown> = Promise.resolve();
