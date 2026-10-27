@@ -148,6 +148,10 @@ export const RunLimitReachedEvent = z.object({
   maxTurns: z.number().int().positive(),
 });
 
+/** LLM 错误结构化分类（S2-3，可选字段——旧转写无 code，消费方按文案回退）。 */
+export const LlmErrorCode = z.enum(["quota", "auth", "rate_limit", "context_overflow", "network", "unknown"]);
+export type LlmErrorCode = z.infer<typeof LlmErrorCode>;
+
 /** LLM 调用失败（流中断/鉴权错/模型不存在等）：界面必须可见，绝不能静默吞掉 */
 export const LlmErrorEvent = z.object({
   v: v1,
@@ -155,6 +159,7 @@ export const LlmErrorEvent = z.object({
   ts,
   sessionId,
   error: z.string().min(1),
+  code: LlmErrorCode.optional(),
 });
 
 /**

@@ -48,6 +48,26 @@ describe("P4-2 运行态投影（quota/paused/todos/agents）", () => {
     expect(state.rows.at(-1)).toEqual({ kind: "llm_failed", error: "HTTP 404" });
   });
 
+
+  it("S2-3：llm_error 的 code 优先——code=quota 但文案不含额度词也走额度 banner；旧转写无 code 走文案兜底", () => {
+    let state = initialTimeline();
+    state = applyEvent(
+      state,
+      ev({ v: 1, type: "llm_error", ts: 1, sessionId: "s", error: "provider says no", code: "quota" }),
+    );
+    expect(state.rows.at(-1)).toEqual({ kind: "quota", text: "provider says no" });
+    state = applyEvent(
+      state,
+      ev({ v: 1, type: "llm_error", ts: 2, sessionId: "s", error: "1112 余额不足" }),
+    );
+    expect(state.rows.at(-1)).toEqual({ kind: "quota", text: "1112 余额不足" });
+    state = applyEvent(
+      state,
+      ev({ v: 1, type: "llm_error", ts: 3, sessionId: "s", error: "1112 余额不足", code: "network" }),
+    );
+    expect(state.rows.at(-1)?.kind).toBe("llm_failed");
+  });
+
   it("llm_failed 携带最后一轮用户输入作 retryText；无输入时不带", () => {
     let state = initialTimeline();
     state = applyEvent(state, ev({ v: 1, type: "user_message", ts: 1, sessionId: "s", content: "重试我" }));

@@ -32,7 +32,7 @@ import { TurnExecutor } from "./executor.js";
 import { TurnMachine, TurnPhase } from "./turn-state.js";
 import { consumeStream } from "./consume-stream.js";
 import { settleToolResults } from "./settle-results.js";
-import { isContextOverflowError } from "./errors.js";
+import { classifyLlmError, isContextOverflowError } from "./errors.js";
 
 export interface AgentLoopPorts {
   llm: LLMProvider;
@@ -594,6 +594,7 @@ export class AgentLoop {
               this.history.push({ role: "assistant", content: text });
             }
           }
+          const llmCode = classifyLlmError(streamError);
           await this.emit({
             v: 1,
             type: "llm_error",
@@ -602,6 +603,8 @@ export class AgentLoop {
             error: isContextOverflowError(streamError)
               ? `${streamError}（上下文可能超限；可 /compact 后重试）`
               : streamError,
+            // S2-3：结构化分类（可选字段；旧转写无 code 由消费方文案回退）
+            code: llmCode,
           });
           break;
         }

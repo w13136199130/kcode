@@ -82,3 +82,10 @@ session/create（仅追加桌面会话索引写入）
 
 - 2026-12-31
 - Slice 4 合并后复核
+
+## 例外登记：llm_error 加可选 `code` 字段（S2-3，2026-10-27）
+
+- **变更**：`SessionEvent.llm_error` 增加可选枚举 `code: quota | auth | rate_limit | context_overflow | network | unknown`（zod `.optional()`，非 strict 对象——旧转写不含该字段仍可解析）。
+- **理由**：桌面额度 banner 此前靠 renderer 文案启发式（P4-2 权宜）；结构化分类把权威判定移到发射侧（`classifyLlmError`，core/errors.ts），消费方按 code 分流。纯加法：不落 code 的旧事件由消费方文案回退，行为不变。
+- **影响面**：packages/contracts（schema）、packages/core（发射带 code）、apps/desktop（消费 code 优先、文案兜底）。CLI/TUI 不读该字段，零影响。
+- **验证**：core 分类器 8 例 + renderer code 优先/兜底 3 例 + 全量 E2E。

@@ -24,7 +24,8 @@ export function useDesktopSessionSwitching(options: {
   setSessionId(value: string | null): void;
   setSessionVersion(update: (value: number) => number): void;
   setQueuedCount(value: number): void;
-  resetTimeline(): void;
+  /** S2-1：切换时暂存旧会话时间线、恢复目标会话分片（null=新会话空态） */
+  switchTimeline(targetSessionId: string | null): void;
 }): {
   onNewSession(workspacePath?: string, opts?: { requestId?: string; ungrouped?: boolean }): void;
   onResume(sessionId: string, workspacePath?: string): void;
@@ -41,7 +42,7 @@ export function useDesktopSessionSwitching(options: {
     setSessionId,
     setSessionVersion,
     setQueuedCount,
-    resetTimeline,
+    switchTimeline,
   } = options;
   const switchToken = useRef(0);
 
@@ -57,7 +58,7 @@ export function useDesktopSessionSwitching(options: {
       const previousSessionId = sessionId;
       const requestId =
         opts?.requestId ?? globalThis.crypto?.randomUUID?.() ?? `create_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      resetTimeline();
+      switchTimeline(null);
       // 旧 host 会话已 dispose；新 create 返回前关闭“可发送”，避免消息写到旧会话。
       setSessionId(null);
       setQueuedCount(0);
@@ -93,7 +94,7 @@ export function useDesktopSessionSwitching(options: {
       setQueuedCount,
       setSessionId,
       setSessionVersion,
-      resetTimeline,
+      switchTimeline,
     ],
   );
 
@@ -107,7 +108,7 @@ export function useDesktopSessionSwitching(options: {
       }
       const token = ++switchToken.current;
       const previousSessionId = sessionId;
-      resetTimeline();
+      switchTimeline(null);
       // 旧 host 会话已 dispose；新 create 返回前关闭“可发送”，避免消息写到旧会话。
       setSessionId(null);
       setQueuedCount(0);
@@ -140,7 +141,7 @@ export function useDesktopSessionSwitching(options: {
       setQueuedCount,
       setSessionId,
       setSessionVersion,
-      resetTimeline,
+      switchTimeline,
     ],
   );
 

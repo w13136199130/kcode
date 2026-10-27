@@ -30,6 +30,7 @@ import { useInitialConfig } from "./hooks/useInitialConfig.js";
 import { useCreateFailureActions } from "./hooks/useCreateFailureActions.js";
 import { useTimelineProjection, type AskState, type PlanState, type QuestionState } from "./hooks/useTimelineProjection.js";
 import { switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
+import { TimelineShards } from "./lib/timeline-shards.js";
 import { RuntimeTimeline } from "./components/RuntimeTimeline.js";
 import { NavPlaceholderPage, type NavPage } from "./components/NavPages.js";
 import { useQuotaActions } from "./hooks/useQuotaActions.js";
@@ -81,8 +82,10 @@ function DesktopApp() {
   const [createFailure, setCreateFailure] = useState<CreateFailure | null>(null);
 /** P1-2：sessions/changed 计数——此前在渲染路径里对全量事件数组 filter，流式期间每次重渲染都扫一遍 */
   const [sessionsSignal, setSessionsSignal] = useState(0);
-  /** S1-8：一级导航（自动化/插件市场为静态占位页，F20/F21） */
+/** S1-8：一级导航（自动化/插件市场为静态占位页，F20/F21） */
   const [nav, setNav] = useState<NavPage>("chat");
+  /** S2-1：会话级时间线分片——切换暂存/秒恢复，后台事件按 sessionId 路由 */
+  const shards = useRef(new TimelineShards()).current;
 
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
@@ -114,7 +117,18 @@ function DesktopApp() {
   useSessionReplay({ conn, sessionId, sessionVersion, processed, setTimeline });
 
   // 事件流 → 投影（增量；弹层分流在 hook 内）
-  useTimelineProjection({ conn, processed, setQueuedCount, setAsk, setQuestion, setPlan, setMode, setTimeline });
+  useTimelineProjection({
+    conn,
+    processed,
+    setQueuedCount,
+    setAsk,
+    setQuestion,
+    setPlan,
+    setMode,
+    setTimeline,
+    currentSessionId: sessionId,
+    shards,
+  });
 
   // P1-2：增量计数 sessions/changed（事件数组只增；slice 从上次计数续扫，O(增量)）
   const signalSeen = useRef(0);
@@ -169,7 +183,10 @@ function DesktopApp() {
     setSessionId,
     setSessionVersion,
     setQueuedCount,
-    resetTimeline: () => setTimeline(initialTimeline()),
+    switchTimeline: (target) => {
+      shards.save(sessionId, timeline);
+      setTimeline((target !== null ? shards.take(target) : null) ?? initialTimeline());
+    },
   });
   /** 切换工作区（D0-07）：选目录后统一走 onNewSession（P0-2/P0-3——同一护栏与失败恢复路径） */
   const onPickWorkspace = useCallback((): void => {

@@ -138,5 +138,10 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S1-8 导航占位页 | ✅ 2026-10-27 | 侧栏一级导航（对话/自动化/插件市场）+ NavPlaceholderPage 空态（真功能走 S3-5）；E2E `nav-pages.spec`（切换/返回/composer 恢复） |
 | S1 批 CI 收口 | ✅ 2026-10-27 | ee25bc0 双 job 全绿（19 E2E + perf 门槛）。过程沉淀：①create-failure 慢机加固（test.slow+15s 窗口）；②M1 perf 门槛环境分级（CI 共享 runner 80ms / 本机 50ms，CI 实测 59.85ms 属环境波动）；③**submit 失败可见化（M3 补漏）**——`session/submit` catch 不再静默（慢机 dispose/create 竞态会打在"会话未创建"上），时间线 deny 行 + busy 复位；inbox.spec 加 user_message 前提断言 + retries 2 |
 | S1-1 ~ S1-8 | — | 拆分明细见上（S1-4/5/6 待做） |
-| S2-1 ~ S2-6 | ⏳ | 见各条验收 |
+| S2-1 per-session 状态分片 | ✅ 2026-10-27 | `TimelineShards`（LRU 8 片）：切换暂存旧会话时间线、切回秒恢复缓存画面（replay 改后台权威重建后整体替换）；投影按 session/event 内层 sessionId 路由，非当前会话事件并入其缓存分片不串画面（S3-3 地基）。`timeline-shards.test` 4 条；全量 E2E 22 passed 行为不变 |
+| S2-2 资产引用契约 | ⏳ | 先设计稿（§3 约定），再实现 |
+| S2-3 typed error.code | ✅ 2026-10-27 | `llm_error` 加可选 `code` 枚举（quota/auth/rate_limit/context_overflow/network/unknown）；发射侧权威分类 `classifyLlmError`（core/errors.ts），renderer code 优先、旧转写文案兜底；例外已登记（desktop-workspace-rpc-approval.md）。core 8 例 + renderer 3 例单测 |
+| S2-4 host HTTP/WS 监听 | ⏳ | — |
+| S2-5 索引层接口化 | ⏳ | — |
+| S2-6 使用统计账本 | ⚠️ 第一片已落地 | `usage/summary` RPC + 设置页使用统计（随 S1-6）；剩余：CLI usage metering 汇聚与精确化（去估算标注）待做 |
 | S3-1 ~ S3-5 | ⏳ | 见各条验收 |

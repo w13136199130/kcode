@@ -180,7 +180,10 @@ export function applyEvent(state: TimelineState, ev: HostEvent): TimelineState {
     }
     case "llm_error": {
       const error = String(se["error"] ?? "");
-      const row: Row = isQuotaError(error)
+      // S2-3：code 优先（发射侧权威分类）；旧转写无 code 走文案分类兜底
+      const code = typeof se["code"] === "string" ? se["code"] : undefined;
+      const quota = code !== undefined ? code === "quota" : isQuotaError(error);
+      const row: Row = quota
         ? { kind: "quota", text: error }
         : {
             kind: "llm_failed",

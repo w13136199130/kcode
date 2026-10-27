@@ -13,7 +13,8 @@ export function useSessionReplay(options: {
 }): void {
   useEffect(() => {
     if (options.conn.status !== "ready" || options.sessionId === null) return;
-    options.setTimeline(initialTimeline());
+    // S2-1：不再立即清空——切换钩子已画上目标会话的分片缓存（或空态），
+    // 重放在本地全量重建后一次性替换（权威），期间用户看到的是可交互的旧画面。
     let cancelled = false;
     void options.conn
       .send("session/replay")

@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } 
 import type { PermissionMode } from "@kcode/contracts";
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 import { applyEvent, type TimelineState } from "../components/projection.js";
+import { sessionOfEvent, type TimelineShards } from "../lib/timeline-shards.js";
 
 /** 弹层状态形状（原 main.tsx 本地接口，随 S0-4 拆迁） */
 export interface AskState {
@@ -33,6 +34,9 @@ export function useTimelineProjection(opts: {
   setPlan: Dispatch<SetStateAction<PlanState | null>>;
   setMode: Dispatch<SetStateAction<PermissionMode>>;
   setTimeline: Dispatch<SetStateAction<TimelineState>>;
+  /** S2-1：当前会话 id 与分片表——其他会话的事件并入其缓存分片，不串当前画面 */
+  currentSessionId: string | null;
+  shards: TimelineShards;
 }): void {
   const { conn, processed } = opts;
   useEffect(() => {
@@ -40,6 +44,11 @@ export function useTimelineProjection(opts: {
     processed.current = conn.events.length;
     if (news.length === 0) return;
     for (const ev of news) {
+      const evSession = sessionOfEvent(ev);
+      if (evSession !== null && evSession !== opts.currentSessionId) {
+        opts.shards.apply(evSession, ev);
+        continue;
+      }
       if (ev.type === "queue/change") {
         opts.setQueuedCount(ev.snapshot.items.length);
         continue;
