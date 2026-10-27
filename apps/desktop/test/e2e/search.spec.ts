@@ -6,7 +6,13 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const cwd = fileURLToPath(new URL("../..", import.meta.url));
-const kcodePath = "E:/space/my_space/MyProject/kcode";
+/** S0-2：仓库根从模块 URL 推导（正斜杠、无尾斜杠，与原硬编码一致）；KCODE_E2E_REPO 可覆盖 */
+const repoRoot = (): string => {
+  const p = decodeURIComponent(new URL("../../../..", import.meta.url).pathname);
+  const noDrive = process.platform === "win32" ? p.slice(1) : p;
+  return noDrive.endsWith("/") ? noDrive.slice(0, -1) : noDrive;
+};
+const kcodePath = process.env["KCODE_E2E_REPO"] ?? repoRoot();
 
 test("搜索覆盖前 200 条之外的历史会话", async () => {
   test.setTimeout(90_000);

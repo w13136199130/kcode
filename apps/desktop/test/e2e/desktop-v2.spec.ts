@@ -4,6 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** S0-2：仓库根从模块 URL 推导（正斜杠、无尾斜杠，与原硬编码一致）；KCODE_E2E_REPO 可覆盖 */
+const repoRoot = (): string => {
+  const p = decodeURIComponent(new URL("../../../..", import.meta.url).pathname);
+  const noDrive = process.platform === "win32" ? p.slice(1) : p;
+  return noDrive.endsWith("/") ? noDrive.slice(0, -1) : noDrive;
+};
+const kcodePath = process.env["KCODE_E2E_REPO"] ?? repoRoot();
+
 function jsonl(events: Array<Record<string, unknown>>): string {
   return events.map((event) => JSON.stringify(event)).join("\n") + "\n";
 }
@@ -60,7 +68,6 @@ test("desktop v2 sidebar", async () => {
     }),
     "utf8",
   );
-  const kcodePath = "E:/space/my_space/MyProject/kcode";
   await mkdir(join(kcodeHome, "desktop"), { recursive: true });
   await writeFile(
     join(kcodeHome, "desktop", "projects.json"),
@@ -92,10 +99,15 @@ test("desktop v2 sidebar", async () => {
     env,
   });
   const page = await app.firstWindow({ timeout: 20_000 });
-  await page.addInitScript((cwd) => localStorage.setItem("kcode-last-cwd", cwd), "E:\\space\\my_space\\MyProject\\kcode");
+  await page.addInitScript((cwd) => localStorage.setItem("kcode-last-cwd", cwd), kcodePath);
   await page.reload();
   await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+  // M2（S0-2）：窗口就绪 → Composer 可发送 计时（单样本硬门槛防 CI 抖动，P95<300ms 为统计目标）
+  const m2Start = Date.now();
+  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
+  const m2Ms = Date.now() - m2Start;
+  console.log(`[M2] 窗口就绪→Composer 可发送：${m2Ms}ms`);
+  expect(m2Ms, `M2 单样本 ${m2Ms}ms（目标 P95<300ms）`).toBeLessThan(2_000);
   await expect(page.locator(".composer-v2")).toBeVisible();
   await expect(page.locator(".composer-context")).toBeVisible({ timeout: 10_000 });
   await expect(page.locator(".workspace-header-v2")).toBeVisible();
