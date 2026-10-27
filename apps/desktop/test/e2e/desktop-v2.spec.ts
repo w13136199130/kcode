@@ -105,7 +105,7 @@ test("desktop v2 sidebar", async () => {
   // M2（S0-2）：窗口就绪 → Composer 可发送 计时（诊断性断言：慢速 CI runner 只要求不超时；
   // P95<300ms 是统计目标，基线数字进优化文档台账）
   const m2Start = Date.now();
-  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
+  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
   const m2Ms = Date.now() - m2Start;
   process.stdout.write(`[M2] 窗口就绪→Composer 可发送：${m2Ms}ms\n`);
   expect(m2Ms, `M2 单样本 ${m2Ms}ms（目标 P95<300ms，CI 慢机放宽）`).toBeLessThan(8_000);
