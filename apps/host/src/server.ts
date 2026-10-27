@@ -113,6 +113,11 @@ export class HostServer {
     return this.#platformCache;
   }
 
+  /** S2-4：进程内 RPC 入口（HTTP 监听/未来 ACP 复用；同 #dispatch，不经帧层） */
+  async request(method: string, params?: unknown): Promise<unknown> {
+    return this.#dispatch(method, params ?? {});
+  }
+
   async handleFrame(frame: import("@kcode/contracts").ClientFrame): Promise<void> {
     if (frame.kind === "hello") {
       if (frame.hello.major !== PROTOCOL_MAJOR) {

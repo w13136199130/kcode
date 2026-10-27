@@ -8,10 +8,28 @@ import { HostServer } from "./server.js";
  * - 握手校验主版本——不一致回错并退出（fail-fast，不静默错配）；
  * - 客户端断连（stdin 关闭）→ 所有未决 ask 按 deny 结算（fail-closed）→ 进程退出。
  */
+// S2-4：--listen [port] 时开 HTTP 第二通道（127.0.0.1 + Bearer token；详见 http-listen.ts）
+const broadcasters = new Set<(frame: import("@kcode/contracts").HostFrame) => void>();
 const server = new HostServer((frame) => {
   process.stdout.write(`${JSON.stringify(frame)}\n`);
+  for (const broadcast of broadcasters) broadcast(frame);
 });
 void server.start();
+const listenIdx = process.argv.indexOf("--listen");
+if (listenIdx !== -1) {
+  void (async () => {
+    const { startHttpListener } = await import("./http-listen.js");
+    const port = Number(process.argv[listenIdx + 1] ?? "0") || 0;
+    const token = process.env["KCODE_HOST_TOKEN"] ?? globalThis.crypto.randomUUID();
+    try {
+      const listener = await startHttpListener({ server, port, token });
+      broadcasters.add(listener.broadcast);
+      process.stderr.write(`[host] listen http://127.0.0.1:${listener.port} token=${token}\n`);
+    } catch (err) {
+      process.stderr.write(`[host] HTTP 监听启动失败：${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  })();
+}
 process.stdout.on("error", () => {
   process.exit(0); // 客户端断了：EPIPE 不必刷栈
 });

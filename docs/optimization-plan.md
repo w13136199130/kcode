@@ -141,7 +141,7 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S2-1 per-session 状态分片 | ✅ 2026-10-27 | `TimelineShards`（LRU 8 片）：切换暂存旧会话时间线、切回秒恢复缓存画面（replay 改后台权威重建后整体替换）；投影按 session/event 内层 sessionId 路由，非当前会话事件并入其缓存分片不串画面（S3-3 地基）。`timeline-shards.test` 4 条；全量 E2E 22 passed 行为不变 |
 | S2-2 资产引用契约 | ⚠️ 契约步已落地 | 设计稿 [asset-contract-design.md](./asset-contract-design.md)（现状病灶：图片是临时目录绝对路径、无持久拷贝；存储三层写/attach-submit RPC/平迁策略/安全白名单/级联删除全已定稿待评审）+ contracts `asset.ts`（AssetRef/白名单/容量/扩展名映射）5 例单测；**实现步待用户评审后启动** |
 | S2-3 typed error.code | ✅ 2026-10-27 | `llm_error` 加可选 `code` 枚举（quota/auth/rate_limit/context_overflow/network/unknown）；发射侧权威分类 `classifyLlmError`（core/errors.ts），renderer code 优先、旧转写文案兜底；例外已登记（desktop-workspace-rpc-approval.md）。core 8 例 + renderer 3 例单测 |
-| S2-4 host HTTP/WS 监听 | ⏳ | — |
+| S2-4 host HTTP 监听 | ✅ 2026-10-27 | `--listen [port]`：127.0.0.1 + Bearer token（KCODE_HOST_TOKEN 或自动生成打 stderr）；`POST /rpc`（HostServer 新增进程内 `request()` 入口——同 #dispatch，ACP/4-09 未来复用）+ `GET /events` SSE（stdout 帧扇出）+ `/health`；业务错误走 ok:false/HTTP200（RPC 语义）。单测 4 条（鉴权/dispatch 复用/SSE/真实 HostServer sessions/list）+ 进程级冒烟（tsx 拉起 + curl 三断言）。WS 待多端客户端出现再加（HTTP+SSE 先覆盖 web/ACP） |
 | S2-5 索引层接口化 | ✅ 2026-10-27 | `session-query.ts` 接缝：sessions/list 的 IO 组合（摘要+索引 reconcile+归档/回收站叠加）从 server.ts 迁出，调用方只剩一行；换 FTS/SQLite 后端只动该模块。server.ts 500→494 行；search/ordering/desktop-v2 E2E 过 |
 | S2-6 使用统计账本 | ⚠️ 第一片已落地 | `usage/summary` RPC + 设置页使用统计（随 S1-6）；剩余：CLI usage metering 汇聚与精确化（去估算标注）待做 |
 | S3-1 ~ S3-5 | ⏳ | 见各条验收 |
