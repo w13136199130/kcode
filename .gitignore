@@ -41,3 +41,4 @@ apps/desktop/out/
 apps/desktop/release/
 apps/desktop/release-build/
 apps/desktop/dist-release/
+apps/desktop/test-results/*/
