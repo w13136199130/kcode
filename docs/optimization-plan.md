@@ -125,7 +125,7 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 |---|---|---|
 | S0-1 提交当前批次 | ✅ 2026-10-27 | 92d0fb4（host/contracts）/ fd7c409（desktop P2-2~P4-2）/ 0623041（docs 收编），工作区干净 |
 | S0-2 E2E 路径参数化 | ✅ 2026-10-27 | 82d57de + 654a1ca；11 个 spec 改模块 URL 推导（KCODE_E2E_REPO 可覆盖）；**干净克隆异地全量 E2E 15 passed** 验证路径无关；M2 计时断言入 desktop-v2.spec，首样本 835ms（含 host 冷启动，目标 P95<300ms 待 S1 优化分解） |
-| S0-3 Windows CI 首绿 | ⏳ 已推送待绿 | 82d57de 两 job 失败已定位修复：gates=M2 console.log（654a1ca 前）、windows E2E=历史硬编码路径（82d57de 已修）+ M2 门槛放宽（654a1ca）；等本轮 CI 结果 |
+| S0-3 Windows CI 首绿 | ✅ 2026-10-27 | Actions run 于 77c46f1 全绿（gates+windows）。失败链修复：gates=M2 console.log→stdout（d942b73 前）；windows E2E=历史硬编码路径（82d57de 参数化修复，干净克隆异地 15 passed 验证）+ inbox 侧栏断言慢机余量（77c46f1）；另沉淀 github reporter 注解上报（d942b73，失败明细匿名 API 可读） |
 | S0-4 main.tsx 拆分 | ✅ 2026-10-27 | 6fcd43e：482→375 行，拆 useGlobalShortcuts/useInitialConfig/useTimelineProjection/useCreateFailureActions，原样搬移语义不变 |
 | S0-5 RowView memo 化 | ✅ 2026-10-27 | 932550d：RowView 包 React.memo + useWorkspacePanes 动作 useCallback 化；帧率断言并入 M8（随 S1-2 测） |
 | S1-1 ~ S1-8 | ⏳ | 见各条验收 |
