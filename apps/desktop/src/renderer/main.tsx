@@ -11,7 +11,7 @@ import { WorkspaceHeader } from "./components/WorkspaceHeader.js";
 import { Composer } from "./components/Composer.js";
 import { AskPanel, QuestionPanel } from "./components/AskPanel.js";
 import { PlanPanel } from "./components/PlanPanel.js";
-import { applyEvent, initialTimeline, type TimelineState } from "./components/projection.js";
+import { initialTimeline, type TimelineState } from "./components/projection.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { useWorkspacePanes } from "./hooks/useWorkspacePanes.js";
 import { useCommandCatalog } from "./hooks/useCommandCatalog.js";
@@ -25,6 +25,10 @@ import { useSessionReplay } from "./hooks/useSessionReplay.js";
 import { useWorkspaceTrust } from "./hooks/useWorkspaceTrust.js";
 import { useModelPicker } from "./hooks/useModelPicker.js";
 import { useSessionContext } from "./hooks/useSessionContext.js";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts.js";
+import { useInitialConfig } from "./hooks/useInitialConfig.js";
+import { useCreateFailureActions } from "./hooks/useCreateFailureActions.js";
+import { useTimelineProjection, type AskState, type PlanState, type QuestionState } from "./hooks/useTimelineProjection.js";
 import { switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js";
 import { RuntimeTimeline } from "./components/RuntimeTimeline.js";
 import { useQuotaActions } from "./hooks/useQuotaActions.js";
@@ -47,20 +51,6 @@ document.head.appendChild(desktopStyleEl);
 const UI_V2 =
   new URLSearchParams(window.location.search).get("ui") !== "classic" &&
   localStorage.getItem("kcode-desktop-ui-v2") !== "classic";
-interface AskState {
-  requestId: string;
-  tool: string;
-  args: unknown;
-  preview?: { path?: string; diff: string };
-}
-interface QuestionState {
-  requestId: string;
-  question: { question: string; options: Array<{ label: string; description?: string }>; multiSelect?: boolean };
-}
-interface PlanState {
-  requestId: string;
-  plan: string;
-}
 function DesktopApp() {
   const conn = useDesktopConnection();
   const panes = useWorkspacePanes(conn);
@@ -101,50 +91,13 @@ function DesktopApp() {
   useDesktopNotifications({ busy: timeline.busy, ask, plan });
 
   // 全局快捷键（capture；命令面板 / 新窗口 / 侧栏）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const k = e.key.toLowerCase();
-      if (k === "k") {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-      } else if (k === "n") {
-        e.preventDefault();
-        onNewSessionRef.current?.();
-      } else if (k === "b") {
-        e.preventDefault();
-        setSidebarCollapsed((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
   const createdRef = useRef(false);
   const processed = useRef(0);
   const onNewSessionRef = useRef<(() => void) | null>(null);
+  useGlobalShortcuts({ onNewSessionRef, setPaletteOpen, setSidebarCollapsed });
 
-  useEffect(() => {
-    let cancelled = false;
-    // D1-01：配置读取完成（即使为空）才决定进入 onboarding 还是工作区
-    void (async () => {
-      try {
-        const model = await window.kcodeHost?.getDefaultModel();
-        if (!cancelled) setModelDefault(model ?? null);
-      } catch {
-        if (!cancelled) setModelDefault(null);
-      } finally {
-        if (!cancelled) setConfigLoaded(true);
-      }
-    })();
-    void window.kcodeHost?.getDefaultCwd().then((fallback) => {
-      // 上次选过的项目优先；目录被删除时 host 会报错，用户可用「打开文件夹」重选
-      const last = localStorage.getItem("kcode-last-cwd");
-      if (!cancelled) setDefaultCwd(last !== null && last !== "" ? last : fallback);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // 首帧配置（D1-01）：读完才进 onboarding/工作区；上次 cwd 优先
+  useInitialConfig({ setModelDefault, setConfigLoaded, setDefaultCwd });
 
   // ready 即建会话（host 幂等——reload/StrictMode 重挂安全）。
   // attach/hello 存在短暂竞态，首轮 create 可能被拒；失败要重试，不能把 createdRef 永久卡死。
@@ -153,54 +106,8 @@ function DesktopApp() {
   // 转写重放（M2b）：会话就绪后拉一次全量事件重建时间线（reload/切换后续接都走这里）
   useSessionReplay({ conn, sessionId, sessionVersion, processed, setTimeline });
 
-  // 事件流 → 投影（增量）
-  useEffect(() => {
-    const news = conn.events.slice(processed.current);
-    processed.current = conn.events.length;
-    if (news.length === 0) return;
-    for (const ev of news) {
-      if (ev.type === "queue/change") {
-        setQueuedCount(ev.snapshot.items.length);
-        continue;
-      }
-      if (ev.type === "session/created") {
-        // 会话 id 以 session/create 的响应为准；事件可能来自被取消的旧切换，不能覆盖当前会话。
-        continue;
-      }
-      if (ev.type === "ask/request") {
-        const a = ev as unknown as {
-          requestId: string;
-          tool: string;
-          args: unknown;
-          preview?: { path?: string; diff: string };
-        };
-        setAsk({ requestId: a.requestId, tool: a.tool, args: a.args, ...(a.preview !== undefined ? { preview: a.preview } : {}) });
-        continue;
-      }
-      if (ev.type === "ask/cancelled") {
-        setAsk((prev) => (prev?.requestId === ev.requestId ? null : prev));
-        continue;
-      }
-      if (ev.type === "plan/request") {
-        setPlan({ requestId: ev.requestId, plan: ev.plan });
-        continue;
-      }
-      if (ev.type === "plan/cancelled") {
-        setPlan((prev) => (prev?.requestId === ev.requestId ? null : prev));
-        continue;
-      }
-      if (ev.type === "question/request") {
-        const q = ev as unknown as { requestId: string; question: QuestionState["question"] };
-        setQuestion({ requestId: q.requestId, question: q.question });
-        continue;
-      }
-      if (ev.type === "session/event") {
-        const se = ev.event as { type?: string; mode?: PermissionMode };
-        if (se.mode !== undefined) setMode(se.mode);
-      }
-      setTimeline((prev) => applyEvent(prev, ev));
-    }
-  }, [conn.events, conn]);
+  // 事件流 → 投影（增量；弹层分流在 hook 内）
+  useTimelineProjection({ conn, processed, setQueuedCount, setAsk, setQuestion, setPlan, setMode, setTimeline });
 
   // P1-2：增量计数 sessions/changed（事件数组只增；slice 从上次计数续扫，O(增量)）
   const signalSeen = useRef(0);
@@ -275,22 +182,8 @@ function DesktopApp() {
     });
   }, [defaultCwd, modelDefault, notify, onNewSession, sessionId, timeline.busy]);
   const ready = conn.status === "ready" && sessionId !== null;
-  /** P0-2：失败卡片动作——重试复用同一 requestId，host 侧接续 draft/failed 记录复用 sessionId */
-  const retryCreate = useCallback((): void => {
-    if (createFailure === null) return;
-    if (createFailure.resumeFrom !== undefined) {
-      onResume(createFailure.resumeFrom, createFailure.cwd);
-      return;
-    }
-    onNewSession(
-      createFailure.cwd,
-      createFailure.requestId !== undefined ? { requestId: createFailure.requestId } : undefined,
-    );
-  }, [createFailure, onNewSession, onResume]);
-  const resumePreviousSession = useCallback((): void => {
-    if (createFailure?.previousSessionId == null) return;
-    onResume(createFailure.previousSessionId);
-  }, [createFailure, onResume]);
+  // P0-2：失败卡片动作（重试复用同一 requestId / 恢复上一个任务）
+  const { retryCreate, resumePreviousSession } = useCreateFailureActions({ createFailure, onNewSession, onResume });
   const trust = useWorkspaceTrust(conn, defaultCwd);
   const modelPicker = useModelPicker({ conn, model: modelDefault, setModel: setModelDefault, notify });
   const contextStats = useSessionContext(conn, sessionId, timeline.busy);
