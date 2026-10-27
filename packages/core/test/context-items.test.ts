@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { contextItems } from "../src/index.js";
 
-const tool = (name: string, schema: unknown): { definition: { name: string } & Record<string, unknown> } => ({
-  definition: { name, description: "示例工具说明", parameters: schema },
-});
+import type { Tool } from "@kcode/contracts";
+
+const tool = (name: string, schema: unknown): Tool =>
+  ({ definition: { name, description: "示例工具说明", parameters: schema } }) as unknown as Tool;
 
 /** S3-2：注入项条目化（/context 预算表与桌面 tooltip 的共同数据源）。 */
 describe("contextItems（S3-2）", () => {
