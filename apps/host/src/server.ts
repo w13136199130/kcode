@@ -20,9 +20,9 @@ import { createCliPlatformService } from "./platform.js";
 import { loadUserModelsConfig } from "./boot.js";
 import { saveUserProvider } from "./config.js";
 import { addWorkspace, listWorkspaces, removeWorkspace, setWorkspaceArchived } from "./workspace-store.js";
-import { listArchived, setArchived } from "./task-state.js";
-import { findSessionIndexByRequest, listSessionIndex, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
-import { pageSessions, parsePageParams } from "./session-page.js";
+import { setArchived } from "./task-state.js";
+import { findSessionIndexByRequest, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
+import { querySessionPage } from "./session-query.js";
 import { extensionsOverview, installPluginFromDir, setPluginListEnabled } from "./extensions-overview.js";
 import { usageLedger } from "./usage-ledger.js";
 import { SessionSummaryCache } from "./session-summaries.js";
@@ -413,15 +413,9 @@ export class HostServer {
         }
         return;
       }
-      case "sessions/list": {
-        const { query, limit, offset } = parsePageParams(params);
-        const summaries = await this.#summaries.list();
-        await reconcileSessionIndex(this.kcodeHomeDir, summaries).catch(() => undefined);
-        const indexed = await listSessionIndex(this.kcodeHomeDir);
-        const archived = await listArchived(this.kcodeHomeDir);
-        const deleted = await listDeletedSessions(this.kcodeHomeDir);
-        return pageSessions({ summaries, indexed, archived, deleted, query, limit, offset });
-      }
+      // S2-5：查询实现统一走 session-query 接缝（换 FTS/SQLite 后端只动那里）
+      case "sessions/list":
+        return querySessionPage(this.kcodeHomeDir, this.#summaries, params);
       case "sessions/rename": {
         const p = params as { sessionId: string; title: string };
         await renameSession(join(this.kcodeHomeDir, "cli", "sessions"), p.sessionId, p.title);

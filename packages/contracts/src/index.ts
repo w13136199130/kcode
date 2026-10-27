@@ -1,4 +1,5 @@
 export * from "./session.js";
+export * from "./asset.js";
 export * from "./tool.js";
 export * from "./sandbox.js";
 export * from "./permissions.js";
