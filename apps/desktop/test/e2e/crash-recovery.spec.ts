@@ -93,7 +93,7 @@ test("host 被强制终止后，回收站状态仍可恢复", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
     return { app, page };
   };
 

@@ -88,7 +88,7 @@ test("新建会话失败可见且重试可恢复（P0-2，M3）", async () => {
 
   try {
     // 启动自动创建成功 → composer 可发送
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // 用户新建 → 注入失败 → 失败卡片可见（不再静默死掉 composer）
     await page.locator(".d2-new").click();
@@ -100,7 +100,7 @@ test("新建会话失败可见且重试可恢复（P0-2，M3）", async () => {
     await expect(retryBtn).toBeVisible({ timeout: 15_000 });
     await retryBtn.click({ timeout: 15_000 });
     await expect(page.locator(".create-failure")).toBeHidden({ timeout: 10_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 10_000 });
   } finally {
     await cleanup(app, root);
   }

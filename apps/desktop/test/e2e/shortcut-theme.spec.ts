@@ -62,7 +62,7 @@ test("⌘, 打开设置，主题切换生效（S1-5）", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // ① ⌘,（Ctrl+,）打开设置
     await page.keyboard.press("Control+,");

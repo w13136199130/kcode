@@ -23,7 +23,7 @@ function kill(app: ElectronApplication): void {
 
 async function ready(page: Page): Promise<void> {
   await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 }
 
 test("双窗口同会话：第二个窗口收到明确拒绝，第一个继续", async () => {

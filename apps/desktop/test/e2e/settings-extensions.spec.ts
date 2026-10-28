@@ -102,7 +102,7 @@ test("设置页扩展清单、插件安装启停、使用统计与添加供应�
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // 目录选择打桩：安装插件固定指向源目录
     await app.evaluate(({ dialog }, arg: { dir: string }) => {

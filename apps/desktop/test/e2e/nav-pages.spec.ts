@@ -62,7 +62,7 @@ test("一级导航占位页可切换并可返回对话（S1-8）", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // 自动化占位页
     await page.locator(".d2-nav").getByRole("button", { name: "自动化" }).click();
@@ -79,7 +79,7 @@ test("一级导航占位页可切换并可返回对话（S1-8）", async () => {
 
     // 返回对话：主工作区与 Composer 恢复
     await plugins.getByRole("button", { name: "← 返回对话" }).click();
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 10_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 10_000 });
     await expect(page.locator(".d2-nav").getByRole("button", { name: "对话" })).toHaveClass(/active/);
   } finally {
     kill(app);

@@ -17,10 +17,9 @@ type MenuKind = "slash" | "file";
  * Enter 发送 / Shift+Enter 换行（IME 组词保护）；菜单打开时 Enter 选中、Esc 关闭。
  */
 export function Composer(props: {
+  /** 仅门控发送等动作；输入框任何时候都可编辑（ZCode 式：连接/会话准备中先写草稿）。 */
   busy: boolean;
   disabled: boolean;
-  /** 仅输入框禁用（连接未就绪）；会话准备中仍可先输入草稿。 */
-  inputDisabled?: boolean;
   queuedCount: number;
   mode: PermissionMode;
   model: string | null;
@@ -211,8 +210,11 @@ export function Composer(props: {
           ref={ref}
           className="composer-input"
           value={text}
-          placeholder={props.inputDisabled === true ? "连接宿主中…" : "描述任务，Enter 发送 · / 命令 · @ 文件 · Shift+Enter 换行"}
-          disabled={props.inputDisabled ?? props.disabled}
+          placeholder={
+            props.disabled
+              ? "会话准备中…可先输入草稿"
+              : "描述任务，Enter 发送 · / 命令 · @ 文件 · Shift+Enter 换行"
+          }
           rows={1}
           onChange={(e) => {
             setText(e.target.value);

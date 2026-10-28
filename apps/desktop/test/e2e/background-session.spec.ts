@@ -78,7 +78,7 @@ test.skip("双会话并行：后台任务状态点 + 前台互不干扰（S3-3�
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
     // 前台空闲基线：boot 会话落定（草稿行可见）再操作
     await expect(page.locator(".d2-task").filter({ hasText: "新任务" })).toBeVisible({ timeout: 20_000 });
 

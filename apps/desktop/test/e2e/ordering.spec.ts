@@ -71,7 +71,7 @@ test("点击旧会话不会把它顶到前面或改成刚刚", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
     const kcode = page.locator(".d2-project").filter({ hasText: "kcode" }).first();
     const before = (await kcode.locator(".d2-task-title").allTextContents()).filter((title) => title !== "新任务");
     expect(before).toEqual(["新会话", "旧会话"]);

@@ -78,7 +78,7 @@ test("context 抽屉浮动不占栏，三档宽度行为正确（S1-4）", async
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // —— 档一（≥1360）：抽屉浮动打开，主栏宽度不变（不占栏）
     await page.setViewportSize({ width: 1400, height: 900 });

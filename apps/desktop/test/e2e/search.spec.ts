@@ -72,7 +72,7 @@ test("搜索覆盖前 200 条之外的历史会话", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
     await page.locator(".d2-icon[title='搜索工作区或任务']").click();
     await page.locator(".d2-search input").fill("深层历史");
     await expect(page.locator(".d2-task").filter({ hasText: "深层历史会话" })).toBeVisible({ timeout: 10_000 });

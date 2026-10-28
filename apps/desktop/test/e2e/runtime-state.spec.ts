@@ -31,7 +31,7 @@ async function launch(env: Record<string, string | undefined>): Promise<{ app: E
   await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
   await page.reload();
   await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
   return { app, page };
 }
 

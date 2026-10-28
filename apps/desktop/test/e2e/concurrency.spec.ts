@@ -54,7 +54,7 @@ test("CLI/其他进程新会话通过目录监听即时出现在侧栏", async (
   await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
   await page.reload();
   await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
   const now = Date.now();
   await writeFile(

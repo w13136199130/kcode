@@ -87,7 +87,7 @@ test("预算到顶出现暂停条（S1-7）", async () => {
     await page.addInitScript((value) => localStorage.setItem("kcode-last-cwd", value), kcodePath);
     await page.reload();
     await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator(".composer-input")).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator(".composer-mode")).toBeEnabled({ timeout: 20_000 });
 
     // 续接种子会话 → 提交 → 预算 fail-closed → 暂停条
     await page.locator(`[data-session-id="${id}"]`).click();

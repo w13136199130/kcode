@@ -67,7 +67,7 @@ export function DesktopSidebar(props: {
   const [menu, setMenu] = useState<MenuState>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
-  const { effectiveSessions, refreshSessions, hasMore, total, loadMore } = useSidebarSessions({
+  const { effectiveSessions, refreshSessions } = useSidebarSessions({
     conn: props.conn,
     currentId: props.currentId,
     currentWorkspace: props.currentWorkspace,
@@ -477,9 +477,6 @@ export function DesktopSidebar(props: {
             onRestore={(session) => void restoreSession(session)}
             onEmpty={() => void emptyTrash()}
           />
-        ) : null}
-        {hasMore ? (
-          <button type="button" className="d2-load-more" onClick={loadMore}>加载更多（{effectiveSessions.length}/{total}）</button>
         ) : null}
       </div>
       <div className="d2-foot">

@@ -376,7 +376,6 @@ function DesktopApp() {
           <Composer
             busy={timeline.busy}
             disabled={!ready}
-            inputDisabled={conn.status !== "ready"}
             queuedCount={queuedCount}
             mode={mode}
             model={modelDefault}
