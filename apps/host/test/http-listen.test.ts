@@ -104,4 +104,15 @@ describe("http listener × 真实 HostServer（S2-4）", () => {
     expect(body.result?.sessions).toEqual([]);
     expect(body.result?.total).toBe(0);
   });
+
+  it("workspace/status 信任往返返回真布尔（回归：isProjectTrusted 漏 await 序列化成 {}）", async () => {
+    const ws = join(home, ".kcode", "trust-roundtrip-ws");
+    const before = (await server.request("workspace/status", { path: ws })) as { trusted?: unknown };
+    expect(before.trusted).toBe(false);
+    await server.request("workspace/trust", { path: ws });
+    const after = (await server.request("workspace/status", { path: ws })) as { trusted?: unknown };
+    expect(after.trusted).toBe(true);
+    const list = (await server.request("workspace/list")) as { workspaces?: Array<{ trusted?: unknown }> };
+    expect(list.workspaces?.every((item) => typeof item.trusted === "boolean")).toBe(true);
+  });
 });

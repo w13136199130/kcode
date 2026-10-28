@@ -35,7 +35,11 @@ test("host 被强制终止后，回收站状态仍可恢复", async () => {
     join(kcodeHome, "desktop", "projects.json"),
     JSON.stringify({
       version: 1,
-      workspaces: [{ path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() }],
+      workspaces: [
+        { path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() },
+        // 工作区卫生后分组只属于注册表；draft 所属目录需注册才成组
+        { path: "E:/space/crash-draft", name: "crash-draft", createdAt: Date.now(), updatedAt: Date.now() },
+      ],
     }),
     "utf8",
   );

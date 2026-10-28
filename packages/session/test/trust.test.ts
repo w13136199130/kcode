@@ -31,4 +31,11 @@ describe("isProjectTrusted", () => {
   it("清单文件缺失按未信任处理", async () => {
     await expect(isProjectTrusted(workspace, join(home, "nope"))).resolves.toBe(false);
   });
+
+  it("win32 大小写/分隔符差异视为同一项目（信任持久化匹配）", async () => {
+    await trustProject(workspace, home);
+    const alt = workspace.replace(/\\/g, "/");
+    const flipped = process.platform === "win32" ? alt.toLocaleLowerCase() : alt;
+    await expect(isProjectTrusted(flipped, home)).resolves.toBe(true);
+  });
 });

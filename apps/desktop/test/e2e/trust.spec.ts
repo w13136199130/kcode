@@ -57,7 +57,13 @@ test("未信任 banner 可直接信任并消失", async () => {
     await expect(page.locator(".trust-banner .tb-copy")).toContainText("工作区尚未信任");
     await expect(page.locator(".timeline-stack").getByText("项目未被信任")).toHaveCount(0);
     await page.locator(".trust-banner .tb-action").click();
-    await expect(page.locator(".trust-banner")).toHaveCount(0);
+    await expect(page.locator(".trust-banner")).toHaveCount(0, { timeout: 15_000 });
+    // 信任持久化（回归一：workspace/status 漏 await 恒返回 falsy）+ 请求 id 跨连接撞号
+    // （回归二：host #responses 幂等缓存按 id 全局键控，reload 后新页 desktop-3 撞旧缓存
+    // 直接吐旧 false 响应）——页面重载后重查 status，banner 不得再出现。
+    await page.reload();
+    await expect(page.locator(".desktop-v2")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".trust-banner")).toHaveCount(0, { timeout: 15_000 });
   } finally {
     const pid = app.process().pid;
     if (pid !== undefined) {

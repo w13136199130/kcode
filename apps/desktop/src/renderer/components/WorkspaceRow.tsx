@@ -20,6 +20,8 @@ export function WorkspaceRow(props: {
   onArchive(): void;
   /** S3-3：新建后台任务（独立无头 host） */
   onNewBackground(): void;
+  /** ZCode 式任务计数徽标（0/未传不渲染） */
+  count?: number;
   children?: ReactNode;
 }) {
   return (
@@ -38,6 +40,9 @@ export function WorkspaceRow(props: {
       >
         <Folder size={14} strokeWidth={1.7} className="d2-folder" />
         <span className="d2-project-name">{props.workspace.name}</span>
+        {props.count !== undefined && props.count > 0 ? (
+          <span className="d2-project-count">{props.count > 99 ? "99+" : props.count}</span>
+        ) : null}
         <div className="d2-project-actions">
           <button
             type="button"

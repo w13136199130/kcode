@@ -48,6 +48,16 @@ export function useWorkspaceRegistry(options: {
         const currentKey = normalizePath(currentWorkspace);
         const legacy = loadKnown().filter((path) => normalizePath(path) !== currentKey);
         const added: WorkspaceSummary[] = [];
+        // 工作区卫生：当前打开的工作区自动入册（幂等）——重启后仍有分组；
+        // 其余 cwd 不再自动登记，历史会话归「任务」。
+        if (currentKey !== "" && !list.some((item) => normalizePath(item.path) === currentKey)) {
+          try {
+            const response = (await send("workspace/add", { path: currentWorkspace })) as { workspace: WorkspaceSummary };
+            added.push(response.workspace);
+          } catch {
+            // 注册失败不阻断启动；分组本轮按当前工作区兜底显示。
+          }
+        }
         for (const path of legacy) {
           try {
             const response = (await send("workspace/add", { path })) as { workspace: WorkspaceSummary };

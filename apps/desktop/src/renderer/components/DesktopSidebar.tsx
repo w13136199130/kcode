@@ -94,6 +94,11 @@ export function DesktopSidebar(props: {
     setSelected(key);
     setExpanded((prev) => new Set(prev).add(key));
   }, [props.currentWorkspace]);
+  // 工作区卫生（ZCode 式）：分组只属于「注册表里的工作区 + 当前工作区」；
+  // 未注册 cwd 的历史会话不再自动长出分组，一律归入下方「任务」。
+  const currentKey = normalizePath(props.currentWorkspace);
+  const registeredKeys = useMemo(() => new Set(registered.map((item) => normalizePath(item.path))), [registered]);
+  const isGroupedKey = (key: string): boolean => registeredKeys.has(key) || key === currentKey;
   const workspaces = useMemo(() => {
     const map = new Map<string, Workspace>();
     const registeredByKey = new Map(registered.map((item) => [normalizePath(item.path), item]));
@@ -117,7 +122,6 @@ export function DesktopSidebar(props: {
     };
     if (props.currentWorkspace !== "") ensure(props.currentWorkspace, 0);
     for (const workspace of registered) ensure(workspace.path, workspace.createdAt);
-    const currentKey = normalizePath(props.currentWorkspace);
     for (const session of effectiveSessions) {
       if (session.archived === true || session.deleted === true || session.ungrouped === true) continue;
       const ownKey = workspaceOf(session);
@@ -125,7 +129,8 @@ export function DesktopSidebar(props: {
       // 否则点击旧会话会看起来被搬进某个分组。
       const isCurrentDraft = session.sessionId === props.currentId && !hasContent(session);
       const key = ownKey === "" && isCurrentDraft ? currentKey : ownKey;
-      if (key === "") continue;
+      // 未注册且非当前的 cwd 不自动长分组（归「任务」）
+      if (key === "" || !isGroupedKey(key)) continue;
       if (!hasContent(session) && session.draft !== true && session.sessionId !== props.currentId) continue;
       const path = key === currentKey && currentKey !== "" ? props.currentWorkspace : (session.workspaceKey ?? key);
       ensure(path, registeredByKey.get(key)?.createdAt ?? 0).sessions.push(session);
@@ -162,7 +167,8 @@ export function DesktopSidebar(props: {
     (session) =>
       session.archived !== true &&
       session.deleted !== true &&
-      (session.ungrouped === true || workspaceOf(session) === "") &&
+      // ungrouped 标记 / 无 workspaceKey / 未注册 cwd —— 三种都归「任务」
+      (session.ungrouped === true || workspaceOf(session) === "" || !isGroupedKey(workspaceOf(session))) &&
       !(session.ungrouped !== true && session.sessionId === props.currentId && hasCurrentWorkspace && !hasContent(session)) &&
       (hasContent(session) || session.draft === true || session.sessionId === props.currentId),
   );
@@ -354,6 +360,7 @@ export function DesktopSidebar(props: {
                       props.onNewBackground?.(workspace.path);
                     }}
                     onArchive={() => void archiveWorkspace(workspace, workspace.archived !== true)}
+                    count={(q === "" ? workspace.sessions : workspace.visibleSessions).length}
                   >
                     <TaskList
                       sessions={sortSessions(q === "" ? workspace.sessions : workspace.visibleSessions)}

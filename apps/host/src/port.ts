@@ -26,6 +26,16 @@ if (parentPort === undefined) {
 }
 
 const ports = new Set<PortLike>();
+/**
+ * 请求按连接命名空间化：HostServer 的 res/幂等缓存按帧 id 全局键控，而 renderer
+ * 每次加载都从 desktop-1 重新计数——reload 后新旧连接同 id 相撞，新请求会直接
+ * 吐出旧连接的缓存响应（实测：workspace/status 拿到旧 false，信任横幅复活；
+ * session/replay 拿到别的载荷报 not-iterable）。故入站 req 的 id 加 `${nonce}:`
+ * 前缀再进 server，出站 res 剥前缀并单播回所属端口；归属端口已关的响应丢弃。
+ * hello/ev 仍广播（事件各端自按 sessionId 过滤）。
+ */
+let connNonce = 0;
+const ownerByScopedId = new Map<string, { port: PortLike; id: string }>();
 /** reload 的端口交接间隙：旧 port 先关、新 port 稍后 attach，不能立即判死 */
 const PORT_CLOSE_GRACE_MS = 2_000;
 let closeTimer: NodeJS.Timeout | null = null;
@@ -43,6 +53,15 @@ function scheduleClientDisconnectShutdown(): void {
 }
 
 const server = new HostServer((frame: HostFrame) => {
+  if (frame.kind === "res") {
+    const owner = ownerByScopedId.get(frame.id);
+    ownerByScopedId.delete(frame.id);
+    if (owner !== undefined && ports.has(owner.port)) {
+      const { id, ...rest } = frame;
+      owner.port.postMessage(JSON.stringify({ ...rest, id: owner.id }));
+    }
+    return;
+  }
   const line = JSON.stringify(frame);
   for (const port of ports) {
     port.postMessage(line);
@@ -51,6 +70,7 @@ const server = new HostServer((frame: HostFrame) => {
 void server.start();
 
 function pump(port: PortLike): void {
+  const nonce = ++connNonce;
   port.on("message", (ev) => {
     const raw = typeof ev.data === "string" ? ev.data.trim() : "";
     if (raw === "") return;
@@ -66,12 +86,23 @@ function pump(port: PortLike): void {
       process.stderr.write(`[host-port] 帧不合法：${frame.error.message.slice(0, 120)}\n`);
       return;
     }
+    if (frame.data.kind === "req") {
+      const scopedId = `${nonce}:${frame.data.id}`;
+      ownerByScopedId.set(scopedId, { port, id: frame.data.id });
+      void server.handleFrame({ ...frame.data, id: scopedId }).catch((err) => {
+        process.stderr.write(`[host-port] 帧处理异常：${err instanceof Error ? err.stack : String(err)}\n`);
+      });
+      return;
+    }
     void server.handleFrame(frame.data).catch((err) => {
       process.stderr.write(`[host-port] 帧处理异常：${err instanceof Error ? err.stack : String(err)}\n`);
     });
   });
   port.on("close", () => {
     ports.delete(port);
+    for (const [scopedId, owner] of ownerByScopedId) {
+      if (owner.port === port) ownerByScopedId.delete(scopedId);
+    }
     if (ports.size === 0) scheduleClientDisconnectShutdown();
   });
   port.start();

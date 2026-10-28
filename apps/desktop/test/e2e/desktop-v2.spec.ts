@@ -73,7 +73,11 @@ test("desktop v2 sidebar", async () => {
     join(kcodeHome, "desktop", "projects.json"),
     JSON.stringify({
       version: 1,
-      workspaces: [{ path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() }],
+      workspaces: [
+        { path: kcodePath, name: "kcode", createdAt: Date.now(), updatedAt: Date.now() },
+        // web 是真实多工作区场景：注册后才成组（工作区卫生：未注册 cwd 不自动长分组）
+        { path: `${kcodePath}/apps/web`, name: "web", createdAt: Date.now() + 1, updatedAt: Date.now() },
+      ],
     }),
     "utf8",
   );
@@ -85,6 +89,8 @@ test("desktop v2 sidebar", async () => {
   await seedSession(sessions, "sess_v2_inbox_1", "", "Nginx TCP 转发与内网 Ntrip Caster 中转方案", 11 * 24 * 60 * 60_000);
   await seedSession(sessions, "sess_v2_inbox_2", "", "分析降雨量与水情指标计算逻辑", 36 * 24 * 60 * 60_000);
   await seedSession(sessions, "sess_v2_root_1", "/", "根目录任务", 3 * 24 * 60 * 60_000);
+  // 工作区卫生：这个 cwd 从未注册，不应自动长出侧栏分组
+  await seedSession(sessions, "sess_v2_stray_1", `${kcodePath}/temp-junk-dir`, "临时目录遗留会话", 5 * 24 * 60 * 60_000);
   await seedEmptySession(sessions, "sess_v2_empty_1", kcodePath);
 
   const env = {
@@ -189,6 +195,9 @@ test("desktop v2 sidebar", async () => {
   await expect(page.locator(".d2-inbox .d2-tasks")).toBeHidden();
   await page.locator(".d2-inbox .d2-label").click();
   await expect(page.locator(".d2-inbox .d2-tasks")).toBeVisible();
+  // 工作区卫生：未注册 cwd 的历史会话归「任务」，不产生自己的工作区分组。
+  await expect(page.locator(".d2-project-row").filter({ hasText: "temp-junk-dir" })).toHaveCount(0);
+  await expect(page.locator(".d2-inbox .d2-task").filter({ hasText: "临时目录遗留会话" })).toBeVisible();
   await page.locator(".d2-inbox .d2-label").click();
   await expect(page.locator(".d2-inbox .d2-tasks")).toBeHidden();
 

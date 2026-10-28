@@ -156,20 +156,16 @@ export class HostServer {
   async #dispatch(method: string, params: unknown): Promise<unknown> {
     switch (method) {
       case "workspace/list": {
-        const workspaces = await listWorkspaces(this.kcodeHomeDir);
-        return {
-          workspaces: workspaces.map((workspace) => ({
-            ...workspace,
-            trusted: isProjectTrusted(workspace.path, this.kcodeHomeDir),
-          })),
-        };
+        const list = await listWorkspaces(this.kcodeHomeDir);
+        const withTrust = list.map(async (w) => ({ ...w, trusted: await isProjectTrusted(w.path, this.kcodeHomeDir) }));
+        return { workspaces: await Promise.all(withTrust) };
       }
       case "workspace/add": {
         const workspace = await addWorkspace(this.kcodeHomeDir, workspacePathParam(params));
         return {
           workspace: {
             ...workspace,
-            trusted: isProjectTrusted(workspace.path, this.kcodeHomeDir),
+            trusted: await isProjectTrusted(workspace.path, this.kcodeHomeDir),
           },
         };
       }
@@ -183,7 +179,7 @@ export class HostServer {
       }
       case "workspace/status": {
         const path = workspacePathParam(params);
-        return { path, trusted: isProjectTrusted(path, this.kcodeHomeDir) };
+        return { path, trusted: await isProjectTrusted(path, this.kcodeHomeDir) };
       }
       case "workspace/archive":
         return setWorkspaceArchived(this.kcodeHomeDir, workspacePathParam(params), (params as { archived?: boolean })?.archived === true).then((r) => ({ path: r.path, archived: r.archived === true }));

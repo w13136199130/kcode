@@ -196,21 +196,28 @@ export async function loadHookConfigs(options: HookLoadOptions): Promise<Sourced
   return configs;
 }
 
-/** 把项目路径写入受信任清单（已存在则保持幂等） */
 /** 项目是否已在受信任清单（N3I-4：/trust 已信任后从菜单隐藏） */
 export async function isProjectTrusted(projectDir: string, trustFile: string): Promise<boolean> {
-  return (await readTrustedProjects(trustFile)).includes(projectDir);
+  const key = normalizeTrustKey(projectDir);
+  return (await readTrustedProjects(trustFile)).some((p) => normalizeTrustKey(p) === key);
 }
 
 export async function trustProject(projectDir: string, trustFile: string): Promise<void> {
+  const key = normalizeTrustKey(projectDir);
   const trusted = await readTrustedProjects(trustFile);
-  if (!trusted.includes(projectDir)) {
+  if (!trusted.some((p) => normalizeTrustKey(p) === key)) {
     trusted.push(projectDir);
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { dirname } = await import("node:path");
     await mkdir(dirname(trustFile), { recursive: true });
     await writeFile(trustFile, `${JSON.stringify(trusted, null, 2)}\n`, "utf8");
   }
+}
+
+/** 信任清单匹配键：分隔符统一；win32 大小写不敏感（E:\a 与 e:/a 是同一项目）。 */
+function normalizeTrustKey(path: string): string {
+  const unified = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? unified.toLocaleLowerCase() : unified;
 }
 
 async function readTrustedProjects(trustFile: string): Promise<string[]> {
