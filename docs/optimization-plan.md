@@ -145,4 +145,5 @@ S0 全清 → S1（S1-6 的数据源依赖 S2-6，可先出只读版）
 | S2-5 索引层接口化 | ✅ 2026-10-27 | `session-query.ts` 接缝：sessions/list 的 IO 组合（摘要+索引 reconcile+归档/回收站叠加）从 server.ts 迁出，调用方只剩一行；换 FTS/SQLite 后端只动该模块。server.ts 500→494 行；search/ordering/desktop-v2 E2E 过 |
 | S3-2 上下文可观测 | ✅ 2026-10-27 | core `contextStats.items`（contextItems 纯函数：系统/内建工具/分 MCP 服务器/历史，MCP 按成本降序）；CLI `/context` 升级为条目化预算表（并入旧进度条/预算语义）；桌面 tooltip 逐条；core 单测 3 例 + CLI 313 全绿。M9 半闭环：注入项全覆盖 ✅，与厂商回报偏差校验待 per-call 对账（⏳） |
 | S2-6 使用统计账本 | ⚠️ 第一片已落地 | `usage/summary` RPC + 设置页使用统计（随 S1-6）；剩余：CLI usage metering 汇聚与精确化（去估算标注）待做 |
-| S3-1 ~ S3-5 | S3-1/S3-2 ✅；S3-3/S3-4/S3-5 ⏳ | 见各条验收 |
+| S3-3 多会话并行 | ⚠️ 引擎+UI 已落地 | host：BackgroundManager（宿主孵化无头子 host——dist/main.cjs stdio 入口，KCODE_HOME 继承同目录；事件按 sessionId 转发，S2-1 分片路由；lease 天然防双活）+ background/start/list/stop RPC + shutdown 级联；**协议修正**：ready 只发一次（实测客户端对重复 ready 回 hello 会无限自激）。UI：侧栏橙色运行中状态点（F2）、工作区菜单「新建后台任务」对话框、运行中点击守护、停止后台。单测 background.test 3/3（真实子 host 全生命周期）。**已知问题**：headless Electron 在子 host 启动后窗口内整进程硬死（exit 1、全钩子零遥测、换纯 node 子进程可复现——疑 Electron utilityProcess×Windows 缺陷），E2E 标 skip 保留全流程，待 Electron 升级或根因修复；本地真实窗口手测可用 |
+| S3-1 ~ S3-5 | S3-1/S3-2 ✅；S3-3 ⚠️ 引擎落地；S3-4/S3-5 ⏳ | 见各条验收 |

@@ -23,8 +23,9 @@ import { addWorkspace, listWorkspaces, removeWorkspace, setWorkspaceArchived } f
 import { setArchived } from "./task-state.js";
 import { findSessionIndexByRequest, patchSessionIndex, reconcileSessionIndex, removeSessionIndex, upsertSessionIndex } from "./session-index.js";
 import { querySessionPage } from "./session-query.js";
-import { extensionsOverview, installPluginFromDir, setPluginListEnabled } from "./extensions-overview.js";
+import { extensionsOverview, installPluginFromDir, setPluginListEnabledRpc } from "./extensions-overview.js";
 import { usageLedger } from "./usage-ledger.js";
+import { BackgroundManager, type BackgroundStartParams } from "./background.js";
 import { SessionSummaryCache } from "./session-summaries.js";
 import { clearDeletedSessions, listDeletedSessions, setSessionDeleted } from "./session-trash.js";
 import { openInEditor } from "./editor-launch.js";
@@ -66,6 +67,9 @@ export class HostServer {
   #responses = new Map<string, { ok: true; result?: unknown } | { ok: false; error: string }>();
   readonly kcodeHomeDir: string;
   #platformCache: ReturnType<typeof createCliPlatformService> | null = null;
+  /** S3-3：后台会话管理器（惰性——首次 background/start 才孵化） */
+  #background: BackgroundManager | null = null;
+  #readySent = false;
   /** 会话目录摘要增量缓存（P1-1）：未变化文件 stat 后直接复用，列表成本 O(变化文件)。 */
   readonly #summaries: SessionSummaryCache;
 
@@ -105,6 +109,8 @@ export class HostServer {
     this.send({ kind: "ev", event: { type: "sessions/changed", reason } });
   }
 
+  readonly #backgroundMgr = (): BackgroundManager => (this.#background ??= new BackgroundManager(this.send));
+
   /** 宿主侧平台服务（完整 IPlatformService——key 不出宿主，N3-2 注 E） */
   #platform(): ReturnType<typeof createCliPlatformService> {
     if (this.#platformCache === null) {
@@ -124,11 +130,12 @@ export class HostServer {
         this.send({ kind: "res", id: "__hello__", ok: false, error: `协议主版本不一致：本端 v${PROTOCOL_MAJOR}，远端 v${frame.hello.major}` });
         process.exit(1);
       }
-      this.send({
-        kind: "hello",
-        hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan", "config"] },
-      });
-      this.send({ kind: "ev", event: { type: "ready", hostId: this.hostId, pid: process.pid } });
+      this.send({ kind: "hello", hello: { major: PROTOCOL_MAJOR, minor: PROTOCOL_MINOR, capabilities: ["session", "queue", "ask", "plan", "config"] } });
+      // ready 只发一次（S3-3 实测：客户端对每个 ready 回 hello 会与重复 ready 自激振荡）
+      if (!this.#readySent) {
+        this.#readySent = true;
+        this.send({ kind: "ev", event: { type: "ready", hostId: this.hostId, pid: process.pid } });
+      }
       return;
     }
     const { id, method } = frame;
@@ -178,17 +185,13 @@ export class HostServer {
         const path = workspacePathParam(params);
         return { path, trusted: isProjectTrusted(path, this.kcodeHomeDir) };
       }
-      case "workspace/archive": {
-        const record = await setWorkspaceArchived(this.kcodeHomeDir, workspacePathParam(params), (params as { archived?: boolean })?.archived === true);
-        return { path: record.path, archived: record.archived === true };
-      }
+      case "workspace/archive":
+        return setWorkspaceArchived(this.kcodeHomeDir, workspacePathParam(params), (params as { archived?: boolean })?.archived === true).then((r) => ({ path: r.path, archived: r.archived === true }));
       case "workspace/open_editor":
         return openInEditor(workspacePathParam(params));
-      case "session/export": {
-        // S1-1（F4）：导出会话 JSONL（细节在 session-export.ts）
-        const { sessionId, targetDir } = (params ?? {}) as { sessionId?: string; targetDir?: string };
-        return exportSessionFile(join(this.kcodeHomeDir, "cli", "sessions"), sessionId ?? "", targetDir ?? "");
-      }
+      // S1-1（F4）：导出会话 JSONL（细节在 session-export.ts）
+      case "session/export":
+        return exportSessionFile(join(this.kcodeHomeDir, "cli", "sessions"), params);
       case "session/create": {
         const p = params as SessionCreateParams;
         // 幂等（M1 实测修订）：reload/StrictMode 重挂后 renderer 会重复 create——
@@ -336,17 +339,13 @@ export class HostServer {
       }
       case "extensions/list": return extensionsOverview(this.kcodeHomeDir, this.#session?.cwd() ?? "");
       case "usage/summary": return usageLedger(join(this.kcodeHomeDir, "cli", "sessions"));
-      case "plugins/set_enabled": {
-        const p = (params ?? {}) as { name?: string; enabled?: boolean };
-        if (p.name === undefined || p.name.trim() === "") throw new Error("插件名不能为空");
-        await setPluginListEnabled(this.kcodeHomeDir, p.name, p.enabled === true);
-        return { name: p.name, enabled: p.enabled === true };
-      }
-      case "plugins/install": {
-        const dir = (params as { sourceDir?: string })?.sourceDir ?? "";
-        if (dir.trim() === "") throw new Error("插件目录不能为空");
-        return installPluginFromDir(this.kcodeHomeDir, dir);
-      }
+      case "background/start": return this.#backgroundMgr().start(params as BackgroundStartParams);
+      case "background/list": return { sessions: this.#backgroundMgr().list() };
+      case "background/stop": return this.#backgroundMgr().stop((params as { sessionId?: string })?.sessionId ?? "");
+      case "plugins/set_enabled":
+        return setPluginListEnabledRpc(this.kcodeHomeDir, params);
+      case "plugins/install":
+        return installPluginFromDir(this.kcodeHomeDir, (params as { sourceDir?: string })?.sourceDir ?? "");
       case "config/get": {
         const models = await loadUserModelsConfig(this.kcodeHomeDir);
         return {
@@ -489,6 +488,7 @@ export class HostServer {
 
   /** 断连/退出：fail-closed 结算全部未决交互 */
   async shutdown(reason: string): Promise<void> {
+    await this.#background?.disposeAll().catch(() => undefined);
     this.send({ kind: "ev", event: { type: "host/closing", reason } });
     if (this.#watchTimer !== null) clearTimeout(this.#watchTimer);
     this.#watchTimer = null;

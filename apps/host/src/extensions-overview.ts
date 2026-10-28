@@ -99,11 +99,6 @@ export async function extensionsOverview(kcodeHomeDir: string, cwd: string): Pro
   };
 }
 
-/** S1-6：插件启停（写 state.json；与 CLI kcode plugin enable/disable 同一存储）。 */
-export async function setPluginListEnabled(kcodeHomeDir: string, name: string, enabled: boolean): Promise<void> {
-  await setPluginEnabled(join(kcodeHomeDir, "cli", "plugins"), name, enabled);
-}
-
 /** S1-6：从本地目录安装插件（本地插件管理优先；返回名称/版本/同意摘要）。 */
 export async function installPluginFromDir(
   kcodeHomeDir: string,
@@ -118,4 +113,15 @@ export async function installPluginFromDir(
     installPath: result.installPath,
     consentSummary: result.consentSummary,
   };
+}
+
+/** S1-6：插件启停 RPC（校验 + 写 state.json；与 CLI kcode plugin enable/disable 同一存储） */
+export async function setPluginListEnabledRpc(
+  kcodeHomeDir: string,
+  params: unknown,
+): Promise<{ name: string; enabled: boolean }> {
+  const p = (params ?? {}) as { name?: string; enabled?: boolean };
+  if (p.name === undefined || p.name.trim() === "") throw new Error("插件名不能为空");
+  await setPluginEnabled(join(kcodeHomeDir, "cli", "plugins"), p.name, p.enabled === true);
+  return { name: p.name, enabled: p.enabled === true };
 }

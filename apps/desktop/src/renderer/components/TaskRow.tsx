@@ -1,4 +1,4 @@
-import { Copy, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { CircleStop, Copy, Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { MouseEvent } from "react";
 
 /**
@@ -28,6 +28,9 @@ export function TaskRow(props: {
   canArchive: boolean;
   archived: boolean;
   deleted?: boolean;
+  /** S3-3：后台运行中（独立 host 存活）——橙色状态点 + 停止动作 */
+  running?: boolean;
+  onStopBackground?: () => void;
 }) {
   return (
     <div
@@ -58,7 +61,10 @@ export function TaskRow(props: {
           onBlur={props.onCancel}
         />
       ) : (
-        <span className="d2-task-title">{props.title}</span>
+        <span className="d2-task-title">
+          {props.running === true ? <span className="d2-running-dot" title="后台运行中" /> : null}
+          {props.title}
+        </span>
       )}
       <span className="d2-task-age">{props.age}</span>
       <button type="button" className="d2-task-more" title="任务操作" onClick={props.onMenu}>
@@ -84,6 +90,12 @@ export function TaskRow(props: {
                 <Copy size={12} strokeWidth={1.8} />
                 复制 ID
               </button>
+              {props.running === true && props.onStopBackground !== undefined ? (
+                <button type="button" className="danger" onClick={props.onStopBackground}>
+                  <CircleStop size={12} strokeWidth={1.8} />
+                  停止后台
+                </button>
+              ) : null}
               {props.canArchive ? (
                 <button type="button" onClick={props.onArchive}>
                   {props.archived ? "取消归档" : "归档任务"}

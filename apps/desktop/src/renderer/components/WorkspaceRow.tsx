@@ -18,6 +18,8 @@ export function WorkspaceRow(props: {
   onCopy(): void;
   onOpenEditor(): void;
   onArchive(): void;
+  /** S3-3：新建后台任务（独立无头 host） */
+  onNewBackground(): void;
   children?: ReactNode;
 }) {
   return (
@@ -61,6 +63,9 @@ export function WorkspaceRow(props: {
           ) : null}
           <button type="button" onClick={props.onNew}>
             新建任务
+          </button>
+          <button type="button" onClick={props.onNewBackground}>
+            新建后台任务…
           </button>
           <button type="button" onClick={props.onCopy}>
             复制工作区路径

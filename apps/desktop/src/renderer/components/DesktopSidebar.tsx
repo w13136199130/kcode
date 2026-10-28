@@ -10,6 +10,7 @@ import {
 import type { HostConnection } from "@web/hooks/useHostConnection.js";
 import { useWorkspaceRegistry } from "../hooks/useWorkspaceRegistry.js";
 import { useSidebarTaskActions } from "../hooks/useSidebarTaskActions.js";
+import { useSidebarWorkspaceActions } from "../hooks/useSidebarWorkspaceActions.js";
 import { useSidebarSessions } from "../hooks/useSidebarSessions.js";
 import { TaskList } from "./TaskList.js";
 import { ArchivedTaskList } from "./ArchivedTaskList.js";
@@ -48,6 +49,10 @@ export function DesktopSidebar(props: {
   /** S1-8：一级导航（对话/自动化/插件市场）；不传则不渲染导航行 */
   nav?: NavPage;
   onNavChange?(page: NavPage): void;
+  /** S3-3：后台运行中会话（状态点 + 打开守护 + 停止）；新建后台任务入口 */
+  runningIds?: Set<string>;
+  onStopBackground?(sessionId: string): void;
+  onNewBackground?(workspacePath: string): void;
 }) {
   const [selected, setSelected] = useState(normalizePath(props.currentWorkspace));
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([normalizePath(props.currentWorkspace)]));
@@ -208,6 +213,15 @@ export function DesktopSidebar(props: {
     // 整体收起/展开只控制工作区行；各工作区的会话展开状态互不影响。
     setProjectsOpen((open) => !open);
   };
+  const openSession = (session: SessionSummary, workspacePath: string): void => {
+    if (props.runningIds?.has(session.sessionId) === true) {
+      setMenu(null);
+      setNotice("后台任务运行中（独立进程）——停止或等它完成后再打开");
+      return;
+    }
+    setMenu(null);
+    props.onOpen(session.sessionId, workspacePath);
+  };
   const openWorkspace = (workspace: Workspace): void => {
     setSelected(workspace.key);
     setExpanded((prev) => {
@@ -229,28 +243,9 @@ export function DesktopSidebar(props: {
       setDraftTitle,
       refreshSessions,
     });
+  const { copyPath, openInEditor } = useSidebarWorkspaceActions({ conn: props.conn, setMenu, setNotice });
   // 清空回收站成功后收起分区（原内联实现行为）
   const emptyTrash = async (): Promise<void> => { await emptyTrashAction(); setShowTrash(false); };
-  const copyPath = async (path: string): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(path);
-    } catch {
-      // 剪贴板不可用时忽略；不伪造成功提示。
-    }
-    setMenu(null);
-  };
-  // S1-1（F5）：在编辑器中打开工作区（host 侧解析 KCODE_EDITOR/EDITOR/code）
-  const openInEditor = async (workspace: Workspace): Promise<void> => {
-    setMenu(null);
-    try {
-      const result = (await props.conn.send("workspace/open_editor", { path: workspace.path })) as {
-        command?: string;
-      };
-      setNotice(`已用 ${result.command ?? "编辑器"} 打开「${workspace.name}」`);
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : String(error));
-    }
-  };
   const archiveWorkspace = async (workspace: Workspace, archived: boolean): Promise<void> => {
     setMenu(null);
     await archiveRegisteredWorkspace(workspace, archived);
@@ -354,6 +349,10 @@ export function DesktopSidebar(props: {
                     onRemove={() => void removeWorkspace(workspace)}
                     onCopy={() => void copyPath(workspace.path)}
                     onOpenEditor={() => void openInEditor(workspace)}
+                    onNewBackground={() => {
+                      setMenu(null);
+                      props.onNewBackground?.(workspace.path);
+                    }}
                     onArchive={() => void archiveWorkspace(workspace, workspace.archived !== true)}
                   >
                     <TaskList
@@ -364,10 +363,9 @@ export function DesktopSidebar(props: {
                       draftTitle={draftTitle}
                       emptyText={q === "" ? "暂无任务" : "没有匹配任务"}
                       archived={false}
-                      onOpen={(session) => {
-                        setMenu(null);
-                        props.onOpen(session.sessionId, workspace.path);
-                      }}
+                      onOpen={(session) => openSession(session, workspace.path)}
+                      runningIds={props.runningIds}
+                      onStopBackground={props.onStopBackground}
                       onMenu={(session, event) => {
                         event.stopPropagation();
                         setMenu({ kind: "task", key: session.sessionId });
@@ -412,10 +410,7 @@ export function DesktopSidebar(props: {
               draftTitle={draftTitle}
               emptyText="暂无未归类任务"
               archived={false}
-              onOpen={(session) => {
-                setMenu(null);
-                props.onOpen(session.sessionId, props.currentWorkspace);
-              }}
+              onOpen={(session) => openSession(session, props.currentWorkspace)}
               onMenu={(session, event) => {
                 event.stopPropagation();
                 setMenu({ kind: "task", key: session.sessionId });

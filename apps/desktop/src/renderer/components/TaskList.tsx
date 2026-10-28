@@ -22,6 +22,9 @@ export function TaskList(props: {
   onArchive(session: SessionSummary, archived: boolean): void;
   onExport(session: SessionSummary): void;
   onCopyId(session: SessionSummary): void;
+  /** S3-3：后台运行中集合与停止动作（可选——归档/回收站列表不传） */
+  runningIds?: Set<string>;
+  onStopBackground?(sessionId: string): void;
 }) {
   return (
     <div className="d2-tasks">
@@ -51,6 +54,12 @@ export function TaskList(props: {
             canDelete={session.sessionId !== props.currentId}
             canArchive={props.archived || session.sessionId !== props.currentId}
             archived={props.archived}
+            running={props.runningIds?.has(session.sessionId)}
+            onStopBackground={
+              props.onStopBackground !== undefined && props.runningIds?.has(session.sessionId) === true
+                ? () => props.onStopBackground?.(session.sessionId)
+                : undefined
+            }
           />
         ))
       )}

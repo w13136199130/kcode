@@ -25,6 +25,7 @@ import { useSessionReplay } from "./hooks/useSessionReplay.js";
 import { useWorkspaceTrust } from "./hooks/useWorkspaceTrust.js";
 import { useModelPicker } from "./hooks/useModelPicker.js";
 import { useSessionContext } from "./hooks/useSessionContext.js";
+import { useBackgroundSessions } from "./hooks/useBackgroundSessions.js";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts.js";
 import { useInitialConfig } from "./hooks/useInitialConfig.js";
 import { useCreateFailureActions } from "./hooks/useCreateFailureActions.js";
@@ -33,6 +34,7 @@ import { switchBlockedReason, type CreateFailure } from "./lib/switch-guards.js"
 import { TimelineShards } from "./lib/timeline-shards.js";
 import { RuntimeTimeline } from "./components/RuntimeTimeline.js";
 import { NavPlaceholderPage, type NavPage } from "./components/NavPages.js";
+import { BackgroundTaskDialog } from "./components/BackgroundTaskDialog.js";
 import { useQuotaActions } from "./hooks/useQuotaActions.js";
 import { useDesktopNotifications } from "./hooks/useDesktopNotifications.js";
 import { Onboarding } from "./components/Onboarding.js";
@@ -86,6 +88,11 @@ function DesktopApp() {
   const [nav, setNav] = useState<NavPage>("chat");
   /** S2-1：会话级时间线分片——切换暂存/秒恢复，后台事件按 sessionId 路由 */
   const shards = useRef(new TimelineShards()).current;
+  /** S3-3：后台会话（独立无头 host）；对话框状态 */
+  const { runningIds, startBackground, stopBackground } = useBackgroundSessions(conn);
+  const [bgDialog, setBgDialog] = useState<{ cwd: string } | null>(null);
+  const [bgBusy, setBgBusy] = useState(false);
+  const [bgError, setBgError] = useState("");
 
   useEffect(() => {
     void window.kcodeHost?.getAppVersion().then(setAppVersion);
@@ -212,6 +219,20 @@ function DesktopApp() {
   // P0-2：失败卡片动作（重试复用同一 requestId / 恢复上一个任务）
   const { retryCreate, resumePreviousSession } = useCreateFailureActions({ createFailure, onNewSession, onResume });
   const trust = useWorkspaceTrust(conn, defaultCwd);
+  const startBackgroundTask = (prompt: string): void => {
+    if (bgDialog === null || modelDefault === null) return;
+    setBgBusy(true);
+    setBgError("");
+    void startBackground(modelDefault, bgDialog.cwd, prompt).then((id) => {
+      setBgBusy(false);
+      if (id === null) {
+        setBgError("启动失败（host 拒绝）——请重试");
+        return;
+      }
+      setBgDialog(null);
+      notify("后台任务已启动（独立进程运行，完成后可在侧栏打开）");
+    });
+  };
   const modelPicker = useModelPicker({ conn, model: modelDefault, setModel: setModelDefault, notify });
   const contextStats = useSessionContext(conn, sessionId, timeline.busy);
   const projectName = defaultCwd.split(/[\\/]/).filter(Boolean).at(-1) ?? "kcode";
@@ -270,6 +291,12 @@ function DesktopApp() {
             onOpenSettings={() => setSettingsOpen(true)}
             nav={nav}
             onNavChange={setNav}
+            runningIds={runningIds}
+            onStopBackground={(id) => void stopBackground(id)}
+            onNewBackground={(cwd) => {
+              setBgError("");
+              setBgDialog({ cwd });
+            }}
           />
         ) : (
           <SessionSidebar
@@ -375,6 +402,15 @@ function DesktopApp() {
         <NavPlaceholderPage page={nav} onBack={() => setNav("chat")} />
       )}
     />
+      {bgDialog !== null ? (
+        <BackgroundTaskDialog
+          workspacePath={bgDialog.cwd}
+          busy={bgBusy}
+          error={bgError}
+          onStart={startBackgroundTask}
+          onCancel={() => setBgDialog(null)}
+        />
+      ) : null}
       {paletteOpen ? (
         <CommandPalette
           mode={mode}

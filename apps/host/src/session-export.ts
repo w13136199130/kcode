@@ -9,9 +9,9 @@ import { join } from "node:path";
  */
 export async function exportSessionFile(
   sessionsDir: string,
-  sessionId: string,
-  targetDir: string,
+  params: unknown,
 ): Promise<{ path: string }> {
+  const { sessionId = "", targetDir = "" } = (params ?? {}) as { sessionId?: string; targetDir?: string };
   if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error("会话 id 非法");
   if (targetDir.trim() === "") throw new Error("导出目录不能为空");
   const source = join(sessionsDir, `${sessionId}.jsonl`);

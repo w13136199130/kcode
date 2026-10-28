@@ -6,7 +6,7 @@ import { defineConfig } from "tsup";
  * 它们的 exports 只导出 TS 源，CJS require 解析到 .ts 会直接炸（首次 smoke 实测）。
  */
 export default defineConfig({
-  entry: ["src/port.ts"],
+  entry: ["src/port.ts", "src/main.ts"], // main.cjs = stdio 无头入口（S3-3 后台会话子进程用）
   format: ["cjs"],
   platform: "node",
   target: "node22",
